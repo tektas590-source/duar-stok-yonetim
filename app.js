@@ -1,11 +1,11 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./style.css";
-import { supabase, isSupabaseConfigured } from "./supabase.js";
 import { createPurchaseInvoice, createStockDraft, createWorkOrder, deletePart, fetchServiceData, receiveStockDraft, savePart, subscribeToServiceData } from "./data.js";
 import { parseInvoicePaste } from "./invoiceImport.js";
 
 const h = React.createElement;
+const SESSION_KEY = "demir-service-demo-session-v1";
 const iconPaths = {
   grid: "M3 3h7v7H3z M14 3h7v7h-7z M14 14h7v7h-7z M3 14h7v7H3z",
   box: "M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z M3.3 7 12 12l8.7-5 M12 22V12",
@@ -29,8 +29,10 @@ function dateLabel(value) { return new Intl.DateTimeFormat("tr-TR", { day: "2-di
 
 function App() {
   const [theme, setTheme] = useState(() => localStorage.getItem("demir-service-theme") === "light" ? "light" : "dark");
-  const [user, setUser] = useState(null);
-  const [authReady, setAuthReady] = useState(false);
+  const [user, setUser] = useState(() => {
+    const email = localStorage.getItem(SESSION_KEY);
+    return email ? { email, user_metadata: { full_name: "Serkan TEKTAŞ" } } : null;
+  });
   const [data, setData] = useState({ parts: [], jobs: [], invoices: [], drafts: [] });
   const [dataLoading, setDataLoading] = useState(false);
   const [authBusy, setAuthBusy] = useState(false);
@@ -39,35 +41,16 @@ function App() {
   const [query, setQuery] = useState("");
   const [toast, setToast] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
-  const userId = user?.id;
   const toggleTheme = () => setTheme((current) => current === "dark" ? "light" : "dark");
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
     localStorage.setItem("demir-service-theme", theme);
   }, [theme]);
   const reloadData = useCallback(async () => {
-    if (!userId) return;
     setData(await fetchServiceData());
-  }, [userId]);
-  useEffect(() => {
-    if (!supabase) return undefined;
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null);
-      setAuthReady(true);
-    });
-    supabase.auth.getSession().then(({ data: { session }, error }) => {
-      if (error) setErrorMessage(error.message);
-      setUser(session?.user ?? null);
-      setAuthReady(true);
-    }).catch((error) => {
-      console.error("Supabase oturumu okunamadı:", error);
-      setErrorMessage(error.message || "Oturum doğrulanamadı.");
-      setAuthReady(true);
-    });
-    return () => subscription.unsubscribe();
   }, []);
   useEffect(() => {
-    if (!userId) {
+    if (!user) {
       setData({ parts: [], jobs: [], invoices: [], drafts: [] });
       setDataLoading(false);
       return undefined;
@@ -80,8 +63,8 @@ function App() {
         const currentData = await fetchServiceData();
         if (active) { setData(currentData); setErrorMessage(""); }
       } catch (error) {
-        console.error("Supabase verileri yüklenemedi:", error);
-        if (active) setErrorMessage(`Bulut verileri yüklenemedi: ${error.message || "Bilinmeyen hata"}`);
+        console.error("Yerel servis verileri yüklenemedi:", error);
+        if (active) setErrorMessage(`Yerel veriler yüklenemedi: ${error.message || "Bilinmeyen hata"}`);
       } finally {
         if (active) setDataLoading(false);
       }
@@ -94,7 +77,7 @@ function App() {
       }, 180);
     });
     return () => { active = false; window.clearTimeout(timer); unsubscribe(); };
-  }, [userId]);
+  }, [user, reloadData]);
 
   const lowStock = data.parts.filter((part) => part.stock <= part.minimum);
   const revenue = data.jobs.reduce((sum, job) => sum + Number(job.total || 0), 0);
@@ -116,7 +99,7 @@ function App() {
       await action();
       if (success) setToast(success);
     } catch (error) {
-      console.error("Supabase işlemi başarısız:", error);
+      console.error("Yerel veri işlemi başarısız:", error);
       setErrorMessage(error.message || "İşlem tamamlanamadı.");
     }
   };
@@ -125,50 +108,47 @@ function App() {
       setErrorMessage("Bu SKU kodu başka bir parçada kullanılıyor.");
       return;
     }
-    await runAction(async () => { await savePart(part, userId); await reloadData(); setModal(null); }, "Parça buluta kaydedildi.");
+    await runAction(async () => { await savePart(part); await reloadData(); setModal(null); }, "Parça kaydedildi.");
   };
   const removePart = async (part) => {
     if (!window.confirm(`"${part.name}" parçasını envanterden silmek istiyor musunuz? Geçmiş işlem satırları korunur.`)) return;
     await runAction(async () => { await deletePart(part.id); await reloadData(); }, "Parça envanterden silindi.");
   };
   const persistJob = async (job) => {
-    await runAction(async () => { await createWorkOrder(job); await reloadData(); setModal(null); }, "İş emri oluşturuldu; stoklar bulutta güncellendi.");
+    await runAction(async () => { await createWorkOrder(job); await reloadData(); setModal(null); }, "İş emri oluşturuldu, stoklar güncellendi.");
   };
   const persistInvoice = async (invoice) => {
-    await runAction(async () => { await createPurchaseInvoice(invoice); await reloadData(); setModal(null); }, "Fatura buluta kaydedildi, stoklar artırıldı.");
+    await runAction(async () => { await createPurchaseInvoice(invoice); await reloadData(); setModal(null); }, "Fatura kaydedildi, stoklar artırıldı.");
   };
   const createDraft = async () => {
-    await runAction(async () => { await createStockDraft(); await reloadData(); setPage("orders"); }, "Kritik stoklar için bulutta sipariş taslağı oluşturuldu.");
+    await runAction(async () => { await createStockDraft(); await reloadData(); setPage("orders"); }, "Kritik stoklar için sipariş taslağı oluşturuldu.");
   };
   const receiveDraft = async (id) => {
     await runAction(async () => { await receiveStockDraft(id); await reloadData(); }, "Sipariş stoğa işlendi.");
   };
-  async function authenticate(event, mode) {
+  async function authenticate(event) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     setErrorMessage(""); setToast(""); setAuthBusy(true);
     try {
-      const credentials = { email: String(form.get("email")), password: String(form.get("password")) };
-      const result = mode === "signup"
-        ? await supabase.auth.signUp({ ...credentials, options: { data: { full_name: "Serkan TEKTAŞ", service_name: "Demir Eurorepar Car Service" } } })
-        : await supabase.auth.signInWithPassword(credentials);
-      if (result.error) throw result.error;
-      if (mode === "signup" && !result.data.session) setToast("Hesabınız oluşturuldu. Giriş yapmadan önce e-postanızı doğrulayın.");
+      const email = String(form.get("email") || "").trim().toLocaleLowerCase("tr");
+      const password = String(form.get("password") || "");
+      if (!email || !password) throw new Error("E-posta ve şifre alanlarını doldurun.");
+      localStorage.setItem(SESSION_KEY, email);
+      setUser({ email, user_metadata: { full_name: "Serkan TEKTAŞ" } });
     } catch (error) {
-      console.error("Supabase kimlik doğrulaması başarısız:", error);
-      setErrorMessage(error.message || "Giriş yapılamadı.");
+      console.error("Demo oturumu başlatılamadı:", error);
+      setErrorMessage(error.message || "Oturum başlatılamadı.");
     } finally { setAuthBusy(false); }
   }
-  if (!isSupabaseConfigured) return h(ConfigurationNotice, { theme, toggleTheme });
-  if (!authReady) return h(LoadingScreen, { message: "Supabase oturumu doğrulanıyor..." });
-  if (!user) return h(Login, { onSubmit: authenticate, busy: authBusy, error: errorMessage, notice: toast, theme, toggleTheme });
-  if (dataLoading && !data.parts.length && !data.jobs.length && !data.invoices.length) return h(LoadingScreen, { message: "Servis verileri buluttan yükleniyor..." });
+  if (!user) return h(Login, { onSubmit: authenticate, busy: authBusy, error: errorMessage, theme, toggleTheme });
+  if (dataLoading && !data.parts.length && !data.jobs.length && !data.invoices.length) return h(LoadingScreen, { message: "Demo servis verileri yükleniyor..." });
   return h("div", { className: "app-shell" },
     h("aside", { className: "sidebar" },
       h("div", { className: "brand" }, h("div", { className: "brand-mark" }, "D"), h("div", null, h("strong", null, "DEMİR"), h("span", null, "EUROREPAR CAR SERVICE"))),
       h("div", { className: "side-label" }, "ÇALIŞMA ALANI"),
       h("nav", { className: "navigation" }, nav.map((item) => h("button", { key: item.id, className: `nav-item ${page === item.id ? "active" : ""}`, onClick: () => { setPage(item.id); setQuery(""); } }, h(Icon, { name: item.icon }), h("span", null, item.label), item.badge ? h("span", { className: "nav-badge" }, item.badge) : null))),
-      h("div", { className: "sidebar-bottom" }, h("div", { className: "sidebar-help" }, h("div", { className: "help-icon" }, h(Icon, { name: "wrench", size: 17 })), h("strong", null, "Servis yönetimi"), h("span", null, "Tüm operasyonlarınız tek yerde.")), h("div", { className: "profile" }, h("div", { className: "avatar" }, (user.user_metadata?.full_name || "Serkan TEKTAŞ").split(/\s+/).map((name) => name[0]).join("").slice(0, 2)), h("div", { className: "profile-info" }, h("strong", null, user.user_metadata?.full_name || "Serkan TEKTAŞ"), h("span", null, user.email)), h("button", { className: "icon-button logout", onClick: () => runAction(async () => { const { error } = await supabase.auth.signOut(); if (error) throw error; setUser(null); }, "Oturum kapatıldı."), title: "Oturumu kapat" }, h(Icon, { name: "logout", size: 17 })))),
+      h("div", { className: "sidebar-bottom" }, h("div", { className: "sidebar-help" }, h("div", { className: "help-icon" }, h(Icon, { name: "wrench", size: 17 })), h("strong", null, "Servis yönetimi"), h("span", null, "Tüm operasyonlarınız tek yerde.")), h("div", { className: "profile" }, h("div", { className: "avatar" }, (user.user_metadata?.full_name || "Serkan TEKTAŞ").split(/\s+/).map((name) => name[0]).join("").slice(0, 2)), h("div", { className: "profile-info" }, h("strong", null, user.user_metadata?.full_name || "Serkan TEKTAŞ"), h("span", null, user.email)), h("button", { className: "icon-button logout", onClick: () => { localStorage.removeItem(SESSION_KEY); setUser(null); }, title: "Oturumu kapat" }, h(Icon, { name: "logout", size: 17 })))),
     ),
     h("main", { className: "main-area" },
       h("header", { className: "topbar" }, h("div", { className: "breadcrumbs" }, "Demir Service", h("span", null, "/"), titles[page][0]), h("div", { className: "topbar-right" }, h("span", { className: "today-label" }, dateLabel(new Date().toISOString().slice(0, 10))), h("button", { className: "icon-button theme-toggle", onClick: toggleTheme, title: theme === "dark" ? "Açık temaya geç" : "Koyu temaya geç", "aria-label": theme === "dark" ? "Açık temaya geç" : "Koyu temaya geç" }, h(Icon, { name: theme === "dark" ? "sun" : "moon" })), h("button", { className: "icon-button notification", onClick: () => { setPage("inventory"); setToast(`${lowStock.length} parçada kritik stok uyarısı var.`); }, title: "Stok uyarıları" }, h(Icon, { name: "bell" }), lowStock.length ? h("i", null) : null), h("div", { className: "top-avatar" }, "ST"))),
@@ -192,14 +172,6 @@ function App() {
   );
 }
 
-function ConfigurationNotice({ theme, toggleTheme }) {
-  return h("main", { className: "login-screen" }, h(ThemeToggle, { theme, toggleTheme, className: "standalone-theme-toggle" }), h("section", { className: "login-card setup-card" },
-    h("div", { className: "login-brand" }, h("div", { className: "brand-mark large" }, "D"), h("div", null, h("strong", null, "DEMİR"), h("span", null, "EUROREPAR CAR SERVICE"))),
-    h("div", { className: "login-copy" }, h("div", { className: "login-chip" }, "SUPABASE BAĞLANTISI GEREKLİ"), h("h1", null, "Bulut bağlantısını tamamlayın."), h("p", null, "Supabase projenizi oluşturup bağlantı bilgilerini .env.local dosyasına ekleyin.")),
-    h("div", { className: "setup-steps" }, h("span", null, "1. Supabase projesi oluşturun"), h("span", null, "2. supabase/schema.sql içeriğini SQL Editor'de çalıştırın"), h("span", null, "3. VITE_SUPABASE_URL ve VITE_SUPABASE_ANON_KEY değerlerini tanımlayın"), h("span", null, "4. Geliştirme sunucusunu yeniden başlatın")),
-    h("p", { className: "login-foot" }, "Kurulum ayrıntıları README.md dosyasında.")
-  ));
-}
 function LoadingScreen({ message }) {
   return h("main", { className: "login-screen" }, h("section", { className: "login-card loading-card" }, h("div", { className: "loading-spinner" }), h("p", null, message)));
 }
@@ -207,20 +179,17 @@ function ThemeToggle({ theme, toggleTheme, className = "" }) {
   const isDark = theme === "dark";
   return h("button", { className: `icon-button theme-toggle ${className}`, onClick: toggleTheme, type: "button", title: isDark ? "Açık temaya geç" : "Koyu temaya geç", "aria-label": isDark ? "Açık temaya geç" : "Koyu temaya geç" }, h(Icon, { name: isDark ? "sun" : "moon" }));
 }
-function Login({ onSubmit, busy, error, notice, theme, toggleTheme }) {
-  const [mode, setMode] = useState("login");
+function Login({ onSubmit, busy, error, theme, toggleTheme }) {
   return h("main", { className: "login-screen" }, h("div", { className: "login-decoration decoration-one" }), h("div", { className: "login-decoration decoration-two" }), h(ThemeToggle, { theme, toggleTheme, className: "standalone-theme-toggle" }), h("section", { className: "login-card" },
     h("div", { className: "login-brand" }, h("div", { className: "brand-mark large" }, "D"), h("div", null, h("strong", null, "DEMİR"), h("span", null, "EUROREPAR CAR SERVICE"))),
-    h("div", { className: "login-copy" }, h("div", { className: "login-chip" }, h("span", { className: "status-dot" }), "SUPABASE GÜVENLİ OTURUMU"), h("h1", null, mode === "login" ? "Tekrar hoş geldiniz." : "Servis hesabınızı oluşturun."), h("p", null, mode === "login" ? "Bulut servis verilerinize güvenle erişin." : "Hesabınız açıldığında servis verileriniz bu hesaba özel tutulur.")),
-    h("form", { className: "login-form", onSubmit: (event) => onSubmit(event, mode) },
+    h("div", { className: "login-copy" }, h("div", { className: "login-chip" }, h("span", { className: "status-dot" }), "DEMİR SERVICE YÖNETİMİ"), h("h1", null, "Tekrar hoş geldiniz."), h("p", null, "Demo hesabınızla servisinizi yönetin.")),
+    h("form", { className: "login-form", onSubmit },
       h("label", null, "E-posta adresi", h("input", { name: "email", type: "email", placeholder: "ornek@demirservis.com", required: true, autoComplete: "username" })),
-      h("label", null, "Şifre", h("input", { name: "password", type: "password", placeholder: "En az 6 karakter", minLength: 6, required: true, autoComplete: mode === "login" ? "current-password" : "new-password" })),
+      h("label", null, "Şifre", h("input", { name: "password", type: "password", placeholder: "Herhangi bir demo şifresi", required: true, autoComplete: "current-password" })),
       error ? h("p", { className: "form-error", role: "alert" }, error) : null,
-      notice ? h("p", { className: "form-notice", role: "status" }, notice) : null,
-      h("button", { className: "button button-primary login-submit", type: "submit", disabled: busy }, busy ? "İşleniyor..." : mode === "login" ? "Giriş yap" : "Hesap oluştur", h(Icon, { name: "arrow", size: 17 }))
+      h("button", { className: "button button-primary login-submit", type: "submit", disabled: busy }, busy ? "İşleniyor..." : "Demo giriş yap", h(Icon, { name: "arrow", size: 17 }))
     ),
-    h("button", { className: "auth-mode-button", type: "button", onClick: () => setMode(mode === "login" ? "signup" : "login") }, mode === "login" ? "İlk kez mi kullanıyorsunuz? Hesap oluşturun" : "Hesabınız var mı? Giriş yapın"),
-    h("div", { className: "login-foot" }, h("span", null, "Giriş ve hesap işlemleri Supabase ile korunur."), h("span", null, "Demir Eurorepar"))
+    h("div", { className: "login-foot" }, h("span", null, "Demo giriş · şifre sunucuya gönderilmez"), h("span", null, "Demir Eurorepar"))
   ));
 }
 function Dashboard({ data, lowStock, revenue, setPage, openModal, createDraft }) {
