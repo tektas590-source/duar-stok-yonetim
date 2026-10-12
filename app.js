@@ -3,7 +3,7 @@ import { createRoot } from "react-dom/client";
 import "./style.css";
 import { createPurchaseInvoice, createStockDraft, createWorkOrder, deletePart, fetchServiceData, grantUserAccess, listAuthorizedUsers, receiveStockDraft, revokeUserAccess, savePart, subscribeToServiceData } from "./data.js";
 import { parseInvoicePaste } from "./invoiceImport.js";
-import { changeInitialPassword, firebaseConfigured, OWNER_EMAIL, registerWithPassword, signInWithPassword, signOutUser, subscribeToAuth } from "./firebase.js";
+import { changeInitialPassword, firebaseConfigured, OWNER_EMAIL, registerWithPassword, requestPasswordReset, signInWithPassword, signOutUser, subscribeToAuth } from "./firebase.js";
 
 const h = React.createElement;
 const iconPaths = {
@@ -155,12 +155,21 @@ function App() {
       if (form.get("mode") === "register") {
         await registerWithPassword(String(form.get("email") || ""), String(form.get("password") || ""));
         setAuthNotice("Hesabınız oluşturuldu. E-posta kutunuzdaki doğrulama bağlantısını açın; erişiminiz yönetici tarafından onaylandıktan sonra giriş yapabilirsiniz.");
+      } else if (form.get("mode") === "reset") {
+        await requestPasswordReset(String(form.get("username") || ""));
+        setAuthNotice("Parola sıfırlama bağlantısı kayıtlı e-posta adresine gönderildi. Gelen kutunuzu ve spam klasörünü kontrol edin.");
       } else {
         await signInWithPassword(String(form.get("username") || ""), String(form.get("password") || ""));
       }
     } catch (error) {
       console.error("E-posta/şifre işlemi başarısız:", error);
-      setErrorMessage(error.message || "Giriş işlemi tamamlanamadı.");
+      setErrorMessage(error.code === "auth/invalid-credential" || error.code === "auth/wrong-password"
+        ? "Kullanıcı adı veya şifre doğru değil. Şifreyi yenilemek için “Şifremi unuttum” seçeneğini kullanın."
+        : error.code === "auth/user-not-found"
+          ? "Bu hesap bulunamadı. Önce hesap oluşturun veya kullanıcı adını kontrol edin."
+          : error.code === "auth/too-many-requests"
+            ? "Çok sayıda başarısız deneme yapıldı. Bir süre bekleyip tekrar deneyin veya şifrenizi sıfırlayın."
+            : error.message || "Giriş işlemi tamamlanamadı.");
     } finally { setAuthBusy(false); }
   }
   async function updateAdminPassword(password) {
@@ -225,19 +234,22 @@ function ThemeToggle({ theme, toggleTheme, className = "" }) {
 function Login({ onSubmit, busy, error, notice, theme, toggleTheme, configured }) {
   const [mode, setMode] = useState("login");
   const registering = mode === "register";
+  const resetting = mode === "reset";
   return h("main", { className: "login-screen" }, h("div", { className: "login-decoration decoration-one" }), h("div", { className: "login-decoration decoration-two" }), h(ThemeToggle, { theme, toggleTheme, className: "standalone-theme-toggle" }), h("section", { className: "login-card" },
     h("div", { className: "login-brand" }, h("div", { className: "brand-mark large" }, "D"), h("div", null, h("strong", null, "DEMİR"), h("span", null, "EUROREPAR CAR SERVICE"))),
-    h("div", { className: "login-copy" }, h("div", { className: "login-chip" }, h("span", { className: "status-dot" }), "DEMİR SERVICE YÖNETİMİ"), h("h1", null, registering ? "Hesap oluşturun." : "Güvenli giriş"), h("p", null, registering ? "E-posta doğrulamasından sonra servis yöneticiniz erişim izni verebilir." : "Yalnızca servis yöneticisinin yetkilendirdiği hesaplar giriş yapabilir.")),
+    h("div", { className: "login-copy" }, h("div", { className: "login-chip" }, h("span", { className: "status-dot" }), "DEMİR SERVICE YÖNETİMİ"), h("h1", null, registering ? "Hesap oluşturun." : resetting ? "Şifrenizi yenileyin." : "Güvenli giriş"), h("p", null, registering ? "E-posta doğrulamasından sonra servis yöneticiniz erişim izni verebilir." : resetting ? "Kullanıcı adınızı veya hesabınızın e-posta adresini yazın." : "Yalnızca servis yöneticisinin yetkilendirdiği hesaplar giriş yapabilir.")),
     h("form", { className: "login-form", onSubmit },
       h("input", { type: "hidden", name: "mode", value: mode }),
       registering
         ? h("label", null, "E-posta adresi", h("input", { name: "email", type: "email", placeholder: "adiniz@gmail.com", required: true, autoComplete: "email" }))
         : h("label", null, "Kullanıcı adı veya e-posta", h("input", { name: "username", type: "text", placeholder: "serkan.tektas", required: true, autoComplete: "username" })),
-      h("label", null, "Şifre", h("input", { name: "password", type: "password", placeholder: registering ? "En az 6 karakter" : "Şifreniz", minLength: 6, required: true, autoComplete: registering ? "new-password" : "current-password" })),
+      !resetting ? h("label", null, "Şifre", h("input", { name: "password", type: "password", placeholder: registering ? "En az 6 karakter" : "Şifreniz", minLength: 6, required: true, autoComplete: registering ? "new-password" : "current-password" })) : null,
       error ? h("p", { className: "form-error", role: "alert" }, error) : null,
       notice ? h("p", { className: "form-notice", role: "status" }, notice) : null,
-      h("button", { className: "button button-primary login-submit", type: "submit", disabled: busy || !configured }, busy ? "İşleniyor..." : registering ? "Hesap oluştur" : "Giriş yap", h(Icon, { name: "arrow", size: 17 })),
-      h("button", { className: "auth-mode-button", type: "button", disabled: busy, onClick: () => setMode(registering ? "login" : "register") }, registering ? "Zaten hesabınız var mı? Giriş yapın" : "İlk kez mi kullanıyorsunuz? Hesap oluşturun"),
+      h("button", { className: "button button-primary login-submit", type: "submit", disabled: busy || !configured }, busy ? "İşleniyor..." : registering ? "Hesap oluştur" : resetting ? "Sıfırlama bağlantısı gönder" : "Giriş yap", h(Icon, { name: "arrow", size: 17 })),
+      resetting ? null : h("button", { className: "auth-mode-button", type: "button", disabled: busy, onClick: () => setMode(registering ? "login" : "register") }, registering ? "Zaten hesabınız var mı? Giriş yapın" : "İlk kez mi kullanıyorsunuz? Hesap oluşturun"),
+      !registering && !resetting ? h("button", { className: "auth-mode-button", type: "button", disabled: busy, onClick: () => { setMode("reset"); } }, "Şifremi unuttum") : null,
+      resetting ? h("button", { className: "auth-mode-button", type: "button", disabled: busy, onClick: () => setMode("login") }, "Giriş ekranına dön") : null,
       !configured ? h("p", { className: "form-error", role: "status" }, "Firebase yapılandırması gerekli. Kurulum adımları README.md dosyasında.") : null
     ),
     h("div", { className: "login-foot" }, h("span", null, "E-posta doğrulama · yönetici onayı"), h("span", null, "Demir Eurorepar"))

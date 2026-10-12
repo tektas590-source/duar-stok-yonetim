@@ -3,6 +3,7 @@ import {
   createUserWithEmailAndPassword,
   getAuth,
   onAuthStateChanged,
+  sendPasswordResetEmail,
   sendEmailVerification,
   signInWithEmailAndPassword,
   signOut,
@@ -38,9 +39,17 @@ function requireAuth() {
 }
 
 export async function signInWithPassword(username, password) {
-  const normalizedUsername = username.trim().toLowerCase();
-  const email = normalizedUsername === "serkan.tektas" ? OWNER_EMAIL : normalizedUsername;
+  const email = resolveLoginEmail(username);
   return signInWithEmailAndPassword(requireAuth(), email, password);
+}
+
+export async function requestPasswordReset(usernameOrEmail) {
+  return sendPasswordResetEmail(requireAuth(), resolveLoginEmail(usernameOrEmail));
+}
+
+function resolveLoginEmail(usernameOrEmail) {
+  const normalizedUsername = usernameOrEmail.trim().toLowerCase();
+  return normalizedUsername === "serkan.tektas" ? OWNER_EMAIL : normalizedUsername;
 }
 
 export async function registerWithPassword(email, password) {
