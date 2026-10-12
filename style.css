@@ -154,3 +154,16 @@ html[data-theme="light"] .toast-check{background:#8fbe5a;color:#fff}
 html[data-theme="light"] .toast-error{background:#fff1ed;border-color:#ebc9bf;color:#a14f40}
 html[data-theme="light"] .toast-error .toast-check{background:#ce765f;color:#fff}
 @media(prefers-reduced-motion:reduce){html,body,button,input,select,textarea,.panel,.metric-card,.sidebar,.topbar,.login-card,.modal-card,.modal-footer,.order-callout,.search-wrap,.toast,.page-content{transition:none!important;animation:none!important}}
+.google-mark{display:inline-grid;place-items:center;width:21px;height:21px;margin-right:3px;border-radius:50%;background:#fff;color:#4285f4;font-weight:800;font-family:Arial,sans-serif}
+.access-panel{margin-bottom:16px}
+.access-form{display:flex;align-items:flex-end;gap:12px;max-width:620px}
+.access-form label{display:grid;flex:1;gap:7px;color:var(--muted);font-size:12px}
+.access-form input{min-width:0;height:42px;padding:0 12px;border:1px solid var(--line);border-radius:9px;background:var(--panel);color:var(--text);font:inherit}
+.access-user-list{display:grid}
+.access-user-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:13px 0;border-top:1px solid var(--line)}
+.access-user-row>div{display:grid;gap:4px}
+.access-user-row strong{font-size:13px;color:var(--text)}
+.access-user-row span{color:var(--muted);font-size:11px}
+.access-badge{padding:5px 9px;border-radius:20px;background:var(--soft-green);color:var(--accent)!important}
+html[data-theme="light"] .access-form input{background:#fbfcfa;border-color:#dce4d9;color:#344137}
+@media(max-width:600px){.access-form{align-items:stretch;flex-direction:column}.access-form .button{align-self:flex-start}.access-user-row{align-items:flex-start}}

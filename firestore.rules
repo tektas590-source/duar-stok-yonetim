@@ -1,0 +1,28 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null && request.auth.token.email_verified == true;
+    }
+
+    function isOwner() {
+      return signedIn() && request.auth.token.email == 'tektas590@gmail.com';
+    }
+
+    function isAuthorized() {
+      return isOwner() ||
+        (signedIn() && exists(/databases/$(database)/documents/authorizedUsers/$(request.auth.token.email)));
+    }
+
+    match /authorizedUsers/{email} {
+      allow get: if signedIn() && (isOwner() || request.auth.token.email == email);
+      allow list: if isOwner();
+      allow create, update: if isOwner() && request.resource.data.email == email;
+      allow delete: if isOwner() && email != 'tektas590@gmail.com';
+    }
+
+    match /{collection}/{document=**} {
+      allow read, write: if collection in ['parts', 'jobs', 'invoices', 'drafts'] && isAuthorized();
+    }
+  }
+}

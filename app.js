@@ -1,11 +1,11 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./style.css";
-import { createPurchaseInvoice, createStockDraft, createWorkOrder, deletePart, fetchServiceData, receiveStockDraft, savePart, subscribeToServiceData } from "./data.js";
+import { createPurchaseInvoice, createStockDraft, createWorkOrder, deletePart, fetchServiceData, grantUserAccess, listAuthorizedUsers, receiveStockDraft, revokeUserAccess, savePart, subscribeToServiceData } from "./data.js";
 import { parseInvoicePaste } from "./invoiceImport.js";
+import { firebaseConfigured, OWNER_EMAIL, signInWithGoogle, signOutUser, subscribeToAuth } from "./firebase.js";
 
 const h = React.createElement;
-const SESSION_KEY = "demir-service-demo-session-v1";
 const iconPaths = {
   grid: "M3 3h7v7H3z M14 3h7v7h-7z M14 14h7v7h-7z M3 14h7v7H3z",
   box: "M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z M3.3 7 12 12l8.7-5 M12 22V12",
@@ -29,10 +29,8 @@ function dateLabel(value) { return new Intl.DateTimeFormat("tr-TR", { day: "2-di
 
 function App() {
   const [theme, setTheme] = useState(() => localStorage.getItem("demir-service-theme") === "light" ? "light" : "dark");
-  const [user, setUser] = useState(() => {
-    const email = localStorage.getItem(SESSION_KEY);
-    return email ? { email, user_metadata: { full_name: "Serkan TEKTAŞ" } } : null;
-  });
+  const [user, setUser] = useState(null);
+  const [authReady, setAuthReady] = useState(false);
   const [data, setData] = useState({ parts: [], jobs: [], invoices: [], drafts: [] });
   const [dataLoading, setDataLoading] = useState(false);
   const [authBusy, setAuthBusy] = useState(false);
@@ -46,6 +44,20 @@ function App() {
     document.documentElement.dataset.theme = theme;
     localStorage.setItem("demir-service-theme", theme);
   }, [theme]);
+  useEffect(() => {
+    if (!firebaseConfigured) {
+      setAuthReady(true);
+      return undefined;
+    }
+    return subscribeToAuth((nextUser) => {
+      setUser(nextUser);
+      setAuthReady(true);
+    }, (error) => {
+      console.error("Firebase oturum doğrulaması başarısız:", error);
+      setErrorMessage(error.message || "Güvenli oturum doğrulanamadı.");
+      setAuthReady(true);
+    });
+  }, []);
   const reloadData = useCallback(async () => {
     setData(await fetchServiceData());
   }, []);
@@ -63,8 +75,8 @@ function App() {
         const currentData = await fetchServiceData();
         if (active) { setData(currentData); setErrorMessage(""); }
       } catch (error) {
-        console.error("Yerel servis verileri yüklenemedi:", error);
-        if (active) setErrorMessage(`Yerel veriler yüklenemedi: ${error.message || "Bilinmeyen hata"}`);
+        console.error("Bulut servis verileri yüklenemedi:", error);
+        if (active) setErrorMessage(`Bulut verileri yüklenemedi: ${error.message || "Bilinmeyen hata"}`);
       } finally {
         if (active) setDataLoading(false);
       }
@@ -73,8 +85,14 @@ function App() {
     const unsubscribe = subscribeToServiceData(() => {
       window.clearTimeout(timer);
       timer = window.setTimeout(() => {
-        load().catch((error) => console.error("Canlı veri yenilenemedi:", error));
+        load().catch((error) => {
+          console.error("Canlı veri yenilenemedi:", error);
+          if (active) setErrorMessage(error.message || "Bulut verileri yenilenemedi.");
+        });
       }, 180);
+    }, (error) => {
+      console.error("Bulut veri aboneliği başarısız:", error);
+      if (active) setErrorMessage(error.message || "Canlı veri bağlantısı kurulamadı.");
     });
     return () => { active = false; window.clearTimeout(timer); unsubscribe(); };
   }, [user, reloadData]);
@@ -91,7 +109,9 @@ function App() {
     { id: "orders", label: "Taslak Siparişler", icon: "cart", badge: data.drafts.length || null },
     { id: "reports", label: "Raporlar", icon: "chart" },
   ];
-  const titles = { dashboard: ["Genel Bakış", "Servisinizin bugünkü durumuna göz atın."], inventory: ["Parça Envanteri", "Stoklarınızı ve parça fiyatlarınızı yönetin."], workorders: ["İş Emirleri", "Araç servis geçmişini ve devam eden işleri takip edin."], invoices: ["Alış Faturaları", "Faturaları kaydedin, stok girişlerini anında işleyin."], orders: ["Taslak Siparişler", "Azalan parçalar için oluşturduğunuz sipariş önerileri."], reports: ["Raporlar", "Satış performansı ve servis cironuz."] };
+  const isOwner = user?.email?.toLowerCase() === OWNER_EMAIL;
+  if (isOwner) nav.push({ id: "access", label: "Yetkili Kullanıcılar", icon: "grid" });
+  const titles = { dashboard: ["Genel Bakış", "Servisinizin bugünkü durumuna göz atın."], inventory: ["Parça Envanteri", "Stoklarınızı ve parça fiyatlarınızı yönetin."], workorders: ["İş Emirleri", "Araç servis geçmişini ve devam eden işleri takip edin."], invoices: ["Alış Faturaları", "Faturaları kaydedin, stok girişlerini anında işleyin."], orders: ["Taslak Siparişler", "Azalan parçalar için oluşturduğunuz sipariş önerileri."], reports: ["Raporlar", "Satış performansı ve servis cironuz."], access: ["Yetkili Kullanıcılar", "Google hesapları ekleyin veya servis erişimini kaldırın."] };
   const openModal = (type, item = null) => setModal({ type, item });
   const runAction = async (action, success) => {
     setErrorMessage("");
@@ -99,7 +119,7 @@ function App() {
       await action();
       if (success) setToast(success);
     } catch (error) {
-      console.error("Yerel veri işlemi başarısız:", error);
+      console.error("Bulut veri işlemi başarısız:", error);
       setErrorMessage(error.message || "İşlem tamamlanamadı.");
     }
   };
@@ -128,27 +148,27 @@ function App() {
   };
   async function authenticate(event) {
     event.preventDefault();
-    const form = new FormData(event.currentTarget);
     setErrorMessage(""); setToast(""); setAuthBusy(true);
     try {
-      const email = String(form.get("email") || "").trim().toLocaleLowerCase("tr");
-      const password = String(form.get("password") || "");
-      if (!email || !password) throw new Error("E-posta ve şifre alanlarını doldurun.");
-      localStorage.setItem(SESSION_KEY, email);
-      setUser({ email, user_metadata: { full_name: "Serkan TEKTAŞ" } });
+      await signInWithGoogle();
     } catch (error) {
-      console.error("Demo oturumu başlatılamadı:", error);
-      setErrorMessage(error.message || "Oturum başlatılamadı.");
+      console.error("Google ile oturum açılamadı:", error);
+      setErrorMessage(error.message || "Google ile oturum açılamadı.");
     } finally { setAuthBusy(false); }
   }
-  if (!user) return h(Login, { onSubmit: authenticate, busy: authBusy, error: errorMessage, theme, toggleTheme });
-  if (dataLoading && !data.parts.length && !data.jobs.length && !data.invoices.length) return h(LoadingScreen, { message: "Demo servis verileri yükleniyor..." });
+  const logout = async () => {
+    try { await signOutUser(); setPage("dashboard"); }
+    catch (error) { console.error("Oturum kapatılamadı:", error); setErrorMessage(error.message || "Oturum kapatılamadı."); }
+  };
+  if (!authReady) return h(LoadingScreen, { message: "Güvenli Google oturumu doğrulanıyor..." });
+  if (!user) return h(Login, { onSubmit: authenticate, busy: authBusy, error: errorMessage, theme, toggleTheme, configured: firebaseConfigured });
+  if (dataLoading && !data.parts.length && !data.jobs.length && !data.invoices.length) return h(LoadingScreen, { message: "Bulut servis kayıtları yükleniyor..." });
   return h("div", { className: "app-shell" },
     h("aside", { className: "sidebar" },
       h("div", { className: "brand" }, h("div", { className: "brand-mark" }, "D"), h("div", null, h("strong", null, "DEMİR"), h("span", null, "EUROREPAR CAR SERVICE"))),
       h("div", { className: "side-label" }, "ÇALIŞMA ALANI"),
       h("nav", { className: "navigation" }, nav.map((item) => h("button", { key: item.id, className: `nav-item ${page === item.id ? "active" : ""}`, onClick: () => { setPage(item.id); setQuery(""); } }, h(Icon, { name: item.icon }), h("span", null, item.label), item.badge ? h("span", { className: "nav-badge" }, item.badge) : null))),
-      h("div", { className: "sidebar-bottom" }, h("div", { className: "sidebar-help" }, h("div", { className: "help-icon" }, h(Icon, { name: "wrench", size: 17 })), h("strong", null, "Servis yönetimi"), h("span", null, "Tüm operasyonlarınız tek yerde.")), h("div", { className: "profile" }, h("div", { className: "avatar" }, (user.user_metadata?.full_name || "Serkan TEKTAŞ").split(/\s+/).map((name) => name[0]).join("").slice(0, 2)), h("div", { className: "profile-info" }, h("strong", null, user.user_metadata?.full_name || "Serkan TEKTAŞ"), h("span", null, user.email)), h("button", { className: "icon-button logout", onClick: () => { localStorage.removeItem(SESSION_KEY); setUser(null); }, title: "Oturumu kapat" }, h(Icon, { name: "logout", size: 17 })))),
+      h("div", { className: "sidebar-bottom" }, h("div", { className: "sidebar-help" }, h("div", { className: "help-icon" }, h(Icon, { name: "wrench", size: 17 })), h("strong", null, "Servis yönetimi"), h("span", null, "Tüm operasyonlarınız tek yerde.")), h("div", { className: "profile" }, h("div", { className: "avatar" }, (user.displayName || user.email || "ST").split(/\s+/).map((name) => name[0]).join("").slice(0, 2)), h("div", { className: "profile-info" }, h("strong", null, user.displayName || "Yetkili kullanıcı"), h("span", null, user.email)), h("button", { className: "icon-button logout", onClick: logout, title: "Oturumu kapat" }, h(Icon, { name: "logout", size: 17 })))),
     ),
     h("main", { className: "main-area" },
       h("header", { className: "topbar" }, h("div", { className: "breadcrumbs" }, "Demir Service", h("span", null, "/"), titles[page][0]), h("div", { className: "topbar-right" }, h("span", { className: "today-label" }, dateLabel(new Date().toISOString().slice(0, 10))), h("button", { className: "icon-button theme-toggle", onClick: toggleTheme, title: theme === "dark" ? "Açık temaya geç" : "Koyu temaya geç", "aria-label": theme === "dark" ? "Açık temaya geç" : "Koyu temaya geç" }, h(Icon, { name: theme === "dark" ? "sun" : "moon" })), h("button", { className: "icon-button notification", onClick: () => { setPage("inventory"); setToast(`${lowStock.length} parçada kritik stok uyarısı var.`); }, title: "Stok uyarıları" }, h(Icon, { name: "bell" }), lowStock.length ? h("i", null) : null), h("div", { className: "top-avatar" }, "ST"))),
@@ -164,7 +184,10 @@ function App() {
         page === "workorders" ? h(WorkOrders, { jobs: data.jobs, query, setQuery }) :
         page === "invoices" ? h(Invoices, { invoices: data.invoices }) :
         page === "orders" ? h(Orders, { drafts: data.drafts, lowStock, receiveDraft, createDraft }) :
-        h(Reports, { data, revenue })
+        page === "access" && isOwner ? h(AccessManagement, {
+          onError: (error) => setErrorMessage(error.message || "Kullanıcı erişimi güncellenemedi."),
+          onSuccess: (message) => setToast(message),
+        }) : h(Reports, { data, revenue })
       )
     ),
     modal ? h(Modal, { modal, parts: data.parts, onClose: () => setModal(null), onSavePart: persistPart, onSaveJob: persistJob, onSaveInvoice: persistInvoice }) : null,
@@ -179,18 +202,80 @@ function ThemeToggle({ theme, toggleTheme, className = "" }) {
   const isDark = theme === "dark";
   return h("button", { className: `icon-button theme-toggle ${className}`, onClick: toggleTheme, type: "button", title: isDark ? "Açık temaya geç" : "Koyu temaya geç", "aria-label": isDark ? "Açık temaya geç" : "Koyu temaya geç" }, h(Icon, { name: isDark ? "sun" : "moon" }));
 }
-function Login({ onSubmit, busy, error, theme, toggleTheme }) {
+function Login({ onSubmit, busy, error, theme, toggleTheme, configured }) {
   return h("main", { className: "login-screen" }, h("div", { className: "login-decoration decoration-one" }), h("div", { className: "login-decoration decoration-two" }), h(ThemeToggle, { theme, toggleTheme, className: "standalone-theme-toggle" }), h("section", { className: "login-card" },
     h("div", { className: "login-brand" }, h("div", { className: "brand-mark large" }, "D"), h("div", null, h("strong", null, "DEMİR"), h("span", null, "EUROREPAR CAR SERVICE"))),
-    h("div", { className: "login-copy" }, h("div", { className: "login-chip" }, h("span", { className: "status-dot" }), "DEMİR SERVICE YÖNETİMİ"), h("h1", null, "Tekrar hoş geldiniz."), h("p", null, "Demo hesabınızla servisinizi yönetin.")),
+    h("div", { className: "login-copy" }, h("div", { className: "login-chip" }, h("span", { className: "status-dot" }), "DEMİR SERVICE YÖNETİMİ"), h("h1", null, "Güvenli giriş"), h("p", null, "Servis kayıtlarına yalnızca yetki verilmiş Google hesapları erişebilir.")),
     h("form", { className: "login-form", onSubmit },
-      h("label", null, "E-posta adresi", h("input", { name: "email", type: "email", placeholder: "ornek@demirservis.com", required: true, autoComplete: "username" })),
-      h("label", null, "Şifre", h("input", { name: "password", type: "password", placeholder: "Herhangi bir demo şifresi", required: true, autoComplete: "current-password" })),
       error ? h("p", { className: "form-error", role: "alert" }, error) : null,
-      h("button", { className: "button button-primary login-submit", type: "submit", disabled: busy }, busy ? "İşleniyor..." : "Demo giriş yap", h(Icon, { name: "arrow", size: 17 }))
+      h("button", { className: "button button-primary login-submit", type: "submit", disabled: busy || !configured }, h("span", { className: "google-mark", "aria-hidden": true }, "G"), busy ? "Google doğrulanıyor..." : "Google ile giriş yap", h(Icon, { name: "arrow", size: 17 })),
+      !configured ? h("p", { className: "form-error", role: "status" }, "Firebase yapılandırması gerekli. Kurulum adımları README.md dosyasında.") : null
     ),
-    h("div", { className: "login-foot" }, h("span", null, "Demo giriş · şifre sunucuya gönderilmez"), h("span", null, "Demir Eurorepar"))
+    h("div", { className: "login-foot" }, h("span", null, "Google hesabı · yetkili kullanıcılar"), h("span", null, "Demir Eurorepar"))
   ));
+}
+function AccessManagement({ onError, onSuccess }) {
+  const [users, setUsers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    let active = true;
+    listAuthorizedUsers().then((records) => {
+      if (active) setUsers(records);
+    }).catch((error) => {
+      if (active) onError(error);
+    }).finally(() => {
+      if (active) setLoading(false);
+    });
+    return () => { active = false; };
+  }, []);
+  async function grant(event) {
+    event.preventDefault();
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
+    const email = String(form.get("email") || "");
+    setBusy(true);
+    try {
+      await grantUserAccess(email);
+      setUsers(await listAuthorizedUsers());
+      formElement.reset();
+      onSuccess(`${email.trim().toLowerCase()} hesabına erişim verildi.`);
+    } catch (error) {
+      onError(error);
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function revoke(email) {
+    if (!window.confirm(`${email} hesabının servis erişimini kaldırmak istiyor musunuz?`)) return;
+    setBusy(true);
+    try {
+      await revokeUserAccess(email);
+      setUsers(await listAuthorizedUsers());
+      onSuccess(`${email} hesabının erişimi kaldırıldı.`);
+    } catch (error) {
+      onError(error);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return h(React.Fragment, null,
+    h("section", { className: "panel access-panel" },
+      h("div", { className: "panel-heading" }, h("div", null, h("h2", null, "Google hesabı yetkilendir"), h("p", null, "Eklediğiniz e-posta adresleri Google ile giriş yaparak aynı servis verilerine erişebilir."))),
+      h("form", { className: "access-form", onSubmit: grant },
+        h("label", null, "Yetki verilecek Gmail adresi", h("input", { name: "email", type: "email", placeholder: "calisan@gmail.com", required: true })),
+        h("button", { className: "button button-primary", type: "submit", disabled: busy }, "Erişim ver")
+      )
+    ),
+    h("section", { className: "panel access-panel" },
+      h("div", { className: "panel-heading" }, h("div", null, h("h2", null, "Yetkili hesaplar"), h("p", null, "Yalnızca servis yöneticisi bu listeyi değiştirebilir."))),
+      loading ? h("p", { className: "empty-state" }, "Yetkiler yükleniyor...") :
+        h("div", { className: "access-user-list" },
+          h("div", { className: "access-user-row" }, h("div", null, h("strong", null, OWNER_EMAIL), h("span", null, "Servis yöneticisi")), h("span", { className: "access-badge" }, "Sahip")),
+          users.map((entry) => h("div", { className: "access-user-row", key: entry.id }, h("div", null, h("strong", null, entry.email), h("span", null, "Google ile giriş yetkisi")), h("button", { className: "button button-quiet", type: "button", disabled: busy, onClick: () => revoke(entry.email) }, "Erişimi kaldır")))
+        )
+    )
+  );
 }
 function Dashboard({ data, lowStock, revenue, setPage, openModal, createDraft }) {
   const openJobs = data.jobs.filter((job) => job.status !== "Tamamlandı").length;
