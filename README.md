@@ -1,16 +1,16 @@
 # Demir Eurorepar Car Service
 
-Demir Eurorepar Car Service için React tabanlı stok ve servis yönetim uygulaması. Google hesabıyla giriş yapar, stok/iş emri/fatura verilerini yetkili kullanıcılarla ortak Firebase Firestore veritabanında saklar. Fatura satırları Excel'den kopyalanıp yapıştırılabilir.
+Demir Eurorepar Car Service için React tabanlı stok ve servis yönetim uygulaması. E-posta/şifre ile giriş yapar, stok/iş emri/fatura verilerini yetkili kullanıcılarla ortak Firebase Firestore veritabanında saklar. Fatura satırları Excel'den kopyalanıp yapıştırılabilir.
 
 ## Firebase kurulumu (zorunlu)
 
 Uygulama demo giriş veya örnek servis verisi kullanmaz. Çalıştırmadan önce Firebase projesi oluşturup şu adımları tamamlayın:
 
 1. Firebase Console'da bir proje oluşturun.
-2. **Authentication → Sign-in method** altında Google sağlayıcısını etkinleştirin.
+2. **Authentication → Sign-in method** altında **Email/Password** sağlayıcısını etkinleştirin.
 3. **Authentication → Settings → Authorized domains** bölümüne `localhost` ve Vercel alan adınızı ekleyin.
 4. **Firestore Database** oluşturun.
-5. Firebase Console'daki **Firestore → Rules** bölümüne bu projedeki [`firestore.rules`](./firestore.rules) içeriğini kopyalayıp yayınlayın. Kurallar yalnızca doğrulanmış Google e-postalarına izin verir; `tektas590@gmail.com` yönetici hesabıdır.
+5. Firebase Console'daki **Firestore → Rules** bölümüne bu projedeki [`firestore.rules`](./firestore.rules) içeriğini kopyalayıp yayınlayın. Kurallar yalnızca doğrulanmış ve izin verilmiş e-posta adreslerine izin verir; `tektas590@gmail.com` yönetici hesabıdır.
 6. Firebase proje ayarlarında bir Web App ekleyip web yapılandırma değerlerini alın. Proje kökünde `.env.local` oluşturun ve [`.env.example`](./.env.example) içindeki `VITE_FIREBASE_*` alanlarını doldurun.
 7. Vercel projesinin **Settings → Environment Variables** bölümüne aynı `VITE_FIREBASE_*` değerlerini ekleyip yeni bir deployment başlatın. Bu istemci yapılandırma değerleri gizli anahtar değildir; gerçek yetkilendirme Firestore Security Rules tarafından yapılır.
 
@@ -25,8 +25,9 @@ npm run dev
 
 ## Modüller
 
-- Google OAuth ile oturum açma; yetkisiz ve doğrulanmamış hesaplar reddedilir
-- Yalnızca `tektas590@gmail.com` servis yöneticisidir; diğer hesaplar uygulamadaki **Yetkili Kullanıcılar** ekranından eklenip kaldırılır
+- E-posta/şifre ile oturum açma; doğrulanmamış ve yetki verilmemiş hesaplar servis verilerine erişemez
+- `serkan.tektas` kullanıcı adı `tektas590@gmail.com` yönetici hesabına yönlenir; diğer kullanıcılar e-posta adresleriyle giriş yapar
+- Yönetici, **Yetkili Kullanıcılar** ekranından diğer hesaplara erişim verir veya erişimi kaldırır
 - Firestore kurallarıyla sunucu tarafında yetki kontrolü; yetkili hesaplar farklı cihazlarda aynı servis verilerini kullanır
 - SKU, marka, alış/satış fiyatı, stok ve kritik seviye yönetimi
 - Plaka, marka, model ve müşteriyle eşleştirilen iş emirleri; kullanılan parçalar stoktan otomatik düşer
@@ -36,8 +37,10 @@ npm run dev
 
 ## Yetki ve fatura kullanımı
 
-Yönetici olarak `tektas590@gmail.com` Google hesabıyla giriş yapın. **Yetkili Kullanıcılar** sayfasından erişim verilecek kişilerin Google e-posta adreslerini ekleyin; erişimi kaldırmak için aynı listeden hesabı silin. İzin listesi ve uygulama verileri Firestore'da tutulur, tarayıcıda oturum açma dışında servis verisi saklanmaz. Firestore Rules dosyasını değiştirmeden kullanıcı eklemek/kaldırmak yeterlidir.
+İlk kullanımda **Hesap oluşturun** bölümünden `tektas590@gmail.com` adresiyle yönetici hesabı oluşturun ve gelen doğrulama bağlantısını açın. İlk başarılı yönetici girişinde yeni parola belirleme ekranı zorunlu olarak açılır. Firebase parola şartı nedeniyle geçici parola da en az 6 karakter olmalıdır; `1234` Firebase tarafından kabul edilmez ve kod içine hiçbir parola gömülmez. Daha sonra `serkan.tektas` kullanıcı adı veya yönetici e-posta adresiyle giriş yapılabilir.
+
+Yönetici olarak **Yetkili Kullanıcılar** sayfasından erişim verilecek kişilerin e-posta adreslerini ekleyin. Bu kişiler hesap oluşturup e-posta adreslerini doğrular; yönetici onayı olmadan servis verileri açılamaz. Erişimi kaldırmak için listedeki hesabı silin. İzin listesi ve uygulama verileri Firestore'da tutulur. Güvenli ilk parola değişiminden sonra yönetici giriş bilgilerini paylaşmak yerine kullanıcı kendi hesabını oluşturmalıdır.
 
 Fatura eklerken **Kopyala / yapıştır** sekmesini seçin. Excel veya tedarikçi tablosundan satırları doğrudan metin kutusuna yapıştırın. Başlıklar tanınır (`SKU`/`Parça Kodu`, `Adet`/`Miktar`, `Alış Fiyatı`/`Birim Fiyatı`); başlıksız sütun sırası `SKU, Parça Adı, Adet, Birim Alış Fiyatı` veya `SKU, Adet, Birim Alış Fiyatı` olmalıdır. TSV, CSV ve noktalı virgülle ayrılmış metin desteklenir. Yapıştırılan satırların stok kartları önceden envanterde bulunmalıdır; eşleşmeyen parçalar hata olarak gösterilir, kayıt sessizce atlanmaz.
 
-Firebase kurulumu yapılana kadar Google ile giriş ve bulut kayıtları kullanılamaz. Daha önce tarayıcıda oluşturulmuş yerel demo kayıtları otomatik olarak Firestore'a taşınmaz; Firestore başlangıçta boş olur.
+Firebase kurulumu yapılana kadar e-posta/şifre girişi ve bulut kayıtları kullanılamaz. Daha önce tarayıcıda oluşturulmuş yerel demo kayıtları otomatik olarak Firestore'a taşınmaz; Firestore başlangıçta boş olur.

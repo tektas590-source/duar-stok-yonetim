@@ -197,7 +197,9 @@ export async function receiveStockDraft(draftId) {
 export async function listAuthorizedUsers() {
   const database = requireDatabase();
   const snapshot = await getDocs(collection(database, "authorizedUsers"));
-  return readCollection(snapshot).sort((first, second) => first.email.localeCompare(second.email));
+  return readCollection(snapshot)
+    .filter((entry) => entry.email !== OWNER_EMAIL)
+    .sort((first, second) => first.email.localeCompare(second.email));
 }
 
 export async function grantUserAccess(email) {

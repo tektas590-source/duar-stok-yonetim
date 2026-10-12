@@ -1,6 +1,14 @@
 import { getApp, getApps, initializeApp } from "firebase/app";
-import { getAuth, GoogleAuthProvider, onAuthStateChanged, signInWithPopup, signOut } from "firebase/auth";
-import { doc, getDoc, getFirestore } from "firebase/firestore";
+import {
+  createUserWithEmailAndPassword,
+  getAuth,
+  onAuthStateChanged,
+  sendEmailVerification,
+  signInWithEmailAndPassword,
+  signOut,
+  updatePassword,
+} from "firebase/auth";
+import { doc, getDoc, getFirestore, setDoc } from "firebase/firestore";
 
 export const OWNER_EMAIL = "tektas590@gmail.com";
 
@@ -24,16 +32,40 @@ const app = firebaseConfigured ? (getApps().length ? getApp() : initializeApp(fi
 export const auth = app ? getAuth(app) : null;
 export const db = app ? getFirestore(app) : null;
 
-export function signInWithGoogle() {
+function requireAuth() {
   if (!auth) throw new Error("Firebase bağlantısı ayarlı değil. README'deki Firebase kurulum adımlarını tamamlayın.");
-  const provider = new GoogleAuthProvider();
-  provider.setCustomParameters({ prompt: "select_account" });
-  return signInWithPopup(auth, provider);
+  return auth;
+}
+
+export async function signInWithPassword(username, password) {
+  const normalizedUsername = username.trim().toLowerCase();
+  const email = normalizedUsername === "serkan.tektas" ? OWNER_EMAIL : normalizedUsername;
+  return signInWithEmailAndPassword(requireAuth(), email, password);
+}
+
+export async function registerWithPassword(email, password) {
+  const authInstance = requireAuth();
+  const credential = await createUserWithEmailAndPassword(authInstance, email.trim().toLowerCase(), password);
+  await sendEmailVerification(credential.user);
+  await signOut(authInstance);
+}
+
+export async function changeInitialPassword(newPassword) {
+  const authInstance = requireAuth();
+  const currentUser = authInstance.currentUser;
+  if (!currentUser || currentUser.email?.toLowerCase() !== OWNER_EMAIL || !currentUser.emailVerified) {
+    throw new Error("Yönetici hesabı doğrulanmış olarak oturum açmış olmalı.");
+  }
+  await updatePassword(currentUser, newPassword);
+  await setDoc(doc(getFirestore(), "authorizedUsers", OWNER_EMAIL), {
+    email: OWNER_EMAIL,
+    role: "admin",
+    mustChangePassword: false,
+  });
 }
 
 export function signOutUser() {
-  if (!auth) throw new Error("Firebase bağlantısı ayarlı değil.");
-  return signOut(auth);
+  return signOut(requireAuth());
 }
 
 export function subscribeToAuth(onUser, onError) {
@@ -53,19 +85,20 @@ export function subscribeToAuth(onUser, onError) {
       if (!email || !firebaseUser.emailVerified) {
         await signOut(auth);
         onUser(null);
-        onError(new Error("Doğrulanmış bir Google e-posta hesabı gerekli."));
+        onError(new Error("Devam etmek için e-posta adresinizi gelen doğrulama bağlantısıyla doğrulayın."));
         return;
       }
-      if (email !== OWNER_EMAIL) {
-        const access = await getDoc(doc(db, "authorizedUsers", email));
-        if (!access.exists()) {
-          await signOut(auth);
-          onUser(null);
-          onError(new Error(`${email} hesabına henüz erişim verilmemiş. Servis yöneticisinden yetki isteyin.`));
-          return;
-        }
+      const access = await getDoc(doc(db, "authorizedUsers", email));
+      if (email !== OWNER_EMAIL && !access.exists()) {
+        await signOut(auth);
+        onUser(null);
+        onError(new Error(`${email} hesabına henüz erişim verilmemiş. Servis yöneticisinden yetki isteyin.`));
+        return;
       }
-      onUser(firebaseUser);
+      onUser({
+        ...firebaseUser,
+        mustChangePassword: email === OWNER_EMAIL && (!access.exists() || access.data().mustChangePassword === true),
+      });
     } catch (error) {
       onUser(null);
       onError(error);

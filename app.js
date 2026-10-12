@@ -3,7 +3,7 @@ import { createRoot } from "react-dom/client";
 import "./style.css";
 import { createPurchaseInvoice, createStockDraft, createWorkOrder, deletePart, fetchServiceData, grantUserAccess, listAuthorizedUsers, receiveStockDraft, revokeUserAccess, savePart, subscribeToServiceData } from "./data.js";
 import { parseInvoicePaste } from "./invoiceImport.js";
-import { firebaseConfigured, OWNER_EMAIL, signInWithGoogle, signOutUser, subscribeToAuth } from "./firebase.js";
+import { changeInitialPassword, firebaseConfigured, OWNER_EMAIL, registerWithPassword, signInWithPassword, signOutUser, subscribeToAuth } from "./firebase.js";
 
 const h = React.createElement;
 const iconPaths = {
@@ -34,6 +34,7 @@ function App() {
   const [data, setData] = useState({ parts: [], jobs: [], invoices: [], drafts: [] });
   const [dataLoading, setDataLoading] = useState(false);
   const [authBusy, setAuthBusy] = useState(false);
+  const [authNotice, setAuthNotice] = useState("");
   const [page, setPage] = useState("dashboard");
   const [modal, setModal] = useState(null);
   const [query, setQuery] = useState("");
@@ -111,7 +112,7 @@ function App() {
   ];
   const isOwner = user?.email?.toLowerCase() === OWNER_EMAIL;
   if (isOwner) nav.push({ id: "access", label: "Yetkili Kullanıcılar", icon: "grid" });
-  const titles = { dashboard: ["Genel Bakış", "Servisinizin bugünkü durumuna göz atın."], inventory: ["Parça Envanteri", "Stoklarınızı ve parça fiyatlarınızı yönetin."], workorders: ["İş Emirleri", "Araç servis geçmişini ve devam eden işleri takip edin."], invoices: ["Alış Faturaları", "Faturaları kaydedin, stok girişlerini anında işleyin."], orders: ["Taslak Siparişler", "Azalan parçalar için oluşturduğunuz sipariş önerileri."], reports: ["Raporlar", "Satış performansı ve servis cironuz."], access: ["Yetkili Kullanıcılar", "Google hesapları ekleyin veya servis erişimini kaldırın."] };
+  const titles = { dashboard: ["Genel Bakış", "Servisinizin bugünkü durumuna göz atın."], inventory: ["Parça Envanteri", "Stoklarınızı ve parça fiyatlarınızı yönetin."], workorders: ["İş Emirleri", "Araç servis geçmişini ve devam eden işleri takip edin."], invoices: ["Alış Faturaları", "Faturaları kaydedin, stok girişlerini anında işleyin."], orders: ["Taslak Siparişler", "Azalan parçalar için oluşturduğunuz sipariş önerileri."], reports: ["Raporlar", "Satış performansı ve servis cironuz."], access: ["Yetkili Kullanıcılar", "Hesap ekleyin veya servis erişimini kaldırın."] };
   const openModal = (type, item = null) => setModal({ type, item });
   const runAction = async (action, success) => {
     setErrorMessage("");
@@ -148,20 +149,39 @@ function App() {
   };
   async function authenticate(event) {
     event.preventDefault();
-    setErrorMessage(""); setToast(""); setAuthBusy(true);
+    const form = new FormData(event.currentTarget);
+    setErrorMessage(""); setAuthNotice(""); setToast(""); setAuthBusy(true);
     try {
-      await signInWithGoogle();
+      if (form.get("mode") === "register") {
+        await registerWithPassword(String(form.get("email") || ""), String(form.get("password") || ""));
+        setAuthNotice("Hesabınız oluşturuldu. E-posta kutunuzdaki doğrulama bağlantısını açın; erişiminiz yönetici tarafından onaylandıktan sonra giriş yapabilirsiniz.");
+      } else {
+        await signInWithPassword(String(form.get("username") || ""), String(form.get("password") || ""));
+      }
     } catch (error) {
-      console.error("Google ile oturum açılamadı:", error);
-      setErrorMessage(error.message || "Google ile oturum açılamadı.");
+      console.error("E-posta/şifre işlemi başarısız:", error);
+      setErrorMessage(error.message || "Giriş işlemi tamamlanamadı.");
+    } finally { setAuthBusy(false); }
+  }
+  async function updateAdminPassword(password) {
+    setErrorMessage("");
+    setAuthBusy(true);
+    try {
+      await changeInitialPassword(password);
+      setUser((current) => current ? { ...current, mustChangePassword: false } : current);
+      setToast("Yeni yönetici parolanız kaydedildi.");
+    } catch (error) {
+      console.error("Yönetici parolası güncellenemedi:", error);
+      setErrorMessage(error.message || "Parola güncellenemedi.");
     } finally { setAuthBusy(false); }
   }
   const logout = async () => {
     try { await signOutUser(); setPage("dashboard"); }
     catch (error) { console.error("Oturum kapatılamadı:", error); setErrorMessage(error.message || "Oturum kapatılamadı."); }
   };
-  if (!authReady) return h(LoadingScreen, { message: "Güvenli Google oturumu doğrulanıyor..." });
-  if (!user) return h(Login, { onSubmit: authenticate, busy: authBusy, error: errorMessage, theme, toggleTheme, configured: firebaseConfigured });
+  if (!authReady) return h(LoadingScreen, { message: "Güvenli oturum doğrulanıyor..." });
+  if (!user) return h(Login, { onSubmit: authenticate, busy: authBusy, error: errorMessage, notice: authNotice, theme, toggleTheme, configured: firebaseConfigured });
+  if (user.mustChangePassword) return h(PasswordChange, { onSubmit: updateAdminPassword, busy: authBusy, error: errorMessage, theme, toggleTheme });
   if (dataLoading && !data.parts.length && !data.jobs.length && !data.invoices.length) return h(LoadingScreen, { message: "Bulut servis kayıtları yükleniyor..." });
   return h("div", { className: "app-shell" },
     h("aside", { className: "sidebar" },
@@ -202,17 +222,53 @@ function ThemeToggle({ theme, toggleTheme, className = "" }) {
   const isDark = theme === "dark";
   return h("button", { className: `icon-button theme-toggle ${className}`, onClick: toggleTheme, type: "button", title: isDark ? "Açık temaya geç" : "Koyu temaya geç", "aria-label": isDark ? "Açık temaya geç" : "Koyu temaya geç" }, h(Icon, { name: isDark ? "sun" : "moon" }));
 }
-function Login({ onSubmit, busy, error, theme, toggleTheme, configured }) {
+function Login({ onSubmit, busy, error, notice, theme, toggleTheme, configured }) {
+  const [mode, setMode] = useState("login");
+  const registering = mode === "register";
   return h("main", { className: "login-screen" }, h("div", { className: "login-decoration decoration-one" }), h("div", { className: "login-decoration decoration-two" }), h(ThemeToggle, { theme, toggleTheme, className: "standalone-theme-toggle" }), h("section", { className: "login-card" },
     h("div", { className: "login-brand" }, h("div", { className: "brand-mark large" }, "D"), h("div", null, h("strong", null, "DEMİR"), h("span", null, "EUROREPAR CAR SERVICE"))),
-    h("div", { className: "login-copy" }, h("div", { className: "login-chip" }, h("span", { className: "status-dot" }), "DEMİR SERVICE YÖNETİMİ"), h("h1", null, "Güvenli giriş"), h("p", null, "Servis kayıtlarına yalnızca yetki verilmiş Google hesapları erişebilir.")),
+    h("div", { className: "login-copy" }, h("div", { className: "login-chip" }, h("span", { className: "status-dot" }), "DEMİR SERVICE YÖNETİMİ"), h("h1", null, registering ? "Hesap oluşturun." : "Güvenli giriş"), h("p", null, registering ? "E-posta doğrulamasından sonra servis yöneticiniz erişim izni verebilir." : "Yalnızca servis yöneticisinin yetkilendirdiği hesaplar giriş yapabilir.")),
     h("form", { className: "login-form", onSubmit },
+      h("input", { type: "hidden", name: "mode", value: mode }),
+      registering
+        ? h("label", null, "E-posta adresi", h("input", { name: "email", type: "email", placeholder: "adiniz@gmail.com", required: true, autoComplete: "email" }))
+        : h("label", null, "Kullanıcı adı veya e-posta", h("input", { name: "username", type: "text", placeholder: "serkan.tektas", required: true, autoComplete: "username" })),
+      h("label", null, "Şifre", h("input", { name: "password", type: "password", placeholder: registering ? "En az 6 karakter" : "Şifreniz", minLength: 6, required: true, autoComplete: registering ? "new-password" : "current-password" })),
       error ? h("p", { className: "form-error", role: "alert" }, error) : null,
-      h("button", { className: "button button-primary login-submit", type: "submit", disabled: busy || !configured }, h("span", { className: "google-mark", "aria-hidden": true }, "G"), busy ? "Google doğrulanıyor..." : "Google ile giriş yap", h(Icon, { name: "arrow", size: 17 })),
+      notice ? h("p", { className: "form-notice", role: "status" }, notice) : null,
+      h("button", { className: "button button-primary login-submit", type: "submit", disabled: busy || !configured }, busy ? "İşleniyor..." : registering ? "Hesap oluştur" : "Giriş yap", h(Icon, { name: "arrow", size: 17 })),
+      h("button", { className: "auth-mode-button", type: "button", disabled: busy, onClick: () => setMode(registering ? "login" : "register") }, registering ? "Zaten hesabınız var mı? Giriş yapın" : "İlk kez mi kullanıyorsunuz? Hesap oluşturun"),
       !configured ? h("p", { className: "form-error", role: "status" }, "Firebase yapılandırması gerekli. Kurulum adımları README.md dosyasında.") : null
     ),
-    h("div", { className: "login-foot" }, h("span", null, "Google hesabı · yetkili kullanıcılar"), h("span", null, "Demir Eurorepar"))
+    h("div", { className: "login-foot" }, h("span", null, "E-posta doğrulama · yönetici onayı"), h("span", null, "Demir Eurorepar"))
   ));
+}
+function PasswordChange({ onSubmit, busy, error, theme, toggleTheme }) {
+  function submit(event) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const password = String(form.get("password") || "");
+    if (password.length < 6) return;
+    if (password !== form.get("confirmPassword")) {
+      event.currentTarget.elements.confirmPassword.setCustomValidity("Şifreler eşleşmiyor.");
+      event.currentTarget.reportValidity();
+      return;
+    }
+    onSubmit(password);
+  }
+  return h("main", { className: "login-screen" },
+    h(ThemeToggle, { theme, toggleTheme, className: "standalone-theme-toggle" }),
+    h("section", { className: "login-card" },
+      h("div", { className: "login-brand" }, h("div", { className: "brand-mark large" }, "D"), h("div", null, h("strong", null, "DEMİR"), h("span", null, "EUROREPAR CAR SERVICE"))),
+      h("div", { className: "login-copy" }, h("div", { className: "login-chip" }, h("span", { className: "status-dot" }), "YÖNETİCİ GÜVENLİĞİ"), h("h1", null, "Yeni şifre belirleyin."), h("p", null, "İlk girişte geçici şifreyi değiştirmeniz gerekir.")),
+      h("form", { className: "login-form", onSubmit: submit },
+        h("label", null, "Yeni şifre (en az 6 karakter)", h("input", { name: "password", type: "password", minLength: 6, required: true, autoComplete: "new-password" })),
+        h("label", null, "Yeni şifreyi tekrar girin", h("input", { name: "confirmPassword", type: "password", minLength: 6, required: true, autoComplete: "new-password", onChange: (event) => event.currentTarget.setCustomValidity("") })),
+        error ? h("p", { className: "form-error", role: "alert" }, error) : null,
+        h("button", { className: "button button-primary login-submit", type: "submit", disabled: busy }, busy ? "Kaydediliyor..." : "Şifreyi değiştir", h(Icon, { name: "arrow", size: 17 }))
+      )
+    )
+  );
 }
 function AccessManagement({ onError, onSuccess }) {
   const [users, setUsers] = useState([]);
@@ -261,7 +317,7 @@ function AccessManagement({ onError, onSuccess }) {
   }
   return h(React.Fragment, null,
     h("section", { className: "panel access-panel" },
-      h("div", { className: "panel-heading" }, h("div", null, h("h2", null, "Google hesabı yetkilendir"), h("p", null, "Eklediğiniz e-posta adresleri Google ile giriş yaparak aynı servis verilerine erişebilir."))),
+      h("div", { className: "panel-heading" }, h("div", null, h("h2", null, "Kullanıcıya erişim ver"), h("p", null, "E-posta adresine erişim verin; kullanıcı e-postasını doğrulayıp parola hesabı oluşturarak ortak servise katılabilir."))),
       h("form", { className: "access-form", onSubmit: grant },
         h("label", null, "Yetki verilecek Gmail adresi", h("input", { name: "email", type: "email", placeholder: "calisan@gmail.com", required: true })),
         h("button", { className: "button button-primary", type: "submit", disabled: busy }, "Erişim ver")
@@ -272,7 +328,7 @@ function AccessManagement({ onError, onSuccess }) {
       loading ? h("p", { className: "empty-state" }, "Yetkiler yükleniyor...") :
         h("div", { className: "access-user-list" },
           h("div", { className: "access-user-row" }, h("div", null, h("strong", null, OWNER_EMAIL), h("span", null, "Servis yöneticisi")), h("span", { className: "access-badge" }, "Sahip")),
-          users.map((entry) => h("div", { className: "access-user-row", key: entry.id }, h("div", null, h("strong", null, entry.email), h("span", null, "Google ile giriş yetkisi")), h("button", { className: "button button-quiet", type: "button", disabled: busy, onClick: () => revoke(entry.email) }, "Erişimi kaldır")))
+          users.map((entry) => h("div", { className: "access-user-row", key: entry.id }, h("div", null, h("strong", null, entry.email), h("span", null, "E-posta/şifre ile giriş yetkisi")), h("button", { className: "button button-quiet", type: "button", disabled: busy, onClick: () => revoke(entry.email) }, "Erişimi kaldır")))
         )
     )
   );
