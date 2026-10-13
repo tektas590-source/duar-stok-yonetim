@@ -213,6 +213,10 @@ export async function createWorkOrder(job, actor) {
 
 export async function createPurchaseInvoice(invoice, actor) {
   const database = requireDatabase();
+  const invoiceNumber = String(invoice.invoiceNumber || "").trim();
+  if (!invoiceNumber) throw new Error("Fatura numarası girilmelidir.");
+  if (!String(invoice.supplier || "").trim()) throw new Error("Tedarikçi adı girilmelidir.");
+  if (!Array.isArray(invoice.items) || !invoice.items.length) throw new Error("Faturaya en az bir parça eklenmelidir.");
   const aggregated = new Map();
   invoice.items.forEach((item) => {
     const sku = String(item.sku || "").trim();
@@ -301,8 +305,8 @@ export async function createPurchaseInvoice(invoice, actor) {
     });
     record = {
       id: invoiceId,
-      code: nextCode("AL"),
-      supplier: invoice.supplier,
+      code: invoiceNumber,
+      supplier: String(invoice.supplier).trim(),
       date: day(),
       total: savedItems.reduce((sum, item) => sum + item.qty * item.cost, 0),
       status: "Ödendi",
