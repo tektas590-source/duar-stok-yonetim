@@ -31,9 +31,16 @@ npm run dev
 - Firestore kurallarıyla sunucu tarafında yetki kontrolü; yetkili hesaplar farklı cihazlarda aynı servis verilerini kullanır
 - SKU, marka, alış/satış fiyatı, stok ve kritik seviye yönetimi
 - Plaka, marka, model ve müşteriyle eşleştirilen iş emirleri; kullanılan parçalar stoktan otomatik düşer
+- İş emri parça satırlarında ad, SKU veya kodun sonuyla arama; Excel'den parça kodu satırlarını yapıştırarak toplu eşleştirme
+- Araç Servis Geçmişi sayfasında plakaya göre ziyaret, tarih, müşteri ve kullanılan parçaları görüntüleme
+- Parça–Araç Uyumluluğu sayfasında geçmiş iş emirlerinde parçanın kullanıldığı marka/model kayıtlarını görme; liste yalnızca kaydedilmiş kullanımı gösterir, katalog verisi olmadan uyum garantisi vermez
+- Stok Hareketleri sayfasında fatura girişi, iş emri çıkışı, sipariş teslimi ve stok düzeltmelerini kullanıcı, kaynak belge ve stok bakiyesiyle izleme
+- Dashboard'da son 7 günlük ve 6 aylık ciro grafikleri ile birleşik son hareket akışı
+- Parçayı silmek yerine arşivleme; kısa süreli bildirimden işlemi geri alma
 - Parça seçerek veya Excel/faturadan kopyala-yapıştır ile alış faturası girişi; stok otomatik artar
 - Kritik seviyedeki stoklardan sipariş taslağı oluşturma ve teslim alındığında stoğa işleme
 - En çok satan parçalar, servis cirosu ve iş emri raporları
+- Gösterge panelinde canlı saat/tarih, düşük dikkat dağıtan araç animasyonu ve açık/koyu tema
 
 ## Yetki ve fatura kullanımı
 
@@ -42,5 +49,7 @@ npm run dev
 Yönetici olarak **Yetkili Kullanıcılar** sayfasından erişim verilecek kişilerin e-posta adreslerini ekleyin. Bu kişiler hesap oluşturup e-posta adreslerini doğrular; yönetici onayı olmadan servis verileri açılamaz. Erişimi kaldırmak için listedeki hesabı silin. İzin listesi ve uygulama verileri Firestore'da tutulur. Güvenli ilk parola değişiminden sonra yönetici giriş bilgilerini paylaşmak yerine kullanıcı kendi hesabını oluşturmalıdır.
 
 Fatura eklerken **Kopyala / yapıştır** sekmesini seçin. Excel veya tedarikçi tablosundan satırları doğrudan metin kutusuna yapıştırın. Başlıklar tanınır (`SKU`/`Parça Kodu`, `Adet`/`Miktar`, `Alış Fiyatı`/`Birim Fiyatı`); başlıksız sütun sırası `SKU, Parça Adı, Adet, Birim Alış Fiyatı` veya `SKU, Adet, Birim Alış Fiyatı` olmalıdır. TSV, CSV ve noktalı virgülle ayrılmış metin desteklenir. Yapıştırılan satırların stok kartları önceden envanterde bulunmalıdır; eşleşmeyen parçalar hata olarak gösterilir, kayıt sessizce atlanmaz.
+
+İş emrinde bir aracın plakası, marka/modeli ve kullanılan parçaları kaydedildikçe araç geçmişi ve parça/model uyumluluk listeleri oluşur. Stok hareketleri yeni işlemlerden itibaren ilgili parçanın alt koleksiyonunda aktör ve stok öncesi/sonrası değerlerini saklar; var olan Firestore kuralları bu koleksiyon yollarını mevcut yetkili parça erişimi kapsamında korur. Önceden kayıtlı iş emirleri ve alış faturaları hareket ekranında geçmiş işlem olarak görünür; bu eski kayıtlar için işlem yapan kullanıcı bilgisi mevcut olmadığından **Geçmiş kayıt** şeklinde işaretlenir.
 
 Firebase kurulumu yapılana kadar e-posta/şifre girişi ve bulut kayıtları kullanılamaz. Daha önce tarayıcıda oluşturulmuş yerel demo kayıtları otomatik olarak Firestore'a taşınmaz; Firestore başlangıçta boş olur.

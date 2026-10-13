@@ -1,6 +1,5 @@
 import {
   collection,
-  deleteDoc,
   doc,
   getDocs,
   onSnapshot,
@@ -21,7 +20,7 @@ function requireDatabase() {
 function day(offset = 0) {
   const date = new Date();
   date.setDate(date.getDate() + offset);
-  return date.toISOString().slice(0, 10);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
 function makeId() {
@@ -41,7 +40,48 @@ function readCollection(snapshot) {
 export async function fetchServiceData() {
   const database = requireDatabase();
   const snapshots = await Promise.all(COLLECTIONS.map((name) => getDocs(collection(database, name))));
-  return Object.fromEntries(COLLECTIONS.map((name, index) => [name, readCollection(snapshots[index])]));
+  const result = Object.fromEntries(COLLECTIONS.map((name, index) => [name, readCollection(snapshots[index])]));
+  const allParts = result.parts;
+  result.parts = result.parts.filter((part) => !part.archived);
+  const movementSnapshots = await Promise.all(allParts.map((part) => getDocs(collection(database, "parts", part.id, "movements"))));
+  result.movements = movementSnapshots.flatMap(readCollection);
+  const knownMovements = new Set(result.movements.map((movement) => `${movement.referenceCode}|${movement.partId}|${movement.type}`));
+  const legacyMovements = [];
+  result.jobs.forEach((job) => job.items.forEach((item) => {
+    const key = `${job.code}|${item.partId}|İş emri`;
+    if (!knownMovements.has(key)) legacyMovements.push({
+      id: `legacy-${job.id}-${item.partId}`,
+      partId: item.partId,
+      name: item.name,
+      sku: item.sku || "",
+      qty: -item.qty,
+      type: "İş emri",
+      reference: "job",
+      referenceCode: job.code || job.id,
+      actor: "Geçmiş kayıt",
+      date: job.date,
+      createdAt: `${job.date}T12:00:00`,
+    });
+  }));
+  result.invoices.forEach((invoice) => invoice.items.forEach((item) => {
+    const key = `${invoice.code}|${item.partId}|Alış faturası`;
+    if (!knownMovements.has(key)) legacyMovements.push({
+      id: `legacy-${invoice.id}-${item.partId}`,
+      partId: item.partId,
+      name: item.name,
+      sku: item.sku || "",
+      qty: item.qty,
+      type: "Alış faturası",
+      reference: "invoice",
+      referenceCode: invoice.code || invoice.id,
+      actor: "Geçmiş kayıt",
+      date: invoice.date,
+      createdAt: `${invoice.date}T12:00:00`,
+    });
+  }));
+  result.movements.push(...legacyMovements);
+  result.movements.sort((first, second) => (second.createdAt || "").localeCompare(first.createdAt || ""));
+  return result;
 }
 
 export function subscribeToServiceData(onChange, onError) {
@@ -52,7 +92,30 @@ export function subscribeToServiceData(onChange, onError) {
   return () => unsubscribe.forEach((stop) => stop());
 }
 
-export async function savePart(part) {
+function movementRecord(part, { qty, type, reference, referenceCode, actor, stockBefore, stockAfter }) {
+  return {
+    id: makeId(),
+    partId: part.id,
+    name: part.name,
+    sku: part.sku,
+    qty,
+    type,
+    reference,
+    referenceCode,
+    actor: actor || OWNER_EMAIL,
+    stockBefore,
+    stockAfter,
+    date: day(),
+    createdAt: new Date().toISOString(),
+  };
+}
+
+function writeMovement(transaction, database, part, details) {
+  const movement = movementRecord(part, details);
+  transaction.set(doc(database, "parts", part.id, "movements", movement.id), movement);
+}
+
+export async function savePart(part, actor) {
   const database = requireDatabase();
   const sku = part.sku.trim();
   const duplicateQuery = query(collection(database, "parts"), where("skuNormalized", "==", sku.toLocaleLowerCase("tr")));
@@ -61,16 +124,42 @@ export async function savePart(part) {
   if (duplicate) throw new Error("Bu SKU kodu başka bir parçada kullanılıyor.");
 
   const id = part.id || makeId();
-  const updated = { ...part, id, sku, skuNormalized: sku.toLocaleLowerCase("tr"), sold: part.sold || 0 };
-  await setDoc(doc(database, "parts", id), updated);
+  const reference = doc(database, "parts", id);
+  const movementReference = doc(database, "parts", id, "movements", makeId());
+  let updated;
+  await runTransaction(database, async (transaction) => {
+    const snapshot = await transaction.get(reference);
+    const existing = snapshot.exists() ? snapshot.data() : null;
+    updated = { ...part, id, sku, skuNormalized: sku.toLocaleLowerCase("tr"), sold: part.sold || 0, archived: false };
+    const previousStock = Number(existing?.stock || 0);
+    const difference = Number(updated.stock || 0) - previousStock;
+    transaction.set(reference, updated);
+    if (difference) {
+      const movement = movementRecord(updated, {
+        qty: difference,
+        type: existing ? "Düzeltme" : "Açılış stoğu",
+        reference: "part",
+        referenceCode: sku,
+        actor,
+        stockBefore: previousStock,
+        stockAfter: Number(updated.stock || 0),
+      });
+      movement.id = movementReference.id;
+      transaction.set(movementReference, movement);
+    }
+  });
   return updated;
 }
 
 export async function deletePart(partId) {
-  await deleteDoc(doc(requireDatabase(), "parts", partId));
+  await setDoc(doc(requireDatabase(), "parts", partId), { archived: true }, { merge: true });
 }
 
-export async function createWorkOrder(job) {
+export async function restorePart(partId) {
+  await setDoc(doc(requireDatabase(), "parts", partId), { archived: false }, { merge: true });
+}
+
+export async function createWorkOrder(job, actor) {
   const database = requireDatabase();
   const quantities = new Map();
   job.items.forEach((item) => quantities.set(item.partId, (quantities.get(item.partId) || 0) + item.qty));
@@ -85,6 +174,7 @@ export async function createWorkOrder(job) {
     for (const [partId, quantity] of quantities) {
       const part = parts.get(partId);
       if (!part) throw new Error("İş emrindeki parça envanterde bulunamadı.");
+      if (part.archived) throw new Error(`${part.name} arşivlenmiş olduğu için iş emrine eklenemez.`);
       if (quantity > part.stock) throw new Error(`${part.name} için yeterli stok bulunmuyor.`);
     }
 
@@ -103,7 +193,17 @@ export async function createWorkOrder(job) {
     };
     for (const [partId, quantity] of quantities) {
       const part = parts.get(partId);
-      transaction.update(doc(database, "parts", partId), { stock: part.stock - quantity, sold: (part.sold || 0) + quantity });
+      const stockAfter = part.stock - quantity;
+      transaction.update(doc(database, "parts", partId), { stock: stockAfter, sold: (part.sold || 0) + quantity });
+      writeMovement(transaction, database, { id: partId, name: part.name, sku: part.sku }, {
+        qty: -quantity,
+        type: "İş emri",
+        reference: "job",
+        referenceCode: record.code,
+        actor,
+        stockBefore: part.stock,
+        stockAfter,
+      });
     }
     transaction.set(jobReference, record);
   });
@@ -111,7 +211,7 @@ export async function createWorkOrder(job) {
   return record;
 }
 
-export async function createPurchaseInvoice(invoice) {
+export async function createPurchaseInvoice(invoice, actor) {
   const database = requireDatabase();
   const aggregated = new Map();
   invoice.items.forEach((item) => {
@@ -136,14 +236,15 @@ export async function createPurchaseInvoice(invoice) {
   await runTransaction(database, async (transaction) => {
     const snapshots = await Promise.all(partReferences.map((reference) => transaction.get(reference)));
     const parts = snapshots.map((snapshot) => snapshot.exists() ? snapshot.data() : null);
-    if (parts.some((part) => !part)) throw new Error("Faturadaki parça envanterde bulunamadı.");
+    if (parts.some((part) => !part || part.archived)) throw new Error("Faturadaki parça bulunamadı veya arşivlenmiş.");
 
     const savedItems = items.map((item, index) => {
       const part = parts[index];
       return { ...item, name: part.name, sku: part.sku };
     });
     savedItems.forEach((item, index) => {
-      transaction.update(partReferences[index], { stock: parts[index].stock + item.qty, cost: item.cost });
+      const stockAfter = parts[index].stock + item.qty;
+      transaction.update(partReferences[index], { stock: stockAfter, cost: item.cost });
     });
     record = {
       id: invoiceId,
@@ -156,6 +257,15 @@ export async function createPurchaseInvoice(invoice) {
       items: savedItems,
     };
     transaction.set(invoiceReference, record);
+    savedItems.forEach((item, index) => writeMovement(transaction, database, { id: item.partId, name: item.name, sku: item.sku }, {
+      qty: item.qty,
+      type: "Alış faturası",
+      reference: "invoice",
+      referenceCode: record.code,
+      actor,
+      stockBefore: parts[index].stock,
+      stockAfter: parts[index].stock + item.qty,
+    }));
   });
   return record;
 }
@@ -164,7 +274,7 @@ export async function createStockDraft() {
   const database = requireDatabase();
   const parts = readCollection(await getDocs(collection(database, "parts")));
   const items = parts
-    .filter((part) => part.stock <= part.minimum)
+    .filter((part) => !part.archived && part.stock <= part.minimum)
     .map((part) => ({ partId: part.id, name: part.name, sku: part.sku, qty: Math.max(part.minimum * 2 - part.stock, part.minimum), cost: part.cost }));
   if (!items.length) throw new Error("Kritik seviyede parça bulunmuyor.");
 
@@ -174,7 +284,7 @@ export async function createStockDraft() {
   return draft;
 }
 
-export async function receiveStockDraft(draftId) {
+export async function receiveStockDraft(draftId, actor) {
   const database = requireDatabase();
   const draftReference = doc(database, "drafts", draftId);
   await runTransaction(database, async (transaction) => {
@@ -188,7 +298,18 @@ export async function receiveStockDraft(draftId) {
       throw new Error(`${draft.items[missing].name} envanterde bulunamadı; sipariş stoğa aktarılamadı.`);
     }
     snapshots.forEach((snapshot, index) => {
-      transaction.update(references[index], { stock: snapshot.data().stock + draft.items[index].qty });
+      const part = snapshot.data();
+      const stockAfter = part.stock + draft.items[index].qty;
+      transaction.update(references[index], { stock: stockAfter });
+      writeMovement(transaction, database, { id: draft.items[index].partId, name: part.name, sku: part.sku }, {
+        qty: draft.items[index].qty,
+        type: "Sipariş teslimi",
+        reference: "draft",
+        referenceCode: draft.code,
+        actor,
+        stockBefore: part.stock,
+        stockAfter,
+      });
     });
     transaction.delete(draftReference);
   });
