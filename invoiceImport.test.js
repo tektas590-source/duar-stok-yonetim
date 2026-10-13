@@ -38,3 +38,25 @@ test("aggregates repeated SKUs and rejects unresolved or invalid lines", () => {
   assert.equal(result.items[0].cost, 350);
   assert.equal(result.errors.length, 2);
 });
+
+test("accepts a new stock code and sale price to create its part card", () => {
+  const result = parseInvoicePaste("SKU\tParça Adı\tAdet\tAlış Fiyatı\tSatış Fiyatı\nNEW-301\tHava filtresi\t3\t220\t390", parts);
+  assert.deepEqual(result.errors, []);
+  assert.deepEqual(result.items, [{
+    sku: "NEW-301",
+    name: "Hava filtresi",
+    category: "Genel",
+    brand: "",
+    minimum: 5,
+    qty: 3,
+    cost: 220,
+    price: 390,
+  }]);
+});
+
+test("requires name and sale price for a new stock code", () => {
+  const missingName = parseInvoicePaste("SKU\tParça Adı\tAdet\tAlış Fiyatı\tSatış Fiyatı\nNEW-301\t\t3\t220\t390", parts);
+  assert.deepEqual(missingName.errors, ["2. satır: yeni stok kartı için stok kodu ve parça adı gereklidir."]);
+  const missingPrice = parseInvoicePaste("SKU\tParça Adı\tAdet\tAlış Fiyatı\nNEW-301\tHava filtresi\t3\t220", parts);
+  assert.deepEqual(missingPrice.errors, ["2. satır: yeni parça için satış fiyatı gereklidir."]);
+});

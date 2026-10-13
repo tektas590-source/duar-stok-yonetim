@@ -180,3 +180,8 @@ html[data-theme="light"] .part-paste-hint{color:#718071}html[data-theme="light"]
 @media(max-width:900px){.dashboard-insights{grid-template-columns:1fr}.fitment-grid{grid-template-columns:1fr 1fr}.movement-toolbar .search-wrap{flex:1 1 100%;width:100%}}
 @media(max-width:600px){.dashboard-insights{gap:10px;margin-top:10px}.trend-panel,.activity-panel{padding:14px 12px}.trend-sections{grid-template-columns:1fr;gap:15px}.mini-bars{min-height:105px}.mini-bar-track{height:64px}.vehicle-card-grid,.fitment-grid{grid-template-columns:1fr}.vehicle-profile{padding:15px}.vehicle-profile-heading{align-items:flex-start;flex-direction:column}.vehicle-profile-metrics{gap:18px}.movement-toolbar{align-items:stretch}.movement-toolbar .filter-select{flex:1}.filter-select{max-width:100%}.vehicle-visit-heading{align-items:flex-start;flex-direction:column;gap:4px}.list-toolbar .filter-select{width:100%}}
 @media(max-width:600px){.sidebar .navigation{justify-content:flex-start;overflow-x:auto;scrollbar-width:none}.sidebar .navigation::-webkit-scrollbar{display:none}.sidebar .nav-item{flex:0 0 42px}}
+.modal-item-line:has(label:nth-child(4)){grid-template-columns:minmax(130px,1fr) 58px 100px 100px}
+.invoice-code-lines{display:grid;gap:10px}
+.invoice-code-row{padding:11px;border:1px solid #2c332d;border-radius:7px;background:#151916}
+@media(max-width:600px){.modal-item-line:has(label:nth-child(4)){grid-template-columns:minmax(90px,1fr) 51px 83px 83px}.invoice-code-row{padding:8px}}
+html[data-theme="light"] .invoice-code-row{border-color:#e2e8df;background:#f7f9f6}

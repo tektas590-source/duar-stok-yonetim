@@ -37,7 +37,7 @@ npm run dev
 - Stok Hareketleri sayfasında fatura girişi, iş emri çıkışı, sipariş teslimi ve stok düzeltmelerini kullanıcı, kaynak belge ve stok bakiyesiyle izleme
 - Dashboard'da son 7 günlük ve 6 aylık ciro grafikleri ile birleşik son hareket akışı
 - Parçayı silmek yerine arşivleme; kısa süreli bildirimden işlemi geri alma
-- Parça seçerek veya Excel/faturadan kopyala-yapıştır ile alış faturası girişi; stok otomatik artar
+- Parça seçerek, stok kodunu yazarak veya Excel'den kopyalayarak alış faturası girişi; yeni kodlarda parça kartı otomatik oluşur, stok ve satış fiyatı güncellenir
 - Kritik seviyedeki stoklardan sipariş taslağı oluşturma ve teslim alındığında stoğa işleme
 - En çok satan parçalar, servis cirosu ve iş emri raporları
 - Gösterge panelinde canlı saat/tarih, düşük dikkat dağıtan araç animasyonu ve açık/koyu tema
@@ -48,7 +48,7 @@ npm run dev
 
 Yönetici olarak **Yetkili Kullanıcılar** sayfasından erişim verilecek kişilerin e-posta adreslerini ekleyin. Bu kişiler hesap oluşturup e-posta adreslerini doğrular; yönetici onayı olmadan servis verileri açılamaz. Erişimi kaldırmak için listedeki hesabı silin. İzin listesi ve uygulama verileri Firestore'da tutulur. Güvenli ilk parola değişiminden sonra yönetici giriş bilgilerini paylaşmak yerine kullanıcı kendi hesabını oluşturmalıdır.
 
-Fatura eklerken **Kopyala / yapıştır** sekmesini seçin. Excel veya tedarikçi tablosundan satırları doğrudan metin kutusuna yapıştırın. Başlıklar tanınır (`SKU`/`Parça Kodu`, `Adet`/`Miktar`, `Alış Fiyatı`/`Birim Fiyatı`); başlıksız sütun sırası `SKU, Parça Adı, Adet, Birim Alış Fiyatı` veya `SKU, Adet, Birim Alış Fiyatı` olmalıdır. TSV, CSV ve noktalı virgülle ayrılmış metin desteklenir. Yapıştırılan satırların stok kartları önceden envanterde bulunmalıdır; eşleşmeyen parçalar hata olarak gösterilir, kayıt sessizce atlanmaz.
+Alış faturası girerken **Stok kodu gir** sekmesinde SKU'yu kendiniz yazabilir, adet, alış fiyatı ve satış fiyatını belirleyebilirsiniz. SKU mevcutsa stok ve fiyatlar güncellenir; yeni SKU için parça adı da girildiğinde fatura kaydıyla birlikte stok kartı otomatik oluşturulur. **Kopyala / yapıştır** sekmesi de `SKU, Parça Adı, Adet, Alış Fiyatı, Satış Fiyatı` sütunlarını destekler. Yeni parça oluşturmak için ad ve satış fiyatı zorunludur; mevcut parçalar için başlıklı tabloda satış fiyatı isteğe bağlıdır. TSV, CSV ve noktalı virgülle ayrılmış metin desteklenir; hatalı veya eşleşmeyen satırlar açıkça bildirilir.
 
 İş emrinde bir aracın plakası, marka/modeli ve kullanılan parçaları kaydedildikçe araç geçmişi ve parça/model uyumluluk listeleri oluşur. Stok hareketleri yeni işlemlerden itibaren ilgili parçanın alt koleksiyonunda aktör ve stok öncesi/sonrası değerlerini saklar; var olan Firestore kuralları bu koleksiyon yollarını mevcut yetkili parça erişimi kapsamında korur. Önceden kayıtlı iş emirleri ve alış faturaları hareket ekranında geçmiş işlem olarak görünür; bu eski kayıtlar için işlem yapan kullanıcı bilgisi mevcut olmadığından **Geçmiş kayıt** şeklinde işaretlenir.
 

@@ -693,6 +693,7 @@ function ReportMetric({ label, value, caption, icon, color }) {
 
 function Modal({ modal, parts, onClose, onSavePart, onSaveJob, onSaveInvoice, saving }) {
   const [lines, setLines] = useState([{ partId: "", qty: 1, search: "" }]);
+  const [codeLines, setCodeLines] = useState([{ sku: "", name: "", qty: "1", cost: "", price: "", category: "Genel", brand: "", minimum: "5" }]);
   const [error, setError] = useState("");
   const [pasteMessage, setPasteMessage] = useState("");
   const [invoiceMode, setInvoiceMode] = useState("select");
@@ -700,6 +701,8 @@ function Modal({ modal, parts, onClose, onSavePart, onSaveJob, onSaveInvoice, sa
   const title = modal.type === "part" ? modal.item ? "Parçayı düzenle" : "Yeni parça ekle" : modal.type === "job" ? "Yeni iş emri" : "Alış faturası ekle";
   const updateLine = (index, key, value) => setLines((current) => current.map((line, i) => i === index ? { ...line, [key]: value } : line));
   const addLine = () => setLines((current) => [...current, { partId: "", qty: 1, search: "" }]);
+  const updateCodeLine = (index, key, value) => setCodeLines((current) => current.map((line, i) => i === index ? { ...line, [key]: value } : line));
+  const addCodeLine = () => setCodeLines((current) => [...current, { sku: "", name: "", qty: "1", cost: "", price: "", category: "Genel", brand: "", minimum: "5" }]);
   const pastedInvoice = modal.type === "invoice" ? parseInvoicePaste(pastedText, parts) : { items: [], errors: [], rows: 0 };
   function selectPart(index, part) {
     setLines((current) => current.map((line, lineIndex) => lineIndex === index ? { ...line, partId: part.id, search: `${part.name} · ${part.sku}` } : line));
@@ -741,9 +744,41 @@ function Modal({ modal, parts, onClose, onSavePart, onSaveJob, onSaveInvoice, sa
       }
       onSavePart(part); return;
     }
+    if (modal.type === "invoice" && invoiceMode === "code") {
+      const items = codeLines.filter((line) => line.sku || line.name || line.cost || line.price).map((line) => {
+        const sku = line.sku.trim();
+        const part = parts.find((entry) => entry.sku.toLocaleLowerCase("tr") === sku.toLocaleLowerCase("tr"));
+        return {
+          ...(part ? { partId: part.id } : {}),
+          sku,
+          name: part?.name || line.name.trim(),
+          category: line.category.trim() || "Genel",
+          brand: line.brand.trim(),
+          minimum: Number(line.minimum),
+          qty: Number(line.qty),
+          cost: Number(line.cost),
+          price: Number(line.price),
+        };
+      });
+      if (!items.length || items.some((item) => !item.sku || !Number.isInteger(item.qty) || item.qty <= 0 || !Number.isFinite(item.cost) || item.cost < 0 || !Number.isFinite(item.price) || item.price < 0 || (!item.partId && !item.name))) {
+        setError("Her satır için stok kodu, adet, alış ve satış fiyatı girin. Yeni parçalarda ad alanı da zorunludur.");
+        return;
+      }
+      const duplicates = new Set();
+      for (const item of items) {
+        const normalizedSku = item.sku.toLocaleLowerCase("tr");
+        if (duplicates.has(normalizedSku)) {
+          setError(`${item.sku} kodu birden fazla satırda bulunuyor; aynı kodu tek satırda birleştirin.`);
+          return;
+        }
+        duplicates.add(normalizedSku);
+      }
+      onSaveInvoice({ supplier: String(form.get("supplier")).trim(), items, total: items.reduce((sum, item) => sum + item.qty * item.cost, 0) });
+      return;
+    }
     const rawItems = lines.map((line) => {
       const part = parts.find((entry) => entry.id === line.partId);
-      return part && Number(line.qty) > 0 ? { partId: part.id, name: part.name, qty: Math.floor(Number(line.qty)), price: modal.type === "invoice" ? Number(line.cost ?? part.cost) : part.price, cost: Number(line.cost ?? part.cost) } : null;
+      return part && Number.isInteger(Number(line.qty)) && Number(line.qty) > 0 ? { partId: part.id, sku: part.sku, name: part.name, category: part.category, brand: part.brand, qty: Number(line.qty), price: modal.type === "invoice" ? Number(line.price ?? part.price) : part.price, cost: Number(line.cost ?? part.cost) } : null;
     }).filter(Boolean);
     if (modal.type === "job" && lines.some((line) => !line.partId)) {
       setError("Her parça satırı için arama sonuçlarından bir parça seçin.");
@@ -787,7 +822,8 @@ function Modal({ modal, parts, onClose, onSavePart, onSaveJob, onSaveInvoice, sa
           line.search && !line.partId ? h("div", { className: "part-search-empty" }, "Eşleşme yok. Kodu, adını veya kodun sonunu deneyin.") : null
       )) : h("label", null, index === 0 ? "Parça" : " ", h("select", { value: line.partId, onChange: (event) => updateLine(index, "partId", event.target.value), required: index === 0 }, h("option", { value: "" }, "Parça seçin"), parts.map((entry) => h("option", { key: entry.id, value: entry.id }, `${entry.name} · ${entry.sku}`)))),
       h("label", null, index === 0 ? "Adet" : " ", h("input", { type: "number", min: 1, max: type === "job" && part ? part.stock : undefined, value: line.qty, onChange: (event) => updateLine(index, "qty", event.target.value), required: true })),
-      type === "invoice" ? h("label", null, index === 0 ? "Birim alış (₺)" : " ", h("input", { type: "number", min: 0, step: "0.01", value: line.cost ?? part?.cost ?? "", onChange: (event) => updateLine(index, "cost", event.target.value), required: true })) : null
+      type === "invoice" ? h("label", null, index === 0 ? "Birim alış (₺)" : " ", h("input", { type: "number", min: 0, step: "0.01", value: line.cost ?? part?.cost ?? "", onChange: (event) => updateLine(index, "cost", event.target.value), required: true })) : null,
+      type === "invoice" ? h("label", null, index === 0 ? "Satış fiyatı (₺)" : " ", h("input", { type: "number", min: 0, step: "0.01", value: line.price ?? part?.price ?? "", onChange: (event) => updateLine(index, "price", event.target.value), required: true })) : null
     );
   }
   return h("div", { className: "modal-backdrop", onMouseDown: (event) => { if (event.target === event.currentTarget) onClose(); } }, h("section", { className: "modal-card", role: "dialog", "aria-modal": "true", "aria-labelledby": "modal-title" },
@@ -809,18 +845,34 @@ function Modal({ modal, parts, onClose, onSavePart, onSaveJob, onSaveInvoice, sa
         h("label", null, "Tedarikçi", h("input", { name: "supplier", placeholder: "Tedarikçi firma adı", required: true })),
         h("div", { className: "invoice-input-tabs" },
           h("button", { type: "button", className: invoiceMode === "select" ? "active" : "", onClick: () => { setInvoiceMode("select"); setError(""); } }, "Parçaları seç"),
+          h("button", { type: "button", className: invoiceMode === "code" ? "active" : "", onClick: () => { setInvoiceMode("code"); setError(""); } }, "Stok kodu gir"),
           h("button", { type: "button", className: invoiceMode === "paste" ? "active" : "", onClick: () => { setInvoiceMode("paste"); setError(""); } }, "Kopyala / yapıştır")
         ),
         invoiceMode === "select" ? h(React.Fragment, null,
           h("div", { className: "modal-section-title invoice-lines-title" }, "Faturadaki parçalar", h("span", null, "Stok, fatura kaydedilince artar")),
           h("div", { className: "modal-lines" }, lines.map((line, index) => partLine(line, index, "invoice"))),
           h("button", { className: "add-line-button", type: "button", onClick: addLine }, h(Icon, { name: "plus", size: 15 }), "Parça satırı ekle")
+        ) : invoiceMode === "code" ? h(React.Fragment, null,
+          h("p", { className: "paste-hint" }, "Stok kodunu kendiniz yazın. Kod kayıtlıysa mevcut stok kartı güncellenir; yeni koddaysa fatura kaydedilince stok kartı otomatik oluşturulur. Yeni parçada ad, alış ve satış fiyatı zorunludur."),
+          h("div", { className: "invoice-code-lines" }, codeLines.map((line, index) => h("section", { className: "invoice-code-row", key: index },
+            h("div", { className: "form-grid" },
+              h("label", null, "Stok kodu / SKU", h("input", { value: line.sku, onChange: (event) => updateCodeLine(index, "sku", event.target.value), placeholder: "Örn. OE-9812", required: true })),
+              h("label", null, "Parça adı (yeni parça)", h("input", { value: line.name, onChange: (event) => updateCodeLine(index, "name", event.target.value), placeholder: "Örn. Yağ filtresi" })),
+              h("label", null, "Adet", h("input", { type: "number", min: 1, step: 1, value: line.qty, onChange: (event) => updateCodeLine(index, "qty", event.target.value), required: true })),
+              h("label", null, "Birim alış (₺)", h("input", { type: "number", min: 0, step: "0.01", value: line.cost, onChange: (event) => updateCodeLine(index, "cost", event.target.value), required: true })),
+              h("label", null, "Satış fiyatı (₺)", h("input", { type: "number", min: 0, step: "0.01", value: line.price, onChange: (event) => updateCodeLine(index, "price", event.target.value), required: true })),
+              h("label", null, "Kategori", h("input", { value: line.category, onChange: (event) => updateCodeLine(index, "category", event.target.value), placeholder: "Genel" })),
+              h("label", null, "Marka", h("input", { value: line.brand, onChange: (event) => updateCodeLine(index, "brand", event.target.value), placeholder: "Parça markası" })),
+              h("label", null, "Kritik stok seviyesi", h("input", { type: "number", min: 0, step: 1, value: line.minimum, onChange: (event) => updateCodeLine(index, "minimum", event.target.value), required: true }))
+            )
+          ))),
+          h("button", { className: "add-line-button", type: "button", onClick: addCodeLine }, h(Icon, { name: "plus", size: 15 }), "Faturaya parça satırı ekle")
         ) : h("div", { className: "invoice-paste-panel" },
-          h("label", null, "Fatura satırları", h("textarea", { value: pastedText, onChange: (event) => { setPastedText(event.target.value); setError(""); }, placeholder: "SKU\tParça Adı\tAdet\tBirim Alış Fiyatı\nOE-9812\tYağ filtresi\t4\t310\nBR-2048\tÖn fren balatası\t2\t1680", rows: 7 })),
-          h("p", { className: "paste-hint" }, "Excel'den veya faturadan satırları doğrudan yapıştırın. Sütun sırası: SKU, Parça Adı (isteğe bağlı), Adet, Birim Alış Fiyatı. Başlık satırı kullanılabilir. TSV, CSV ve noktalı virgül desteklenir."),
+          h("label", null, "Fatura satırları", h("textarea", { value: pastedText, onChange: (event) => { setPastedText(event.target.value); setError(""); }, placeholder: "SKU\tParça Adı\tAdet\tAlış Fiyatı\tSatış Fiyatı\nOE-9812\tYağ filtresi\t4\t310\t450\nNEW-301\tHava filtresi\t2\t220\t390", rows: 7 })),
+          h("p", { className: "paste-hint" }, "Excel'den veya faturadan satırları doğrudan yapıştırın. Başlıklı sütun önerisi: SKU, Parça Adı, Adet, Alış Fiyatı, Satış Fiyatı. Yeni stok kodu için ad ve satış fiyatı zorunludur; yeni stok kartı fatura kaydedilince otomatik oluşur. TSV, CSV ve noktalı virgül desteklenir."),
           pastedInvoice.rows ? h("div", { className: `paste-result ${pastedInvoice.errors.length ? "paste-result-error" : ""}` },
-            h("strong", null, pastedInvoice.errors.length ? `${pastedInvoice.errors.length} satır kontrol edilmeli` : `${pastedInvoice.items.length} parça eşleşti`),
-            pastedInvoice.errors.length ? h("ul", null, pastedInvoice.errors.slice(0, 5).map((message) => h("li", { key: message }, message))) : h("p", null, "Fatura kaydedildiğinde eşleşen parçaların stokları bulutta artırılır.")
+            h("strong", null, pastedInvoice.errors.length ? `${pastedInvoice.errors.length} satır kontrol edilmeli` : `${pastedInvoice.items.length} fatura satırı hazır`),
+            pastedInvoice.errors.length ? h("ul", null, pastedInvoice.errors.slice(0, 5).map((message) => h("li", { key: message }, message))) : h("p", null, `${pastedInvoice.items.filter((item) => !item.partId).length} yeni stok kartı oluşturulacak; mevcut parçaların stoğu güncellenecek.`)
           ) : null
         )
       ),

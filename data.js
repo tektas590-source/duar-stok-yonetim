@@ -215,36 +215,89 @@ export async function createPurchaseInvoice(invoice, actor) {
   const database = requireDatabase();
   const aggregated = new Map();
   invoice.items.forEach((item) => {
-    const previous = aggregated.get(item.partId);
+    const sku = String(item.sku || "").trim();
+    const key = sku ? sku.toLocaleLowerCase("tr") : item.partId;
+    const previous = aggregated.get(key);
     if (previous) {
+      if (previous.price !== undefined && item.price !== undefined && previous.price !== item.price) {
+        throw new Error(`Aynı stok kodu (${sku || item.sku}) için farklı satış fiyatları girilmiş.`);
+      }
       const totalQty = previous.qty + item.qty;
       previous.cost = (previous.cost * previous.qty + item.cost * item.qty) / totalQty;
       previous.qty = totalQty;
-    } else aggregated.set(item.partId, { ...item });
+      if (previous.price === undefined) previous.price = item.price;
+    } else aggregated.set(key, { ...item, sku });
   });
   const items = [...aggregated.values()];
   for (const item of items) {
-    if (!Number.isInteger(item.qty) || item.qty <= 0 || !Number.isFinite(item.cost) || item.cost < 0) {
-      throw new Error("Faturadaki adet veya alış fiyatı geçersiz.");
+    if (!item.sku || !Number.isInteger(item.qty) || item.qty <= 0 || !Number.isFinite(item.cost) || item.cost < 0) {
+      throw new Error("Faturadaki stok kodu, adet veya alış fiyatı geçersiz.");
+    }
+    if (item.price !== undefined && (!Number.isFinite(item.price) || item.price < 0)) {
+      throw new Error(`${item.name || item.sku} için satış fiyatı geçersiz.`);
     }
   }
 
   const invoiceId = makeId();
   const invoiceReference = doc(database, "invoices", invoiceId);
-  const partReferences = items.map((item) => doc(database, "parts", item.partId));
+  const skuQueries = items.map((item) => query(
+    collection(database, "parts"),
+    where("skuNormalized", "==", item.sku.toLocaleLowerCase("tr"))
+  ));
+  const skuMatches = await Promise.all(skuQueries.map((skuQuery) => getDocs(skuQuery)));
+  const partReferences = items.map((item, index) => {
+    const matches = skuMatches[index];
+    if (matches.size > 1) throw new Error(`${item.sku} stok kodu birden fazla kartta kullanılıyor.`);
+    const matched = matches.docs[0];
+    if (matched && item.partId && matched.id !== item.partId) {
+      throw new Error(`${item.sku} stok kodu başka bir parça kartında kullanılıyor.`);
+    }
+    const id = matched?.id || item.partId || `sku-${encodeURIComponent(item.sku.toLocaleLowerCase("tr"))}`;
+    return doc(database, "parts", id);
+  });
   let record;
   await runTransaction(database, async (transaction) => {
     const snapshots = await Promise.all(partReferences.map((reference) => transaction.get(reference)));
-    const parts = snapshots.map((snapshot) => snapshot.exists() ? snapshot.data() : null);
-    if (parts.some((part) => !part || part.archived)) throw new Error("Faturadaki parça bulunamadı veya arşivlenmiş.");
-
-    const savedItems = items.map((item, index) => {
-      const part = parts[index];
-      return { ...item, name: part.name, sku: part.sku };
+    const reads = snapshots.map((snapshot, index) => {
+      const item = items[index];
+      if (snapshot.exists() && snapshot.data().sku.toLocaleLowerCase("tr") !== item.sku.toLocaleLowerCase("tr")) {
+        throw new Error(`${item.sku} stok kodu seçilen parçayla eşleşmiyor.`);
+      }
+      if (!snapshot.exists() && (!item.name?.trim() || item.price === undefined)) {
+        throw new Error(`${item.sku} yeni stok kodu için parça adı ve satış fiyatı girilmelidir.`);
+      }
+      if (snapshot.exists() && snapshot.data().archived) {
+        throw new Error(`${item.sku} arşivlenmiş olduğu için faturaya eklenemez.`);
+      }
+      return snapshot.exists() ? snapshot : null;
     });
-    savedItems.forEach((item, index) => {
-      const stockAfter = parts[index].stock + item.qty;
-      transaction.update(partReferences[index], { stock: stockAfter, cost: item.cost });
+    const savedItems = items.map((item, index) => {
+      const snapshot = reads[index];
+      const existing = snapshot?.data();
+      const partId = snapshot?.id || partReferences[index].id;
+      const sku = existing?.sku || item.sku;
+      const name = existing?.name || item.name.trim();
+      const stockBefore = Number(existing?.stock || 0);
+      const stockAfter = stockBefore + item.qty;
+      const updatedPart = existing
+        ? { stock: stockAfter, cost: item.cost, ...(item.price === undefined ? {} : { price: item.price }) }
+        : {
+            id: partId,
+            sku,
+            skuNormalized: sku.toLocaleLowerCase("tr"),
+            name,
+            category: item.category?.trim() || "Genel",
+            brand: item.brand?.trim() || "",
+            stock: stockAfter,
+            minimum: Number.isFinite(item.minimum) && item.minimum >= 0 ? item.minimum : 5,
+            price: item.price,
+            cost: item.cost,
+            sold: 0,
+            archived: false,
+          };
+      if (existing) transaction.update(doc(database, "parts", partId), updatedPart);
+      else transaction.set(partReferences[index], updatedPart);
+      return { ...item, partId, name, sku, price: item.price ?? existing?.price, stockBefore, stockAfter };
     });
     record = {
       id: invoiceId,
@@ -257,14 +310,14 @@ export async function createPurchaseInvoice(invoice, actor) {
       items: savedItems,
     };
     transaction.set(invoiceReference, record);
-    savedItems.forEach((item, index) => writeMovement(transaction, database, { id: item.partId, name: item.name, sku: item.sku }, {
+    savedItems.forEach((item) => writeMovement(transaction, database, { id: item.partId, name: item.name, sku: item.sku }, {
       qty: item.qty,
       type: "Alış faturası",
       reference: "invoice",
       referenceCode: record.code,
       actor,
-      stockBefore: parts[index].stock,
-      stockAfter: parts[index].stock + item.qty,
+      stockBefore: item.stockBefore,
+      stockAfter: item.stockAfter,
     }));
   });
   return record;
