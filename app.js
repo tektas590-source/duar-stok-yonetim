@@ -1,7 +1,9 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./style.css";
-import { createPurchaseInvoice, createStockDraft, createWorkOrder, deletePart, fetchServiceData, grantUserAccess, listAuthorizedUsers, receiveStockDraft, restorePart, revokeUserAccess, savePart, subscribeToServiceData } from "./data.js";
+import { cancelWorkOrder, completeWorkOrder, createPurchaseInvoice, createStockDraft, createWorkOrder, deletePart, fetchServiceData, grantUserAccess, listAuthorizedUsers, receiveStockDraft, restorePart, revokeUserAccess, savePart, subscribeToServiceData, updateWorkOrder } from "./data.js";
+import { getOpenWorkOrders, getRevenueEligibleWorkOrders, getWorkOrderStatusClass, WORK_ORDER_STATUS } from "./workOrderLifecycle.js";
+import { searchVehiclePartUsage } from "./vehicleCompatibility.js";
 import { parseInvoicePaste } from "./invoiceImport.js";
 import { findPartMatches, parsePastedPartQueries } from "./partSearch.js";
 import { changeInitialPassword, firebaseConfigured, OWNER_EMAIL, registerWithPassword, requestPasswordReset, signInWithPassword, signOutUser, subscribeToAuth } from "./firebase.js";
@@ -104,7 +106,8 @@ function App() {
   }, [user, reloadData]);
 
   const lowStock = data.parts.filter((part) => part.stock <= part.minimum);
-  const revenue = vatIncludedAmount(data.jobs.reduce((sum, job) => sum + Number(job.total || 0), 0));
+  const revenueEligibleJobs = getRevenueEligibleWorkOrders(data.jobs);
+  const revenue = vatIncludedAmount(revenueEligibleJobs.reduce((sum, job) => sum + Number(job.total || 0), 0));
   useEffect(() => { if (toast) { const timer = setTimeout(() => { setToast(""); setToastAction(null); }, toastAction ? 8000 : 3200); return () => clearTimeout(timer); } }, [toast, toastAction]);
 
   const nav = [
@@ -120,7 +123,7 @@ function App() {
   ];
   const isOwner = user?.email?.toLowerCase() === OWNER_EMAIL;
   if (isOwner) nav.push({ id: "access", label: "Yetkili Kullanıcılar", icon: "grid" });
-  const titles = { dashboard: ["Genel Bakış", "Servisinizin bugünkü durumuna göz atın."], inventory: ["Parça Envanteri", "Stoklarınızı ve parça fiyatlarınızı yönetin."], workorders: ["İş Emirleri", "Araç servis geçmişini ve devam eden işleri takip edin."], vehicles: ["Araç Servis Geçmişi", "Plakaya göre servis ziyaretlerini ve kullanılan parçaları bulun."], compatibility: ["Parça–Araç Uyumluluğu", "İş emirlerinde kullanılan parçalara göre araç eşleşmelerini görün."], movements: ["Stok Hareketleri", "Giriş, çıkış ve düzeltmeleri kaynak ve kullanıcıyla izleyin."], invoices: ["Alış Faturaları", "Faturaları kaydedin, stok girişlerini anında işleyin."], orders: ["Taslak Siparişler", "Azalan parçalar için oluşturduğunuz sipariş önerileri."], reports: ["Raporlar", "Satış performansı ve iş emri cironuz."], access: ["Yetkili Kullanıcılar", "Hesap ekleyin veya servis erişimini kaldırın."] };
+  const titles = { dashboard: ["Genel Bakış", "Servisinizin bugünkü durumuna göz atın."], inventory: ["Parça Envanteri", "Stoklarınızı ve parça fiyatlarınızı yönetin."], workorders: ["İş Emirleri", "Araç servis geçmişini ve devam eden işleri takip edin."], vehicles: ["Araç Servis Geçmişi", "Plakaya göre servis ziyaretlerini ve kullanılan parçaları bulun."], compatibility: ["Araçtan Parça Uyumluluğu", "Marka, model veya plaka yazarak araçlarda kullanılan parçaları bulun."], movements: ["Stok Hareketleri", "Giriş, çıkış ve düzeltmeleri kaynak ve kullanıcıyla izleyin."], invoices: ["Alış Faturaları", "Faturaları kaydedin, stok girişlerini anında işleyin."], orders: ["Taslak Siparişler", "Azalan parçalar için oluşturduğunuz sipariş önerileri."], reports: ["Raporlar", "Satış performansı ve iş emri cironuz."], access: ["Yetkili Kullanıcılar", "Hesap ekleyin veya servis erişimini kaldırın."] };
   const openModal = (type, item = null) => setModal({ type, item });
   const runAction = async (action, success) => {
     setErrorMessage("");
@@ -157,10 +160,24 @@ function App() {
     });
   };
   const persistJob = async (job) => {
-    await runAction(async () => { await createWorkOrder(job, user.email); await reloadData(); setModal(null); }, "İş emri oluşturuldu, stoklar ve hareket geçmişi güncellendi.");
+    const isEditing = Boolean(job.id);
+    await runAction(async () => {
+      if (isEditing) await updateWorkOrder(job.id, job, user.email);
+      else await createWorkOrder(job, user.email);
+      await reloadData();
+      setModal(null);
+    }, isEditing ? "İş emri güncellendi; stok farkları ve hareket kayıtları işlendi." : "İş emri oluşturuldu, stoklar ve hareket geçmişi güncellendi.");
   };
   const persistInvoice = async (invoice) => {
     await runAction(async () => { await createPurchaseInvoice(invoice, user.email); await reloadData(); setModal(null); }, "Fatura kaydedildi, stoklar ve hareket geçmişi güncellendi.");
+  };
+  const markJobComplete = async (job) => {
+    await runAction(async () => { await completeWorkOrder(job.id, user.email); await reloadData(); }, "İş emri tamamlandı.");
+  };
+  const cancelJob = async (job) => {
+    const confirmed = window.confirm("İş emrini iptal etmek istiyor musunuz? Kullanılan parçalar stoğa iade edilir. Kayıt geçmişte kalır; ciro ve araç parça sonuçlarından çıkarılır.");
+    if (!confirmed) return;
+    await runAction(async () => { await cancelWorkOrder(job.id, user.email); await reloadData(); }, "İş emri iptal edildi; stok iade edildi ve kayıt denetim için saklandı.");
   };
   const createDraft = async () => {
     await runAction(async () => { await createStockDraft(); await reloadData(); setPage("orders"); }, "Kritik stoklar için sipariş taslağı oluşturuldu.");
@@ -231,9 +248,9 @@ function App() {
           page === "orders" ? h("button", { className: "button button-primary", onClick: createDraft, disabled: saving }, h(Icon, { name: "plus", size: 16 }), "Sipariş taslağı oluştur") : null)),
         page === "dashboard" ? h(Dashboard, { data, lowStock, revenue, setPage, openModal, createDraft }) :
         page === "inventory" ? h(Inventory, { parts: data.parts, query, setQuery, openModal, removePart, saving }) :
-        page === "workorders" ? h(WorkOrders, { jobs: data.jobs, query, setQuery }) :
+        page === "workorders" ? h(WorkOrders, { jobs: data.jobs, query, setQuery, openModal, markJobComplete, cancelJob, saving }) :
         page === "vehicles" ? h(VehicleHistory, { jobs: data.jobs }) :
-        page === "compatibility" ? h(PartCompatibility, { jobs: data.jobs, parts: data.parts }) :
+        page === "compatibility" ? h(PartCompatibility, { jobs: data.jobs }) :
         page === "movements" ? h(StockMovements, { movements: data.movements }) :
         page === "invoices" ? h(Invoices, { invoices: data.invoices }) :
         page === "orders" ? h(Orders, { drafts: data.drafts, lowStock, receiveDraft, createDraft }) :
@@ -370,12 +387,12 @@ function AccessManagement({ onError, onSuccess }) {
   );
 }
 function Dashboard({ data, lowStock, revenue, setPage, openModal, createDraft }) {
-  const openJobs = data.jobs.filter((job) => job.status !== "Tamamlandı").length;
+  const openJobs = getOpenWorkOrders(data.jobs).length;
   const top = [...data.parts].sort((a, b) => b.sold - a.sold).slice(0, 4);
   const max = Math.max(...top.map((part) => part.sold), 1);
   const metrics = [
-    ["Toplam ciro", money(revenue), "KDV dahil · tüm iş emirleri", "chart", "green", "%20 KDV dahil"],
-    ["Açık iş emirleri", String(openJobs).padStart(2, "0"), "İşlem bekleyen araçlar", "wrench", "blue", `${data.jobs.length} toplam iş emri`],
+    ["Toplam ciro", money(revenue), "KDV dahil · iptal edilmemiş işler", "chart", "green", "%20 KDV dahil"],
+    ["Açık iş emirleri", String(openJobs).padStart(2, "0"), "İşlem bekleyen araçlar", "wrench", "blue", `${data.jobs.length} kayıtlı iş emri`],
     ["Envanter kalemi", String(data.parts.length).padStart(2, "0"), "Takip edilen parça çeşidi", "box", "purple", `${data.parts.reduce((sum, part) => sum + part.stock, 0)} toplam adet`],
     ["Kritik stok", String(lowStock.length).padStart(2, "0"), "Minimum seviyenin altında", "bell", "orange", "Yeniden sipariş gerekli"],
   ];
@@ -403,23 +420,24 @@ function Dashboard({ data, lowStock, revenue, setPage, openModal, createDraft })
 }
 function DashboardInsights({ data, setPage }) {
   const today = new Date();
+  const revenueJobs = getRevenueEligibleWorkOrders(data.jobs);
   const recentDays = Array.from({ length: 7 }, (_, index) => {
     const date = new Date(today);
     date.setDate(date.getDate() - (6 - index));
     const key = dateKey(date);
-    const amount = vatIncludedAmount(data.jobs.filter((job) => job.date === key).reduce((sum, job) => sum + Number(job.total || 0), 0));
+      const amount = vatIncludedAmount(revenueJobs.filter((job) => job.date === key).reduce((sum, job) => sum + Number(job.total || 0), 0));
     return { label: new Intl.DateTimeFormat("tr-TR", { weekday: "short" }).format(date), amount };
   });
   const recentMonths = Array.from({ length: 6 }, (_, index) => {
     const date = new Date(today.getFullYear(), today.getMonth() - (5 - index), 1);
     const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
-    const amount = vatIncludedAmount(data.jobs.filter((job) => job.date?.startsWith(key)).reduce((sum, job) => sum + Number(job.total || 0), 0));
+      const amount = vatIncludedAmount(revenueJobs.filter((job) => job.date?.startsWith(key)).reduce((sum, job) => sum + Number(job.total || 0), 0));
     return { label: new Intl.DateTimeFormat("tr-TR", { month: "short" }).format(date), amount };
   });
   const movementReferences = new Set(data.movements.map((movement) => movement.referenceCode).filter(Boolean));
   const recentItems = [
     ...data.movements.map((movement) => ({ id: movement.id, date: movement.createdAt, title: movement.name, detail: `${movement.type} · ${movement.referenceCode || ""}`, amount: movement.qty, kind: "movement" })),
-    ...data.jobs.filter((job) => !movementReferences.has(job.code)).map((job) => ({ id: `job-${job.id}`, date: `${job.date}T12:00:00`, title: `${job.plate} · ${job.make} ${job.model}`, detail: `İş emri · ${job.customer}`, amount: null, total: job.total, kind: "job" })),
+    ...getRevenueEligibleWorkOrders(data.jobs).filter((job) => !movementReferences.has(job.code)).map((job) => ({ id: `job-${job.id}`, date: `${job.date}T12:00:00`, title: `${job.plate} · ${job.make} ${job.model}`, detail: `İş emri · ${job.customer}`, amount: null, total: job.total, kind: "job" })),
     ...data.invoices.filter((invoice) => !movementReferences.has(invoice.code)).map((invoice) => ({ id: `invoice-${invoice.id}`, date: `${invoice.date}T12:00:00`, title: invoice.supplier, detail: `Alış faturası · ${invoice.code}`, amount: null, total: invoice.total, kind: "invoice" })),
   ].sort((first, second) => (second.date || "").localeCompare(first.date || "")).slice(0, 6);
   return h("div", { className: "dashboard-insights" },
@@ -512,34 +530,34 @@ function JobTable({ jobs, compact }) {
         h("td", null, h("div", { className: "vehicle-cell" }, h("strong", null, job.plate), h("small", null, `${job.make} ${job.model}`))),
         h("td", { className: "muted-cell" }, job.customer),
         h("td", { className: "price-cell" }, money(vatIncludedAmount(job.total))),
-        h("td", null, h("span", { className: `job-status ${job.status === "Tamamlandı" ? "status-done" : "status-progress"}` }, h("i", null), job.status))
+        h("td", null, h("span", { className: `job-status ${getWorkOrderStatusClass(job.status)}` }, h("i", null), job.status))
       )))
     )
   );
 }
-function WorkOrders({ jobs, query, setQuery }) {
+function WorkOrders({ jobs, query, setQuery, openModal, markJobComplete, cancelJob, saving }) {
   const [selected, setSelected] = useState(null);
   const [status, setStatus] = useState("all");
   const filtered = jobs.filter((job) => `${job.code || job.id} ${job.plate} ${job.customer} ${job.make} ${job.model}`.toLocaleLowerCase("tr").includes(query.toLocaleLowerCase("tr")) && (status === "all" || job.status === status));
   return h(React.Fragment, null,
     h("div", { className: "list-toolbar" },
       h("div", { className: "search-wrap" }, h(Icon, { name: "search", size: 17 }), h("input", { value: query, onChange: (event) => setQuery(event.target.value), placeholder: "Plaka, müşteri veya iş emri ara..." })),
-      h("select", { className: "filter-select", value: status, onChange: (event) => setStatus(event.target.value), "aria-label": "İş emri durumu filtresi" }, h("option", { value: "all" }, "Tüm durumlar"), h("option", { value: "Devam ediyor" }, "Devam ediyor"), h("option", { value: "Tamamlandı" }, "Tamamlandı")),
+      h("select", { className: "filter-select", value: status, onChange: (event) => setStatus(event.target.value), "aria-label": "İş emri durumu filtresi" }, h("option", { value: "all" }, "Tüm durumlar"), h("option", { value: WORK_ORDER_STATUS.IN_PROGRESS }, WORK_ORDER_STATUS.IN_PROGRESS), h("option", { value: WORK_ORDER_STATUS.COMPLETED }, WORK_ORDER_STATUS.COMPLETED), h("option", { value: WORK_ORDER_STATUS.CANCELLED }, WORK_ORDER_STATUS.CANCELLED)),
       h("span", { className: "result-count" }, `${filtered.length} iş emri`)
     ),
     h("section", { className: "panel table-panel" }, filtered.length ? h("div", { className: "table-scroll" },
       h("table", null,
         h("thead", null, h("tr", null, ["İŞ EMRİ", "ARAÇ", "MÜŞTERİ", "İŞLEM / PARÇALAR", "TUTAR · KDV DAHİL", "DURUM"].map((label) => h("th", { key: label }, label)))),
         h("tbody", null, filtered.map((job) => h(React.Fragment, { key: job.id },
-          h("tr", { className: "clickable-row", onClick: () => setSelected(selected === job.id ? null : job.id) },
+          h("tr", { className: "clickable-row", tabIndex: 0, "aria-expanded": selected === job.id, onClick: () => setSelected(selected === job.id ? null : job.id), onKeyDown: (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setSelected(selected === job.id ? null : job.id); } } },
             h("td", null, h("strong", { className: "job-id" }, job.code || job.id), h("small", { className: "table-date" }, dateLabel(job.date))),
             h("td", null, h("div", { className: "vehicle-cell" }, h("strong", null, job.plate), h("small", null, `${job.make} ${job.model}`))),
             h("td", null, h("div", { className: "vehicle-cell" }, h("strong", null, job.customer), h("small", null, job.phone || "Telefon belirtilmedi"))),
             h("td", null, h("span", { className: "muted-cell" }, `${job.items.length} parça kalemi`)),
             h("td", { className: "price-cell" }, money(vatIncludedAmount(job.total))),
-            h("td", null, h("span", { className: `job-status ${job.status === "Tamamlandı" ? "status-done" : "status-progress"}` }, h("i", null), job.status))
+            h("td", null, h("span", { className: `job-status ${getWorkOrderStatusClass(job.status)}` }, h("i", null), job.status))
           ),
-          selected === job.id ? h("tr", { className: "job-detail-row" }, h("td", { colSpan: 6 }, h("div", { className: "job-detail" }, h("strong", null, "Araç servis geçmişi / kullanılan parçalar"), job.items.map((item, index) => h("span", { key: `${item.name}-${index}` }, `${item.name} · ${item.qty} adet · ${money(vatIncludedAmount(item.price * item.qty))}`))))) : null
+          selected === job.id ? h("tr", { className: "job-detail-row" }, h("td", { colSpan: 6 }, h("div", { className: "job-detail" }, h("strong", null, "Araç servis geçmişi / kullanılan parçalar"), job.items.map((item, index) => h("span", { key: `${item.partId || item.sku || item.name}-${index}` }, `${item.name} · ${item.qty} adet · ${money(vatIncludedAmount(item.price * item.qty))}`)), job.status === WORK_ORDER_STATUS.CANCELLED ? h("span", { className: "job-cancelled-note" }, "Kayıt iptal edildi; stok hareketleri korunuyor.") : h("div", { className: "job-lifecycle-actions" }, job.status === WORK_ORDER_STATUS.IN_PROGRESS ? h("button", { className: "button button-small", type: "button", disabled: saving, onClick: () => markJobComplete(job) }, "Tamamlandı") : null, h("button", { className: "button button-small button-danger", type: "button", disabled: saving, onClick: () => cancelJob(job) }, "İş emrini iptal et"), h("button", { className: "button button-small job-edit-action", type: "button", disabled: saving, onClick: () => openModal("job", job), "aria-label": `${job.code || "İş emri"} kaydını düzenle` }, "İş emrini düzenle"))))) : null
         )))
       )
     ) : h("div", { className: "empty-state" }, "Henüz iş emri bulunmuyor."))
@@ -548,8 +566,9 @@ function WorkOrders({ jobs, query, setQuery }) {
 function VehicleHistory({ jobs }) {
   const [query, setQuery] = useState("");
   const [selectedPlate, setSelectedPlate] = useState("");
+  const activeJobs = jobs.filter((job) => job.status !== WORK_ORDER_STATUS.CANCELLED);
   const vehicles = new Map();
-  [...jobs].sort((first, second) => (second.date || "").localeCompare(first.date || "")).forEach((job) => {
+  [...activeJobs].sort((first, second) => (second.date || "").localeCompare(first.date || "")).forEach((job) => {
     const key = job.plate.trim().toLocaleUpperCase("tr");
     const entry = vehicles.get(key) || { plate: key, make: job.make, model: job.model, customer: job.customer, jobs: [] };
     entry.jobs.push(job);
@@ -576,33 +595,33 @@ function VehicleHistory({ jobs }) {
       h("span", { className: "vehicle-card-icon" }, h(Icon, { name: "car", size: 21 })),
       h("span", { className: "vehicle-card-copy" }, h("strong", null, vehicle.plate), h("small", null, `${vehicle.make} ${vehicle.model} · ${vehicle.customer}`)),
       h("span", { className: "vehicle-card-meta" }, `${vehicle.jobs.length} ziyaret · son ${dateLabel(vehicle.lastDate)}`)
-    ))) : h("section", { className: "panel empty-state" }, jobs.length ? "Aramanızla eşleşen araç bulunamadı." : "Araç geçmişi, iş emri kaydedildikçe burada oluşur."));
+    ))) : h("section", { className: "panel empty-state" }, activeJobs.length ? "Aramanızla eşleşen araç bulunamadı." : "Araç geçmişi, iş emri kaydedildikçe burada oluşur."));
 }
-function PartCompatibility({ jobs, parts }) {
+function PartCompatibility({ jobs }) {
   const [query, setQuery] = useState("");
-  const fitments = new Map();
-  jobs.forEach((job) => job.items.forEach((item) => {
-    const entry = fitments.get(item.partId) || new Map();
-    const modelKey = `${job.make.trim().toLocaleLowerCase("tr")}|${job.model.trim().toLocaleLowerCase("tr")}`;
-    const model = entry.get(modelKey) || { make: job.make, model: job.model, count: 0, plates: new Set(), lastDate: job.date };
-    model.count += item.qty;
-    model.plates.add(job.plate);
-    if (job.date > model.lastDate) model.lastDate = job.date;
-    entry.set(modelKey, model);
-    fitments.set(item.partId, entry);
-  }));
-  const filtered = parts.filter((part) => `${part.name} ${part.sku} ${part.category} ${part.brand}`.toLocaleLowerCase("tr").includes(query.trim().toLocaleLowerCase("tr")));
+  const vehicles = searchVehiclePartUsage(jobs, query);
   return h(React.Fragment, null,
-    h("div", { className: "list-toolbar" }, h("div", { className: "search-wrap" }, h(Icon, { name: "search", size: 17 }), h("input", { value: query, onChange: (event) => setQuery(event.target.value), placeholder: "Parça adı veya SKU ara..." })), h("span", { className: "result-count" }, `${filtered.length} parça`)),
-    h("p", { className: "page-hint" }, "Uyumluluk, mevcut iş emirlerinde bu parçanın takıldığı marka/model kayıtlarından çıkarılır; kayıtlı olmayan araçlar için uyum varsayımı yapılmaz."),
-    filtered.length ? h("section", { className: "fitment-grid" }, filtered.map((part) => {
-      const models = [...(fitments.get(part.id)?.values() || [])].sort((first, second) => second.count - first.count);
-      return h("article", { className: "panel fitment-card", key: part.id },
-        h("div", { className: "fitment-part" }, h("span", { className: "part-avatar" }, part.name.slice(0, 1)), h("div", null, h("strong", null, part.name), h("small", null, `${part.sku} · Stok ${part.stock}`))),
-        h("div", { className: "fitment-models" }, models.length ? models.map((model) => h("div", { className: "fitment-model", key: `${model.make}-${model.model}` }, h("span", null, h("strong", null, `${model.make} ${model.model}`), h("small", null, `${model.plates.size} araçta · son kullanım ${dateLabel(model.lastDate)}`)), h("b", null, `${model.count} adet`))) : h("p", { className: "empty-state compact-empty" }, "Henüz iş emrinde kullanılmadı.")),
-        h("span", { className: "fitment-foot" }, models.length ? `${models.length} kayıtlı model` : "Uyumluluk verisi bekleniyor")
-      );
-    })) : h("section", { className: "panel empty-state" }, "Aramanızla eşleşen parça yok."));
+    h("div", { className: "list-toolbar" }, h("div", { className: "search-wrap" }, h(Icon, { name: "search", size: 17 }), h("input", { value: query, onChange: (event) => setQuery(event.target.value), placeholder: "Araç markası, modeli veya plakası ara...", "aria-label": "Araç markası, modeli veya plakası ara" })), h("span", { className: "result-count" }, query.trim() ? `${vehicles.length} araç` : "Araç araması bekleniyor")),
+    h("p", { className: "page-hint" }, "Sonuçlar kayıtlı iş emirlerinde kullanılan parçaları gösterir; katalog uyumluluk garantisi değildir."),
+    !query.trim() ? h("section", { className: "panel empty-state vehicle-search-prompt" }, h("h3", null, "Araç aramaya başlayın"), h("p", null, "Marka, model veya plaka yazın; o araçlarda kullanılan parçaları görüntüleyin.")) : vehicles.length ? h("section", { className: "vehicle-fitment-grid" }, vehicles.map((vehicle) =>
+      h("article", { className: "panel fitment-card vehicle-fitment-card", key: vehicle.plate },
+        h("div", { className: "vehicle-fitment-heading" },
+          h("span", { className: "vehicle-card-icon" }, h(Icon, { name: "car", size: 20 })),
+          h("div", { className: "vehicle-fitment-title" }, h("strong", null, `${vehicle.make} ${vehicle.model}`), h("small", null, vehicle.plate)),
+          h("span", { className: "vehicle-card-meta" }, `${vehicle.jobs.length} servis ziyareti`)
+        ),
+        h("div", { className: "vehicle-profile-metrics vehicle-fitment-metrics" },
+          h("div", null, h("strong", null, vehicle.parts.length), h("span", null, "kullanılan parça")),
+          h("div", null, h("strong", null, dateLabel(vehicle.latestDate)), h("span", null, "son servis"))
+        ),
+        h("h3", { className: "vehicle-fitment-label" }, "Bu araçta kullanılan parçalar"),
+        vehicle.parts.length ? h("div", { className: "vehicle-fitment-parts" }, vehicle.parts.map((part) => h("div", { className: "vehicle-fitment-part", key: part.partId || part.sku || part.name },
+          h("span", null, h("strong", null, part.name), h("small", null, part.sku || "Stok kodu yok")),
+          h("span", { className: "vehicle-fitment-usage" }, `${part.quantity} adet · ${part.visits} ziyarette`),
+          h("small", { className: "vehicle-fitment-last-use" }, `Son kullanım ${dateLabel(part.lastDate)}`)
+        ))) : h("p", { className: "empty-state compact-empty" }, "Bu araç için parça kaydı bulunamadı.")
+      )
+    )) : h("section", { className: "panel empty-state" }, "Aramanızla eşleşen araç bulunamadı."));
 }
 function StockMovements({ movements }) {
   const [query, setQuery] = useState("");
@@ -680,7 +699,7 @@ function Orders({ drafts, lowStock, receiveDraft, createDraft }) {
 function Reports({ data, revenue }) {
   const best = [...data.parts].sort((a, b) => b.sold - a.sold);
   const total = data.parts.reduce((sum, part) => sum + part.sold, 0);
-  const cogs = vatIncludedAmount(data.jobs.reduce((sum, job) => sum + job.items.reduce((subtotal, item) => subtotal + (data.parts.find((part) => part.id === item.partId)?.cost || 0) * item.qty, 0), 0));
+  const cogs = vatIncludedAmount(getRevenueEligibleWorkOrders(data.jobs).reduce((sum, job) => sum + job.items.reduce((subtotal, item) => subtotal + (data.parts.find((part) => part.id === item.partId)?.cost || 0) * item.qty, 0), 0));
   const max = Math.max(...best.map((part) => part.sold), 1);
   return h(React.Fragment, null, h("div", { className: "metric-grid report-metrics" },
     h(ReportMetric, { label: "Toplam ciro", value: money(revenue), caption: "KDV dahil · kaydedilen iş emirleri", icon: "chart", color: "green" }),
@@ -700,14 +719,17 @@ function VatSummary({ values, title = "KDV dahil toplam" }) {
 }
 
 function Modal({ modal, parts, onClose, onSavePart, onSaveJob, onSaveInvoice, saving }) {
-  const [lines, setLines] = useState([{ partId: "", qty: 1, search: "" }]);
+  const [lines, setLines] = useState(() => modal.type === "job" && modal.item
+    ? (modal.item.items || []).map((item) => ({ partId: item.partId || "", originalPartId: item.partId || "", qty: item.qty, search: `${item.name || ""}${item.sku ? ` · ${item.sku}` : ""}`, name: item.name || "", sku: item.sku || "", category: item.category || "Genel", brand: item.brand || "", price: item.price, originalQty: item.qty, originalPrice: item.price, archived: !parts.some((part) => part.id === item.partId) }))
+    : [{ partId: "", qty: 1, search: "" }]);
+  const [businessDate, setBusinessDate] = useState(() => modal.item?.date || dateKey(new Date()));
   const [error, setError] = useState("");
   const [pasteMessage, setPasteMessage] = useState("");
   const [invoiceMode, setInvoiceMode] = useState("code");
   const [pastedText, setPastedText] = useState("");
   const [invoiceItems, setInvoiceItems] = useState([]);
   const [newInvoicePart, setNewInvoicePart] = useState({ sku: "", name: "", qty: "1", cost: "", price: "", category: "Genel", brand: "", minimum: "5" });
-  const title = modal.type === "part" ? modal.item ? "Parçayı düzenle" : "Yeni parça ekle" : modal.type === "job" ? "Yeni iş emri" : "Alış faturası ekle";
+  const title = modal.type === "part" ? modal.item ? "Parçayı düzenle" : "Yeni parça ekle" : modal.type === "job" ? modal.item ? "İş emrini düzenle" : "Yeni iş emri" : "Alış faturası ekle";
   const updateLine = (index, key, value) => setLines((current) => current.map((line, i) => i === index ? { ...line, [key]: value } : line));
   const addLine = () => setLines((current) => [...current, { partId: "", qty: 1, search: "" }]);
   const updateNewInvoicePart = (key, value) => setNewInvoicePart((current) => ({ ...current, [key]: value }));
@@ -751,11 +773,12 @@ function Modal({ modal, parts, onClose, onSavePart, onSaveJob, onSaveInvoice, sa
   const invoiceVat = calculateVat(invoicePreviewItems.reduce((sum, item) => sum + item.qty * item.cost, 0));
   const jobNetSubtotal = lines.reduce((sum, line) => {
     const part = parts.find((entry) => entry.id === line.partId);
-    return part && Number.isInteger(Number(line.qty)) && Number(line.qty) > 0 ? sum + Number(line.qty) * part.price : sum;
+    const price = line.price ?? part?.price;
+    return price !== undefined && Number.isInteger(Number(line.qty)) && Number(line.qty) > 0 ? sum + Number(line.qty) * price : sum;
   }, 0);
   const jobVat = calculateVat(jobNetSubtotal);
   function selectPart(index, part) {
-    setLines((current) => current.map((line, lineIndex) => lineIndex === index ? { ...line, partId: part.id, search: `${part.name} · ${part.sku}` } : line));
+    setLines((current) => current.map((line, lineIndex) => lineIndex === index ? { ...line, partId: part.id, search: `${part.name} · ${part.sku}`, price: line.originalPartId === part.id ? (line.originalPrice ?? line.price) : part.price, originalQty: line.originalPartId === part.id ? line.originalQty : 0, archived: false } : line));
     setError("");
   }
   function pastePartCodes(event, index) {
@@ -799,12 +822,22 @@ function Modal({ modal, parts, onClose, onSavePart, onSaveJob, onSaveInvoice, sa
         setError("Faturaya eklemek için yan bölümden en az bir stok kodu ekleyin.");
         return;
       }
-      onSaveInvoice({ invoiceNumber: String(form.get("invoiceNumber")).trim(), supplier: String(form.get("supplier")).trim(), items: invoiceItems, total: invoiceItems.reduce((sum, item) => sum + item.qty * item.cost, 0) });
+      onSaveInvoice({ invoiceNumber: String(form.get("invoiceNumber")).trim(), supplier: String(form.get("supplier")).trim(), date: businessDate, items: invoiceItems, total: invoiceItems.reduce((sum, item) => sum + item.qty * item.cost, 0) });
       return;
     }
     const rawItems = lines.map((line) => {
       const part = parts.find((entry) => entry.id === line.partId);
-      return part && Number.isInteger(Number(line.qty)) && Number(line.qty) > 0 ? { partId: part.id, sku: part.sku, name: part.name, category: part.category, brand: part.brand, qty: Number(line.qty), price: modal.type === "invoice" ? Number(line.price ?? part.price) : part.price, cost: Number(line.cost ?? part.cost) } : null;
+      if (!line.partId || !Number.isInteger(Number(line.qty)) || Number(line.qty) <= 0 || (!part && !line.archived)) return null;
+      return {
+        partId: line.partId,
+        sku: part?.sku || line.sku || "",
+        name: part?.name || line.name || line.search.split(" · ")[0] || "Parça",
+        category: part?.category || line.category || "Genel",
+        brand: part?.brand || line.brand || "",
+        qty: Number(line.qty),
+        price: modal.type === "invoice" ? Number(line.price ?? part?.price) : line.price ?? part?.price,
+        cost: Number(line.cost ?? part?.cost ?? 0),
+      };
     }).filter(Boolean);
     if (modal.type === "job" && lines.some((line) => !line.partId)) {
       setError("Her parça satırı için arama sonuçlarından bir parça seçin.");
@@ -826,32 +859,42 @@ function Modal({ modal, parts, onClose, onSavePart, onSaveJob, onSaveInvoice, sa
         return;
       }
       const items = [...invoiceItems, ...pastedInvoice.items];
-      onSaveInvoice({ invoiceNumber: String(form.get("invoiceNumber")).trim(), supplier: String(form.get("supplier")).trim(), items, total: items.reduce((sum, item) => sum + item.qty * item.cost, 0) });
+      onSaveInvoice({ invoiceNumber: String(form.get("invoiceNumber")).trim(), supplier: String(form.get("supplier")).trim(), date: businessDate, items, total: items.reduce((sum, item) => sum + item.qty * item.cost, 0) });
       return;
     }
-    if (!items.length) { setError("En az bir geçerli parça ve adet girmelisiniz."); return; }
+    if (!items.length && !(modal.type === "job" && modal.item)) { setError("En az bir geçerli parça ve adet girmelisiniz."); return; }
     if (modal.type === "job") {
+      const previousByPart = new Map();
+      (modal.item?.items || []).forEach((item) => previousByPart.set(item.partId, (previousByPart.get(item.partId) || 0) + Number(item.qty || 0)));
       const requiredByPart = items.reduce((totals, item) => ({ ...totals, [item.partId]: (totals[item.partId] || 0) + item.qty }), {});
-      if (Object.entries(requiredByPart).some(([id, qty]) => qty > (parts.find((part) => part.id === id)?.stock ?? 0))) {
-        setError("Seçilen parçalardan en az biri için yeterli stok bulunmuyor.");
+      const insufficientPart = Object.entries(requiredByPart).find(([id, qty]) => {
+        const delta = qty - (previousByPart.get(id) || 0);
+        return delta > (parts.find((part) => part.id === id)?.stock ?? 0);
+      });
+      if (insufficientPart) {
+        setError("Eklenen parçalardan en az biri için yeterli stok bulunmuyor.");
         return;
       }
-      onSaveJob({ plate: String(form.get("plate")).trim().toLocaleUpperCase("tr"), make: String(form.get("make")).trim(), model: String(form.get("model")).trim(), customer: String(form.get("customer")).trim(), phone: String(form.get("phone")).trim(), items, total: items.reduce((sum, item) => sum + item.qty * item.price, 0) });
+      if (!modal.item && !items.length) { setError("İş emri için en az bir parça ekleyin."); return; }
+      onSaveJob({ id: modal.item?.id, date: businessDate, plate: String(form.get("plate")).trim().toLocaleUpperCase("tr"), make: String(form.get("make")).trim(), model: String(form.get("model")).trim(), customer: String(form.get("customer")).trim(), phone: String(form.get("phone")).trim(), items, total: items.reduce((sum, item) => sum + Number(item.qty) * Number(item.price || 0), 0) });
     } else {
       const invoiceItemsToSave = [...invoiceItems, ...items];
-      onSaveInvoice({ invoiceNumber: String(form.get("invoiceNumber")).trim(), supplier: String(form.get("supplier")).trim(), items: invoiceItemsToSave, total: invoiceItemsToSave.reduce((sum, item) => sum + item.qty * item.cost, 0) });
+      onSaveInvoice({ invoiceNumber: String(form.get("invoiceNumber")).trim(), supplier: String(form.get("supplier")).trim(), date: businessDate, items: invoiceItemsToSave, total: invoiceItemsToSave.reduce((sum, item) => sum + item.qty * item.cost, 0) });
     }
   }
   function partLine(line, index, type) {
     const part = parts.find((entry) => entry.id === line.partId);
     const matches = type === "job" && !line.partId ? findPartMatches(line.search, parts).slice(0, 8) : [];
     return h("div", { className: "modal-item-line", key: index },
-      type === "job" ? h("label", { className: "part-search-label" }, index === 0 ? "Parça adı veya kodu" : " ", h("div", { className: "part-search-wrap" },
-        h("input", { type: "search", value: line.search || "", placeholder: "Parça adı, SKU veya sonu… yapıştırın", autoComplete: "off", onChange: (event) => { setLines((current) => current.map((entry, lineIndex) => lineIndex === index ? { ...entry, partId: "", search: event.target.value } : entry)); setError(""); setPasteMessage(""); }, onPaste: (event) => pastePartCodes(event, index), "aria-label": `Parça ${index + 1} ara` }),
-        matches.length ? h("div", { className: "part-search-results", role: "listbox" }, matches.map((entry) => h("button", { key: entry.id, type: "button", role: "option", disabled: entry.stock < 1, onClick: () => selectPart(index, entry) }, h("span", null, h("strong", null, entry.name), h("small", null, `${entry.sku} · stok ${entry.stock}`)), h("span", { className: entry.stock < 1 ? "part-result-empty" : "part-result-stock" }, entry.stock < 1 ? "Stok yok" : `${entry.stock} adet`)))) :
-          line.search && !line.partId ? h("div", { className: "part-search-empty" }, "Eşleşme yok. Kodu, adını veya kodun sonunu deneyin.") : null
-      )) : h("label", null, index === 0 ? "Parça" : " ", h("select", { value: line.partId, onChange: (event) => updateLine(index, "partId", event.target.value), required: index === 0 }, h("option", { value: "" }, "Parça seçin"), parts.map((entry) => h("option", { key: entry.id, value: entry.id }, `${entry.name} · ${entry.sku}`)))),
-      h("label", null, index === 0 ? "Adet" : " ", h("input", { type: "number", min: 1, max: type === "job" && part ? part.stock : undefined, value: line.qty, onChange: (event) => updateLine(index, "qty", event.target.value), required: true })),
+      type === "job" ? line.archived
+        ? h("div", { className: "archived-job-line" }, h("strong", null, line.name || line.search), h("small", null, `${line.sku || "Stok kodu yok"} · Arşivli parça; yalnızca miktarı azaltılabilir`))
+        : h("label", { className: "part-search-label" }, index === 0 ? "Parça adı veya kodu" : " ", h("div", { className: "part-search-wrap" },
+          h("input", { type: "search", value: line.search || "", placeholder: "Parça adı, SKU veya sonu… yapıştırın", autoComplete: "off", onChange: (event) => { setLines((current) => current.map((entry, lineIndex) => lineIndex === index ? { ...entry, partId: "", search: event.target.value } : entry)); setError(""); setPasteMessage(""); }, onPaste: (event) => pastePartCodes(event, index), "aria-label": `Parça ${index + 1} ara` }),
+          matches.length ? h("div", { className: "part-search-results", role: "listbox" }, matches.map((entry) => h("button", { key: entry.id, type: "button", role: "option", disabled: entry.stock < 1, onClick: () => selectPart(index, entry) }, h("span", null, h("strong", null, entry.name), h("small", null, `${entry.sku} · stok ${entry.stock}`)), h("span", { className: entry.stock < 1 ? "part-result-empty" : "part-result-stock" }, entry.stock < 1 ? "Stok yok" : `${entry.stock} adet`)))) :
+            line.search && !line.partId ? h("div", { className: "part-search-empty" }, "Eşleşme yok. Kodu, adını veya kodun sonunu deneyin.") : null
+        )) : h("label", null, index === 0 ? "Parça" : " ", h("select", { value: line.partId, onChange: (event) => updateLine(index, "partId", event.target.value), required: index === 0 }, h("option", { value: "" }, "Parça seçin"), parts.map((entry) => h("option", { key: entry.id, value: entry.id }, `${entry.name} · ${entry.sku}`)))),
+      h("label", null, index === 0 ? "Adet" : " ", h("input", { type: "number", min: 1, max: type === "job" ? line.archived ? line.originalQty : part ? part.stock + (line.originalQty || 0) : undefined : undefined, value: line.qty, onChange: (event) => updateLine(index, "qty", event.target.value), required: true })),
+      type === "job" ? h("button", { className: "button button-small button-danger job-line-remove", type: "button", onClick: () => setLines((current) => current.filter((_, lineIndex) => lineIndex !== index)), "aria-label": `${line.name || part?.name || `Parça ${index + 1}`} satırını kaldır` }, h(Icon, { name: "close", size: 14 })) : null,
       type === "invoice" ? h("label", null, index === 0 ? "Birim alış · KDV hariç (₺)" : " ", h("input", { type: "number", min: 0, step: "0.01", value: line.cost ?? part?.cost ?? "", onChange: (event) => updateLine(index, "cost", event.target.value), required: true })) : null,
       type === "invoice" ? h("label", null, index === 0 ? "Satış fiyatı · KDV hariç (₺)" : " ", h("input", { type: "number", min: 0, step: "0.01", value: line.price ?? part?.price ?? "", onChange: (event) => updateLine(index, "price", event.target.value), required: true })) : null
     );
@@ -869,12 +912,20 @@ function Modal({ modal, parts, onClose, onSavePart, onSaveJob, onSaveInvoice, sa
         h("label", null, "Alış fiyatı · KDV hariç (₺)", h("input", { name: "cost", type: "number", min: 0, step: "0.01", defaultValue: modal.item?.cost ?? 0, required: true })),
         h("label", null, "Satış fiyatı · KDV hariç (₺)", h("input", { name: "price", type: "number", min: 0, step: "0.01", defaultValue: modal.item?.price ?? 0, required: true }))
       ) : modal.type === "job" ? h(React.Fragment, null,
-        h("div", { className: "form-grid" }, h("label", null, "Araç plakası", h("input", { name: "plate", placeholder: "34 ABC 123", required: true })), h("label", null, "Müşteri adı", h("input", { name: "customer", placeholder: "Ad soyad", required: true })), h("label", null, "Marka", h("input", { name: "make", placeholder: "Örn. Peugeot", required: true })), h("label", null, "Model", h("input", { name: "model", placeholder: "Örn. 3008", required: true })), h("label", { className: "form-span" }, "Telefon", h("input", { name: "phone", type: "tel", placeholder: "05xx xxx xx xx" }))),
-        h("div", { className: "modal-section-title" }, "Kullanılan parçalar", h("span", null, "Stok, iş emri kaydedilince düşer")), h("p", { className: "part-paste-hint" }, "Satış fiyatları KDV hariçtir. Kodun sonundan arayabilir ya da Excel'den birden fazla satırı doğrudan yapıştırabilirsiniz.", pasteMessage ? h("strong", null, ` ${pasteMessage}`) : null), h("div", { className: "modal-lines" }, lines.map((line, index) => partLine(line, index, "job"))), h("button", { className: "add-line-button", type: "button", onClick: addLine }, h(Icon, { name: "plus", size: 15 }), "Parça satırı ekle")
+        h("div", { className: "form-grid" },
+          h("label", null, "İş emri tarihi", h("input", { name: "date", type: "date", value: businessDate, onChange: (event) => setBusinessDate(event.target.value), required: true })),
+          h("label", null, "Araç plakası", h("input", { name: "plate", defaultValue: modal.item?.plate || "", placeholder: "34 ABC 123", required: true })),
+          h("label", null, "Müşteri adı", h("input", { name: "customer", defaultValue: modal.item?.customer || "", placeholder: "Ad soyad", required: true })),
+          h("label", null, "Marka", h("input", { name: "make", defaultValue: modal.item?.make || "", placeholder: "Örn. Peugeot", required: true })),
+          h("label", null, "Model", h("input", { name: "model", defaultValue: modal.item?.model || "", placeholder: "Örn. 3008", required: true })),
+          h("label", null, "Telefon", h("input", { name: "phone", type: "tel", defaultValue: modal.item?.phone || "", placeholder: "05xx xxx xx xx" }))
+        ),
+        h("div", { className: "modal-section-title" }, "Kullanılan parçalar", h("span", null, "Stok farkları kayıtta uygulanır")), h("p", { className: "part-paste-hint" }, "Satış fiyatları KDV hariçtir. Kodun sonundan arayabilir ya da Excel'den birden fazla satırı doğrudan yapıştırabilirsiniz.", pasteMessage ? h("strong", null, ` ${pasteMessage}`) : null), h("div", { className: "modal-lines" }, lines.map((line, index) => partLine(line, index, "job"))), h("button", { className: "add-line-button", type: "button", onClick: addLine }, h(Icon, { name: "plus", size: 15 }), "Parça satırı ekle")
       ) : h(React.Fragment, null,
         h("div", { className: "form-grid invoice-meta-grid" },
           h("label", null, "Fatura numarası", h("input", { name: "invoiceNumber", placeholder: "Tedarikçi fatura numarası", required: true })),
-          h("label", null, "Tedarikçi", h("input", { name: "supplier", placeholder: "Tedarikçi firma adı", required: true }))
+          h("label", null, "Tedarikçi", h("input", { name: "supplier", placeholder: "Tedarikçi firma adı", required: true })),
+          h("label", null, "Fatura tarihi", h("input", { name: "date", type: "date", value: businessDate, onChange: (event) => setBusinessDate(event.target.value), required: true }))
         ),
         h("div", { className: "invoice-input-tabs" },
           h("button", { type: "button", className: invoiceMode === "code" ? "active" : "", onClick: () => { setInvoiceMode("code"); setError(""); } }, "Yeni stok kodu oluştur"),
@@ -924,7 +975,7 @@ function Modal({ modal, parts, onClose, onSavePart, onSaveJob, onSaveInvoice, sa
       modal.type === "invoice" && invoicePreviewItems.length ? h(VatSummary, { values: invoiceVat, title: "Fatura toplamı · KDV dahil" }) :
         modal.type === "job" && jobNetSubtotal ? h(VatSummary, { values: jobVat, title: "Satış toplamı · KDV dahil" }) : null,
       error ? h("p", { className: "form-error", role: "alert" }, error) : null,
-      h("div", { className: "modal-footer" }, h("button", { className: "button button-quiet", onClick: onClose, type: "button", disabled: saving }, "Vazgeç"), h("button", { className: "button button-primary", type: "submit", disabled: saving }, saving ? "Kaydediliyor..." : modal.type === "part" ? "Kaydet" : modal.type === "job" ? "İş emrini oluştur" : "Faturayı kaydet", saving ? null : h(Icon, { name: "arrow", size: 15 })))
+      h("div", { className: "modal-footer" }, h("button", { className: "button button-quiet", onClick: onClose, type: "button", disabled: saving }, "Vazgeç"), h("button", { className: "button button-primary", type: "submit", disabled: saving }, saving ? "Kaydediliyor..." : modal.type === "part" ? "Kaydet" : modal.type === "job" ? modal.item ? "İş emrini güncelle" : "İş emrini oluştur" : "Faturayı kaydet", saving ? null : h(Icon, { name: "arrow", size: 15 })))
     )
   ));
 }

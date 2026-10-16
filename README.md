@@ -4,7 +4,7 @@ Demir Eurorepar Car Service için React tabanlı stok ve servis yönetim uygulam
 
 ## Firebase kurulumu (zorunlu)
 
-Uygulama demo giriş veya örnek servis verisi kullanmaz. Çalıştırmadan önce Firebase projesi oluşturup şu adımları tamamlayın:
+Uygulama demo giriş veya örnek servis verisi kullanmaz. Çalıştırmadan önce Firebase projesi oluşturup şu adımları tamamlayın. Browser E2E testleri için ayrı test projesinin `VITE_FIREBASE_*` değerlerini `.env.example` yapısını izleyerek `.env.e2e` içine ekleyin; `KOMBAI_E2E_EXPECTED_PROJECT_ID` değerini de test projesinin `VITE_FIREBASE_PROJECT_ID` değeriyle aynı yapın. `npm run dev:e2e`, kimliği doğrulamadan sunucu açmaz ve `stok-16ef3` production projesini reddeder. `.env.e2e` dosyasını Git'e eklemeyin:
 
 1. Firebase Console'da bir proje oluşturun.
 2. **Authentication → Sign-in method** altında **Email/Password** sağlayıcısını etkinleştirin.
@@ -30,10 +30,11 @@ npm run dev
 - Yönetici, **Yetkili Kullanıcılar** ekranından diğer hesaplara erişim verir veya erişimi kaldırır
 - Firestore kurallarıyla sunucu tarafında yetki kontrolü; yetkili hesaplar farklı cihazlarda aynı servis verilerini kullanır
 - SKU, marka, alış/satış fiyatı, stok ve kritik seviye yönetimi
-- Plaka, marka, model ve müşteriyle eşleştirilen iş emirleri; kullanılan parçalar stoktan otomatik düşer
+- Plaka, marka, model ve müşteriyle eşleştirilen iş emirleri; tarihleri düzenlenebilir, tamamlanabilir ve iptal edilebilir. Düzenleme/iptalde stok farkları denetim hareketleriyle atomik uygulanır; iptal kaydı denetim için saklanır
+- Alış faturalarında belge tarihi seçilebilir; tarih, faturaya bağlı stok hareketlerine iş tarihi olarak kaydedilir
 - İş emri parça satırlarında ad, SKU veya kodun sonuyla arama; Excel'den parça kodu satırlarını yapıştırarak toplu eşleştirme
 - Araç Servis Geçmişi sayfasında plakaya göre ziyaret, tarih, müşteri ve kullanılan parçaları görüntüleme
-- Parça–Araç Uyumluluğu sayfasında geçmiş iş emirlerinde parçanın kullanıldığı marka/model kayıtlarını görme; liste yalnızca kaydedilmiş kullanımı gösterir, katalog verisi olmadan uyum garantisi vermez
+- Araç Uyumluluğu sayfasında marka, model veya plakayla arama; her araç için iptal edilmemiş geçmiş iş emirlerinde kullanılan parçaları ve kullanım sayılarını görme (katalog uyumluluk garantisi değildir)
 - Stok Hareketleri sayfasında fatura girişi, iş emri çıkışı, sipariş teslimi ve stok düzeltmelerini kullanıcı, kaynak belge ve stok bakiyesiyle izleme
 - Dashboard'da son 7 günlük ve 6 aylık ciro grafikleri ile birleşik son hareket akışı
 - Parçayı silmek yerine arşivleme; kısa süreli bildirimden işlemi geri alma
@@ -51,6 +52,6 @@ Yönetici olarak **Yetkili Kullanıcılar** sayfasından erişim verilecek kişi
 
 Alış faturasında fatura numarası ve tedarikçi girilir. **Yeni stok kodu oluştur** bölümünden SKU, adet, alış ve satış fiyatını girip **Faturaya ekle** dediğinizde parça, faturanın yanındaki satır listesine eklenir; nihai kayıtta stok kartı, fatura numarası ve stok hareketi birlikte kaydedilir. Yeni SKU için parça adı gereklidir; kayıtlı SKU için ad otomatik bulunur. Kayıtlı parçalardan seçme ve **Kopyala / yapıştır** girişleri de kullanılabilir. Yapıştırma `SKU, Parça Adı, Adet, Alış Fiyatı, Satış Fiyatı` sütunlarını destekler. Tutarlar KDV hariç girilir; fatura özeti KDV hariç ara toplamı, %20 KDV tutarını ve KDV dahil toplamı gösterir. İş emri satış toplamı ve ciro da %20 KDV dahil hesaplanır. TSV, CSV ve noktalı virgülle ayrılmış metin kabul edilir; hatalı satırlar açıkça bildirilir.
 
-İş emrinde bir aracın plakası, marka/modeli ve kullanılan parçaları kaydedildikçe araç geçmişi ve parça/model uyumluluk listeleri oluşur. Stok hareketleri yeni işlemlerden itibaren ilgili parçanın alt koleksiyonunda aktör ve stok öncesi/sonrası değerlerini saklar; var olan Firestore kuralları bu koleksiyon yollarını mevcut yetkili parça erişimi kapsamında korur. Önceden kayıtlı iş emirleri ve alış faturaları hareket ekranında geçmiş işlem olarak görünür; bu eski kayıtlar için işlem yapan kullanıcı bilgisi mevcut olmadığından **Geçmiş kayıt** şeklinde işaretlenir.
+İş emrinde bir aracın plakası, marka/modeli ve kullanılan parçaları kaydedildikçe araç geçmişi ve marka/model/plaka aramasıyla araç bazlı parça kullanım listeleri oluşur. Tamamlanan iş emirleri açık iş sayısından çıkar ama ciroda kalır. İptal edilen iş emri kaydı denetim için korunur; parçalar stoğa iade edilir ve iptal kaydı ciro/araç parça sonuçlarından çıkarılır. İş emri düzenlemesinde stok farkları atomik işlemle uygulanır; tarihi veya parça miktarı değişen her düzeltme hareket kaydına eklenir. Stok hareketleri yeni işlemlerden itibaren ilgili parçanın alt koleksiyonunda aktör ve stok öncesi/sonrası değerlerini saklar; var olan Firestore kuralları bu koleksiyon yollarını mevcut yetkili parça erişimi kapsamında korur. Önceden kayıtlı iş emirleri ve alış faturaları hareket ekranında geçmiş işlem olarak görünür; bu eski kayıtlar için işlem yapan kullanıcı bilgisi mevcut olmadığından **Geçmiş kayıt** şeklinde işaretlenir.
 
 Firebase kurulumu yapılana kadar e-posta/şifre girişi ve bulut kayıtları kullanılamaz. Daha önce tarayıcıda oluşturulmuş yerel demo kayıtları otomatik olarak Firestore'a taşınmaz; Firestore başlangıçta boş olur.

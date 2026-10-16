@@ -1,6 +1,8 @@
 import {
   collection,
+  deleteDoc,
   doc,
+  getDoc,
   getDocs,
   onSnapshot,
   query,
@@ -8,6 +10,9 @@ import {
   setDoc,
   where,
 } from "firebase/firestore";
+import { resolveBusinessDate } from "./businessDate.js";
+import { aggregateWorkOrderQuantities, calculateWorkOrderQuantityDeltas, calculateWorkOrderReversal } from "./workOrderInventory.js";
+import { WORK_ORDER_STATUS } from "./workOrderLifecycle.js";
 import { db, OWNER_EMAIL } from "./firebase.js";
 
 const COLLECTIONS = ["parts", "jobs", "invoices", "drafts"];
@@ -47,7 +52,7 @@ export async function fetchServiceData() {
   result.movements = movementSnapshots.flatMap(readCollection);
   const knownMovements = new Set(result.movements.map((movement) => `${movement.referenceCode}|${movement.partId}|${movement.type}`));
   const legacyMovements = [];
-  result.jobs.forEach((job) => job.items.forEach((item) => {
+  result.jobs.filter((job) => !job.movementLedgerVersion).forEach((job) => job.items.forEach((item) => {
     const key = `${job.code}|${item.partId}|İş emri`;
     if (!knownMovements.has(key)) legacyMovements.push({
       id: `legacy-${job.id}-${item.partId}`,
@@ -92,7 +97,7 @@ export function subscribeToServiceData(onChange, onError) {
   return () => unsubscribe.forEach((stop) => stop());
 }
 
-function movementRecord(part, { qty, type, reference, referenceCode, actor, stockBefore, stockAfter }) {
+function movementRecord(part, { qty, type, reference, referenceCode, actor, stockBefore, stockAfter, date }) {
   return {
     id: makeId(),
     partId: part.id,
@@ -105,7 +110,7 @@ function movementRecord(part, { qty, type, reference, referenceCode, actor, stoc
     actor: actor || OWNER_EMAIL,
     stockBefore,
     stockAfter,
-    date: day(),
+    date: date || day(),
     createdAt: new Date().toISOString(),
   };
 }
@@ -161,6 +166,7 @@ export async function restorePart(partId) {
 
 export async function createWorkOrder(job, actor) {
   const database = requireDatabase();
+  const businessDate = resolveBusinessDate(job.date);
   const quantities = new Map();
   job.items.forEach((item) => quantities.set(item.partId, (quantities.get(item.partId) || 0) + item.qty));
   const partReferences = [...quantities.keys()].map((id) => doc(database, "parts", id));
@@ -186,8 +192,10 @@ export async function createWorkOrder(job, actor) {
       ...job,
       id: jobId,
       code: nextCode("IS"),
-      date: day(),
+      date: businessDate,
       status: "Devam ediyor",
+      movementLedgerVersion: 1,
+      updatedAt: new Date().toISOString(),
       items,
       total: items.reduce((sum, item) => sum + item.qty * item.price, 0),
     };
@@ -203,6 +211,7 @@ export async function createWorkOrder(job, actor) {
         actor,
         stockBefore: part.stock,
         stockAfter,
+        date: businessDate,
       });
     }
     transaction.set(jobReference, record);
@@ -211,8 +220,270 @@ export async function createWorkOrder(job, actor) {
   return record;
 }
 
+export async function updateWorkOrder(jobId, job, actor) {
+  const database = requireDatabase();
+  const businessDate = resolveBusinessDate(job.date);
+  const jobReference = doc(database, "jobs", jobId);
+  const baselineSnapshot = await getDoc(jobReference);
+  if (!baselineSnapshot.exists()) throw new Error("Düzenlenecek iş emri bulunamadı.");
+  const baselineJob = { id: baselineSnapshot.id, ...baselineSnapshot.data() };
+  if (baselineJob.status === WORK_ORDER_STATUS.CANCELLED) throw new Error("İptal edilmiş iş emri düzenlenemez.");
+  const oldItems = Array.isArray(baselineJob.items) ? baselineJob.items : [];
+  if (oldItems.some((item) => !item.partId)) {
+    throw new Error("Bu eski iş emrinde parça bağlantısı eksik. Stok güvenliği için düzenlenemiyor.");
+  }
+
+  const partDeltas = new Map(calculateWorkOrderQuantityDeltas(oldItems, job.items || []).map((entry) => [entry.partId, entry]));
+  const oldQuantities = new Map([...partDeltas].map(([partId, entry]) => [partId, entry.previousQty]));
+  const partIds = [...partDeltas.keys()];
+  const partReferences = new Map(partIds.map((partId) => [partId, doc(database, "parts", partId)]));
+  const code = baselineJob.code || jobId;
+  const baselineMovements = new Map();
+  if (!baselineJob.movementLedgerVersion) {
+    const snapshots = await Promise.all(partIds.map((partId) => getDocs(collection(database, "parts", partId, "movements"))));
+    snapshots.forEach((snapshot, index) => {
+      const partId = partIds[index];
+      const hasOriginalMovement = snapshot.docs.some((entry) => {
+        const movement = entry.data();
+        return movement.referenceCode === code && movement.type === "İş emri";
+      });
+      if (!hasOriginalMovement && oldQuantities.has(partId)) {
+        baselineMovements.set(partId, doc(database, "parts", partId, "movements", makeId()));
+      }
+    });
+  }
+
+  let updatedRecord;
+  await runTransaction(database, async (transaction) => {
+    const jobSnapshot = await transaction.get(jobReference);
+    if (!jobSnapshot.exists()) throw new Error("Düzenlenecek iş emri bulunamadı.");
+    const currentJob = jobSnapshot.data();
+    if (currentJob.updatedAt !== baselineJob.updatedAt ||
+      currentJob.movementLedgerVersion !== baselineJob.movementLedgerVersion ||
+      currentJob.status !== baselineJob.status ||
+      currentJob.date !== baselineJob.date ||
+      currentJob.plate !== baselineJob.plate ||
+      currentJob.make !== baselineJob.make ||
+      currentJob.model !== baselineJob.model ||
+      currentJob.customer !== baselineJob.customer ||
+      currentJob.phone !== baselineJob.phone ||
+      JSON.stringify(currentJob.items || []) !== JSON.stringify(oldItems)) {
+      throw new Error("Bu iş emri başka bir kullanıcı tarafından güncellendi. Son verileri yenileyip tekrar deneyin.");
+    }
+    const partSnapshots = await Promise.all(partIds.map((partId) => transaction.get(partReferences.get(partId))));
+    const currentParts = new Map(partSnapshots.map((snapshot) => [snapshot.id, snapshot.exists() ? snapshot.data() : null]));
+
+    for (const partId of partIds) {
+      const part = currentParts.get(partId);
+      if (!part) throw new Error("İş emrindeki parça envanterde bulunamadı; stok farkları uygulanamadı.");
+      const delta = partDeltas.get(partId).delta;
+      if (delta > 0 && part.archived) throw new Error(`${part.name} arşivlenmiş olduğu için miktarı artırılamaz.`);
+      if (delta > Number(part.stock || 0)) throw new Error(`${part.name} için değişiklik sonrası yeterli stok bulunmuyor.`);
+    }
+
+    if (baselineMovements.size) {
+      const historicalDate = baselineJob.date || day();
+      for (const [partId, movementReference] of baselineMovements) {
+        const part = currentParts.get(partId);
+        const movement = movementRecord({ id: partId, name: part.name, sku: part.sku }, {
+          qty: -oldQuantities.get(partId),
+          type: "İş emri",
+          reference: "job",
+          referenceCode: code,
+          actor: "Geçmiş kayıt",
+          stockBefore: null,
+          stockAfter: null,
+          date: historicalDate,
+        });
+        movement.id = movementReference.id;
+        movement.createdAt = `${historicalDate}T12:00:00`;
+        transaction.set(movementReference, movement);
+      }
+    }
+
+    for (const partId of partIds) {
+      const part = currentParts.get(partId);
+      const delta = partDeltas.get(partId).delta;
+      if (!delta) continue;
+      const stockBefore = Number(part.stock || 0);
+      const stockAfter = stockBefore - delta;
+      transaction.update(partReferences.get(partId), {
+        stock: stockAfter,
+        sold: Math.max(0, Number(part.sold || 0) + delta),
+      });
+      writeMovement(transaction, database, { id: partId, name: part.name, sku: part.sku }, {
+        qty: -delta,
+        type: "İş emri düzenleme",
+        reference: "job",
+        referenceCode: code,
+        actor,
+        stockBefore,
+        stockAfter,
+        date: businessDate,
+      });
+    }
+
+    const items = (job.items || []).map((item) => {
+      const part = currentParts.get(item.partId);
+      const oldItem = oldItems.find((entry) => entry.partId === item.partId);
+      return {
+        ...item,
+        name: part.name,
+        sku: part.sku,
+        category: part.category || item.category || "Genel",
+        brand: part.brand || item.brand || "",
+        price: oldItem
+          ? Number.isFinite(Number(oldItem.price)) ? Number(oldItem.price) : part.price
+          : part.price,
+      };
+    });
+    updatedRecord = {
+      ...currentJob,
+      plate: String(job.plate || "").trim().toLocaleUpperCase("tr"),
+      make: String(job.make || "").trim(),
+      model: String(job.model || "").trim(),
+      customer: String(job.customer || "").trim(),
+      phone: String(job.phone || "").trim(),
+      date: businessDate,
+      items,
+      total: items.reduce((sum, item) => sum + item.qty * item.price, 0),
+      movementLedgerVersion: 1,
+      updatedAt: new Date().toISOString(),
+    };
+    transaction.set(jobReference, updatedRecord);
+  });
+  return updatedRecord;
+}
+
+export async function completeWorkOrder(jobId, actor) {
+  const database = requireDatabase();
+  const jobReference = doc(database, "jobs", jobId);
+  let completedRecord;
+  await runTransaction(database, async (transaction) => {
+    const jobSnapshot = await transaction.get(jobReference);
+    if (!jobSnapshot.exists()) throw new Error("Tamamlanacak iş emri bulunamadı.");
+    const job = jobSnapshot.data();
+    if (job.status === WORK_ORDER_STATUS.CANCELLED) throw new Error("İptal edilmiş iş emri tamamlanamaz.");
+    if (job.status === WORK_ORDER_STATUS.COMPLETED) throw new Error("Bu iş emri zaten tamamlandı.");
+    if (job.status !== WORK_ORDER_STATUS.IN_PROGRESS) throw new Error("Yalnızca devam eden iş emirleri tamamlanabilir.");
+    completedRecord = {
+      ...job,
+      status: WORK_ORDER_STATUS.COMPLETED,
+      completedAt: new Date().toISOString(),
+      completedBy: actor || OWNER_EMAIL,
+      updatedAt: new Date().toISOString(),
+    };
+    transaction.set(jobReference, completedRecord);
+  });
+  return completedRecord;
+}
+
+export async function cancelWorkOrder(jobId, actor) {
+  const database = requireDatabase();
+  const jobReference = doc(database, "jobs", jobId);
+  const baselineSnapshot = await getDoc(jobReference);
+  if (!baselineSnapshot.exists()) throw new Error("İptal edilecek iş emri bulunamadı.");
+  const baselineJob = baselineSnapshot.data();
+  if (baselineJob.status === WORK_ORDER_STATUS.CANCELLED) throw new Error("Bu iş emri daha önce iptal edilmiş.");
+  const items = Array.isArray(baselineJob.items) ? baselineJob.items : [];
+  if (items.some((item) => !item.partId)) {
+    throw new Error("Bu eski iş emrinde parça bağlantısı eksik. Stok güvenliği için iptal edilemiyor.");
+  }
+  const quantities = aggregateWorkOrderQuantities(items);
+  const partIds = [...quantities.keys()];
+  const partReferences = new Map(partIds.map((partId) => [partId, doc(database, "parts", partId)]));
+  const code = baselineJob.code || jobId;
+  const baselineMovements = new Map();
+  if (!baselineJob.movementLedgerVersion) {
+    const snapshots = await Promise.all(partIds.map((partId) => getDocs(collection(database, "parts", partId, "movements"))));
+    snapshots.forEach((snapshot, index) => {
+      const partId = partIds[index];
+      const hasOriginalMovement = snapshot.docs.some((entry) => {
+        const movement = entry.data();
+        return movement.referenceCode === code && movement.type === "İş emri";
+      });
+      if (!hasOriginalMovement) baselineMovements.set(partId, doc(database, "parts", partId, "movements", makeId()));
+    });
+  }
+
+  let cancelledRecord;
+  await runTransaction(database, async (transaction) => {
+    const jobSnapshot = await transaction.get(jobReference);
+    if (!jobSnapshot.exists()) throw new Error("İptal edilecek iş emri bulunamadı.");
+    const currentJob = jobSnapshot.data();
+    if (currentJob.status === WORK_ORDER_STATUS.CANCELLED) throw new Error("Bu iş emri daha önce iptal edilmiş.");
+    if (currentJob.updatedAt !== baselineJob.updatedAt ||
+      currentJob.status !== baselineJob.status ||
+      currentJob.date !== baselineJob.date ||
+      currentJob.plate !== baselineJob.plate ||
+      currentJob.make !== baselineJob.make ||
+      currentJob.model !== baselineJob.model ||
+      currentJob.customer !== baselineJob.customer ||
+      currentJob.phone !== baselineJob.phone ||
+      JSON.stringify(currentJob.items || []) !== JSON.stringify(items)) {
+      throw new Error("Bu iş emri başka bir kullanıcı tarafından güncellendi. Son verileri yenileyip tekrar deneyin.");
+    }
+    const snapshots = await Promise.all(partIds.map((partId) => transaction.get(partReferences.get(partId))));
+    const parts = new Map(snapshots.map((snapshot) => [snapshot.id, snapshot.exists() ? snapshot.data() : null]));
+    for (const [partId] of quantities) {
+      if (!parts.get(partId)) throw new Error("İş emrindeki parça envanterde bulunamadı; stok iadesi uygulanamadı.");
+    }
+
+    if (baselineMovements.size) {
+      const historicalDate = baselineJob.date || day();
+      for (const [partId, movementReference] of baselineMovements) {
+        const part = parts.get(partId);
+        const movement = movementRecord({ id: partId, name: part.name, sku: part.sku }, {
+          qty: -quantities.get(partId),
+          type: "İş emri",
+          reference: "job",
+          referenceCode: code,
+          actor: "Geçmiş kayıt",
+          stockBefore: null,
+          stockAfter: null,
+          date: historicalDate,
+        });
+        movement.id = movementReference.id;
+        movement.createdAt = `${historicalDate}T12:00:00`;
+        transaction.set(movementReference, movement);
+      }
+    }
+
+    for (const [partId, qty] of quantities) {
+      const part = parts.get(partId);
+      const reversal = calculateWorkOrderReversal(part, qty);
+      transaction.update(partReferences.get(partId), {
+        stock: reversal.stockAfter,
+        sold: reversal.soldAfter,
+      });
+      writeMovement(transaction, database, { id: partId, name: part.name, sku: part.sku }, {
+        qty,
+        type: "İş emri iptali",
+        reference: "job",
+        referenceCode: code,
+        actor,
+        stockBefore: reversal.stockBefore,
+        stockAfter: reversal.stockAfter,
+        date: baselineJob.date || day(),
+      });
+    }
+
+    cancelledRecord = {
+      ...currentJob,
+      status: WORK_ORDER_STATUS.CANCELLED,
+      cancelledAt: new Date().toISOString(),
+      cancelledBy: actor || OWNER_EMAIL,
+      movementLedgerVersion: 1,
+      updatedAt: new Date().toISOString(),
+    };
+    transaction.set(jobReference, cancelledRecord);
+  });
+  return cancelledRecord;
+}
+
 export async function createPurchaseInvoice(invoice, actor) {
   const database = requireDatabase();
+  const businessDate = resolveBusinessDate(invoice.date);
   const invoiceNumber = String(invoice.invoiceNumber || "").trim();
   if (!invoiceNumber) throw new Error("Fatura numarası girilmelidir.");
   if (!String(invoice.supplier || "").trim()) throw new Error("Tedarikçi adı girilmelidir.");
@@ -307,7 +578,7 @@ export async function createPurchaseInvoice(invoice, actor) {
       id: invoiceId,
       code: invoiceNumber,
       supplier: String(invoice.supplier).trim(),
-      date: day(),
+      date: businessDate,
       total: savedItems.reduce((sum, item) => sum + item.qty * item.cost, 0),
       status: "Ödendi",
       lines: savedItems.length,
@@ -322,6 +593,7 @@ export async function createPurchaseInvoice(invoice, actor) {
       actor,
       stockBefore: item.stockBefore,
       stockAfter: item.stockAfter,
+      date: businessDate,
     }));
   });
   return record;

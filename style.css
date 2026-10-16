@@ -198,7 +198,7 @@ html[data-theme="light"] .invoice-code-row{border-color:#e2e8df;background:#f7f9
 .invoice-draft-total{display:flex;justify-content:space-between;padding-top:10px;border-top:1px solid var(--line);color:var(--muted);font-size:9px}
 .invoice-draft-total strong{color:var(--text);font-size:11px}
 .invoice-add-part{justify-self:start}
-.invoice-meta-grid{grid-template-columns:1fr 1fr}
+.invoice-meta-grid{grid-template-columns:repeat(3,minmax(0,1fr))}
 html[data-theme="light"] .invoice-draft-panel,html[data-theme="light"] .invoice-create-panel{background:#f7f9f6}
 @media(max-width:720px){.invoice-workspace{grid-template-columns:1fr}.invoice-draft-line{grid-template-columns:minmax(80px,1fr) auto auto}.invoice-draft-line .button{grid-column:1/-1;justify-self:end}}
 .vat-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;padding:12px;border:1px solid #394634;border-radius:8px;background:color-mix(in srgb,#263322 60%,var(--panel))}
@@ -207,4 +207,34 @@ html[data-theme="light"] .invoice-draft-panel,html[data-theme="light"] .invoice-
 .vat-summary strong{color:var(--text);font:600 12px Manrope,sans-serif}
 .vat-summary>div:last-child strong{color:var(--accent)}
 html[data-theme="light"] .vat-summary{border-color:#d6e3ce;background:#f0f6eb}
-@media(max-width:600px){.vat-summary{gap:7px;padding:9px}.vat-summary span{font-size:8px}.vat-summary strong{font-size:10px}}
+@media(max-width:600px){.vat-summary{gap:7px;padding:9px}.vat-summary span{font-size:8px}.vat-summary strong{font-size:10px}.invoice-meta-grid{grid-template-columns:1fr}}
+.job-detail .job-edit-action{margin-left:auto}
+.modal-item-line:has(.job-line-remove){grid-template-columns:minmax(120px,1fr) 68px 34px}
+.job-line-remove{width:34px;padding:0}
+.archived-job-line{display:grid;align-content:center;gap:4px;min-height:34px;padding:0 8px;border:1px dashed var(--line);border-radius:6px;background:color-mix(in srgb,var(--panel) 70%,var(--bg))}
+.archived-job-line strong{overflow:hidden;color:var(--text);font-size:9px;text-overflow:ellipsis;white-space:nowrap}
+.archived-job-line small{color:var(--muted);font-size:8px;line-height:1.4}
+.vehicle-search-prompt h3{margin:0 0 7px;color:var(--text);font:600 14px Manrope,sans-serif}
+.vehicle-search-prompt p{margin:0;color:var(--muted);font-size:10px}
+.vehicle-fitment-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.vehicle-fitment-card{display:grid;align-content:start;gap:12px}
+.vehicle-fitment-heading{display:flex;align-items:center;gap:10px;min-width:0}
+.vehicle-fitment-title{display:grid;flex:1;gap:4px;min-width:0}
+.vehicle-fitment-title strong{overflow:hidden;color:var(--text);font-size:11px;text-overflow:ellipsis;white-space:nowrap}
+.vehicle-fitment-title small{color:var(--muted);font-size:9px}
+.vehicle-fitment-metrics{margin:0;padding:10px 0}
+.vehicle-fitment-label{margin:0;color:var(--text);font:600 10px Manrope,sans-serif}
+.vehicle-fitment-parts{display:grid}
+.vehicle-fitment-part{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:5px 10px;padding:10px 0;border-top:1px solid var(--line)}
+.vehicle-fitment-part>span:first-child{display:grid;gap:3px;min-width:0}
+.vehicle-fitment-part strong{overflow:hidden;color:var(--text);font-size:9px;text-overflow:ellipsis;white-space:nowrap}
+.vehicle-fitment-part small,.vehicle-fitment-last-use{color:var(--muted);font-size:8px}
+.vehicle-fitment-usage{color:var(--accent);font-size:8px;white-space:nowrap}
+.vehicle-fitment-last-use{grid-column:1/-1}
+@media(max-width:600px){.vehicle-fitment-grid{grid-template-columns:1fr}.modal-item-line:has(.job-line-remove){grid-template-columns:minmax(85px,1fr) 54px 30px}.job-line-remove{width:30px}.vehicle-fitment-part{grid-template-columns:minmax(0,1fr) auto}}
+.job-lifecycle-actions{display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin-left:auto}
+.job-lifecycle-actions .job-edit-action{margin-left:0}
+.job-cancelled-note{border-color:color-mix(in srgb,var(--muted) 35%,var(--line))!important;color:var(--muted)!important}
+.job-status.status-cancelled{background:color-mix(in srgb,var(--muted) 15%,var(--panel));color:var(--muted)}
+.job-status.status-cancelled i{background:var(--muted)}
+@media(max-width:600px){.job-lifecycle-actions{flex-basis:100%;margin-left:0}.job-detail .job-edit-action{margin-left:0}}
