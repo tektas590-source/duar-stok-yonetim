@@ -262,19 +262,19 @@ export async function updateWorkOrder(jobId, job, actor) {
     const jobSnapshot = await transaction.get(jobReference);
     if (!jobSnapshot.exists()) throw new Error("Düzenlenecek iş emri bulunamadı.");
     const currentJob = jobSnapshot.data();
-    if (currentJob.updatedAt !== baselineJob.updatedAt ||
-      currentJob.movementLedgerVersion !== baselineJob.movementLedgerVersion ||
-      currentJob.status !== baselineJob.status ||
-      currentJob.date !== baselineJob.date ||
-      currentJob.plate !== baselineJob.plate ||
-      currentJob.make !== baselineJob.make ||
-      currentJob.model !== baselineJob.model ||
-      currentJob.customer !== baselineJob.customer ||
-      currentJob.phone !== baselineJob.phone ||
-      normalizeLaborAmount(currentJob.laborAmount) !== normalizeLaborAmount(baselineJob.laborAmount) ||
-      JSON.stringify(currentJob.items || []) !== JSON.stringify(oldItems)) {
-      throw new Error("Bu iş emri başka bir kullanıcı tarafından güncellendi. Son verileri yenileyip tekrar deneyin.");
+
+    // Sadece stok hareketini etkileyen parça listesi veya durum değiştiyse çakışma hatası ver.
+    // Müşteri bilgisi, plaka, tarih gibi alanlar çakışma sayılmaz — en güncel hali kullanılır.
+    if (currentJob.status === WORK_ORDER_STATUS.CANCELLED) {
+      throw new Error("İptal edilmiş iş emri düzenlenemez.");
     }
+    const currentItems = currentJob.items || [];
+    const itemsChanged = JSON.stringify(currentItems) !== JSON.stringify(oldItems);
+    const ledgerChanged = currentJob.movementLedgerVersion !== baselineJob.movementLedgerVersion;
+    if (itemsChanged || ledgerChanged) {
+      throw new Error("Bu iş emrinin parça listesi başka bir işlemle değişti. Sayfayı yenileyip tekrar deneyin.");
+    }
+
     const partSnapshots = await Promise.all(partIds.map((partId) => transaction.get(partReferences.get(partId))));
     const currentParts = new Map(partSnapshots.map((snapshot) => [snapshot.id, snapshot.exists() ? snapshot.data() : null]));
 
@@ -418,16 +418,10 @@ export async function cancelWorkOrder(jobId, actor) {
     if (!jobSnapshot.exists()) throw new Error("İptal edilecek iş emri bulunamadı.");
     const currentJob = jobSnapshot.data();
     if (currentJob.status === WORK_ORDER_STATUS.CANCELLED) throw new Error("Bu iş emri daha önce iptal edilmiş.");
-    if (currentJob.updatedAt !== baselineJob.updatedAt ||
-      currentJob.status !== baselineJob.status ||
-      currentJob.date !== baselineJob.date ||
-      currentJob.plate !== baselineJob.plate ||
-      currentJob.make !== baselineJob.make ||
-      currentJob.model !== baselineJob.model ||
-      currentJob.customer !== baselineJob.customer ||
-      currentJob.phone !== baselineJob.phone ||
-      JSON.stringify(currentJob.items || []) !== JSON.stringify(items)) {
-      throw new Error("Bu iş emri başka bir kullanıcı tarafından güncellendi. Son verileri yenileyip tekrar deneyin.");
+    // İptal için sadece parça listesinin değişmemiş olması yeterli — diğer alanlar kritik değil.
+    const currentItemsForCancel = currentJob.items || [];
+    if (JSON.stringify(currentItemsForCancel) !== JSON.stringify(items)) {
+      throw new Error("Bu iş emrinin parça listesi başka bir işlemle değişti. Sayfayı yenileyip tekrar deneyin.");
     }
     const snapshots = await Promise.all(partIds.map((partId) => transaction.get(partReferences.get(partId))));
     const parts = new Map(snapshots.map((snapshot) => [snapshot.id, snapshot.exists() ? snapshot.data() : null]));
