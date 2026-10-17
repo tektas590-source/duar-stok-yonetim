@@ -11,6 +11,147 @@ import { calculateVat, VAT_RATE, vatIncludedAmount } from "./vat.js";
 import { calculateWorkOrderNetTotal, calculateWorkOrderPriceBreakdown, normalizeLaborAmount } from "./workOrderPricing.js";
 
 const h = React.createElement;
+
+// ── Para birimi yardımcıları ─────────────────────────────────────────────────
+// "1.356,46" → 1356.46 | "1356.46" → 1356.46 | "1356" → 1356
+function parseCurrencyInput(raw) {
+  if (raw === null || raw === undefined) return NaN;
+  const str = String(raw).trim();
+  if (str === "" || str === "-") return NaN;
+  // Hem nokta hem virgül varsa: hangisi binlik, hangisi ondalık?
+  const hasDot = str.includes(".");
+  const hasComma = str.includes(",");
+  if (hasDot && hasComma) {
+    const lastDot = str.lastIndexOf(".");
+    const lastComma = str.lastIndexOf(",");
+    if (lastComma > lastDot) {
+      // Türkçe/Avrupa: 1.356,46 → binlik=nokta, ondalık=virgül
+      return parseFloat(str.replace(/\./g, "").replace(",", "."));
+    } else {
+      // Anglo: 1,356.46 → binlik=virgül, ondalık=nokta
+      return parseFloat(str.replace(/,/g, ""));
+    }
+  }
+  if (hasComma && !hasDot) {
+    // Sadece virgül: ondalık ayracı olarak kullanılmış (456,50)
+    const parts = str.split(",");
+    if (parts.length === 2 && parts[1].length <= 3) {
+      return parseFloat(str.replace(",", "."));
+    }
+    // Binlik virgül (Anglo tarzı 1,356) — ondalık yok
+    return parseFloat(str.replace(/,/g, ""));
+  }
+  // Sadece nokta veya hiç yok → direkt parse
+  return parseFloat(str.replace(/\./g, match => {
+    // Eğer son 3 karakterden daha önce tek nokta varsa binlik ayraç
+    const idx = str.lastIndexOf(".");
+    return str.indexOf(".") === idx ? "." : "";
+  }));
+}
+
+// Türkçe para formatı: 1356.46 → "1.356,46"
+function formatCurrencyDisplay(num) {
+  if (!Number.isFinite(num)) return "";
+  return num.toLocaleString("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+// Kontrollü para input bileşeni
+function CurrencyInput({ value, onChange = () => {}, id, name, placeholder = "0,00", required = false, className = "", "aria-describedby": ariaDescribedby }) {
+  // value: ham sayı (number veya string), display: kullanıcının gördüğü string
+  const toDisplay = (v) => {
+    const n = parseCurrencyInput(String(v ?? ""));
+    return Number.isFinite(n) ? formatCurrencyDisplay(n) : (v === "" || v === undefined || v === null ? "" : String(v));
+  };
+  const [display, setDisplay] = useState(() => toDisplay(value));
+  const [numericValue, setNumericValue] = useState(() => {
+    const n = parseCurrencyInput(String(value ?? ""));
+    return Number.isFinite(n) ? String(n) : "";
+  });
+  const [focused, setFocused] = useState(false);
+
+  // Dışarıdan value değişince (ör. parça seçilince) display'i güncelle
+  const prevValue = React.useRef(value);
+  useEffect(() => {
+    if (!focused && prevValue.current !== value) {
+      setDisplay(toDisplay(value));
+      const n = parseCurrencyInput(String(value ?? ""));
+      setNumericValue(Number.isFinite(n) ? String(n) : "");
+    }
+    prevValue.current = value;
+  }, [value, focused]);
+
+  function handleChange(e) {
+    const raw = e.target.value;
+    // Yazarken sadece: rakam, nokta, virgül, eksi işareti
+    if (raw !== "" && !/^-?[\d.,]*$/.test(raw)) return;
+    setDisplay(raw);
+    const num = parseCurrencyInput(raw);
+    const nv = Number.isFinite(num) ? String(num) : raw;
+    setNumericValue(nv);
+    onChange(nv);
+  }
+
+  function handlePaste(e) {
+    e.preventDefault();
+    const pasted = e.clipboardData.getData("text").trim();
+    const num = parseCurrencyInput(pasted);
+    if (Number.isFinite(num)) {
+      setDisplay(formatCurrencyDisplay(num));
+      setNumericValue(String(num));
+      onChange(String(num));
+    } else {
+      setDisplay(pasted);
+      setNumericValue(pasted);
+      onChange(pasted);
+    }
+  }
+
+  function handleFocus(e) {
+    setFocused(true);
+    // Odaklanınca ham sayıyı göster (kolay düzenleme için)
+    const num = parseCurrencyInput(display);
+    if (Number.isFinite(num)) {
+      const raw = num % 1 === 0 ? String(num) : String(num).replace(".", ",");
+      setDisplay(raw);
+    }
+    e.target.select();
+  }
+
+  function handleBlur() {
+    setFocused(false);
+    const num = parseCurrencyInput(display);
+    if (Number.isFinite(num)) {
+      setDisplay(formatCurrencyDisplay(num));
+      setNumericValue(String(num));
+      onChange(String(num));
+    } else if (display.trim() === "") {
+      setDisplay("");
+      setNumericValue("");
+      onChange("");
+    }
+  }
+
+  return h(React.Fragment, null,
+    // Hidden input: FormData tarafından okunur (form.get(name))
+    name ? h("input", { type: "hidden", name, value: numericValue, readOnly: true }) : null,
+    h("input", {
+      id,
+      type: "text",
+      inputMode: "decimal",
+      value: display,
+      placeholder,
+      required,
+      className,
+      "aria-describedby": ariaDescribedby,
+      onChange: handleChange,
+      onPaste: handlePaste,
+      onFocus: handleFocus,
+      onBlur: handleBlur,
+      autoComplete: "off",
+    })
+  );
+}
+// ────────────────────────────────────────────────────────────────────────────
 const iconPaths = {
   grid: "M3 3h7v7H3z M14 3h7v7h-7z M14 14h7v7h-7z M3 14h7v7H3z",
   box: "M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z M3.3 7 12 12l8.7-5 M12 22V12",
@@ -820,12 +961,12 @@ function Modal({ modal, parts, onClose, onSavePart, onSaveJob, onSaveInvoice, sa
       brand: newInvoicePart.brand.trim(),
       minimum: Number(newInvoicePart.minimum),
       qty: Number(newInvoicePart.qty),
-      cost: Number(newInvoicePart.cost),
-      price: Number(newInvoicePart.price),
+      cost: parseCurrencyInput(newInvoicePart.cost),
+      price: parseCurrencyInput(newInvoicePart.price),
     };
     if (!item.sku || !Number.isInteger(item.qty) || item.qty <= 0 ||
-      !newInvoicePart.cost.trim() || !Number.isFinite(item.cost) || item.cost < 0 ||
-      !newInvoicePart.price.trim() || !Number.isFinite(item.price) || item.price < 0 ||
+      !newInvoicePart.cost.trim() || !Number.isFinite(parseCurrencyInput(newInvoicePart.cost)) || parseCurrencyInput(newInvoicePart.cost) < 0 ||
+      !newInvoicePart.price.trim() || !Number.isFinite(parseCurrencyInput(newInvoicePart.price)) || parseCurrencyInput(newInvoicePart.price) < 0 ||
       (!item.partId && !item.name)) {
       setError("Stok kodu, adet, alış ve satış fiyatını girin. Yeni stok kodunda parça adı da gereklidir.");
       return;
@@ -842,20 +983,20 @@ function Modal({ modal, parts, onClose, onSavePart, onSaveJob, onSaveInvoice, sa
   const selectedInvoiceLines = lines.flatMap((line) => {
     const part = parts.find((entry) => entry.id === line.partId);
     return part && Number.isInteger(Number(line.qty)) && Number(line.qty) > 0
-      ? [{ qty: Number(line.qty), cost: Number(line.cost ?? part.cost) }]
+      ? [{ qty: Number(line.qty), cost: parseCurrencyInput(line.cost ?? part.cost) }]
       : [];
   });
   const invoicePreviewItems = invoiceMode === "code" ? invoiceItems : invoiceMode === "paste" ? [...invoiceItems, ...pastedInvoice.items] : [...invoiceItems, ...selectedInvoiceLines];
   const invoiceVat = calculateVat(invoicePreviewItems.reduce((sum, item) => sum + item.qty * item.cost, 0));
   const jobPreviewItems = lines.flatMap((line) => {
     const part = parts.find((entry) => entry.id === line.partId);
-    const price = Number(line.price ?? part?.price);
+    const price = parseCurrencyInput(line.price ?? part?.price);
     const qty = Number(line.qty);
     return line.partId && Number.isInteger(qty) && qty > 0 && Number.isFinite(price) && price >= 0 ? [{ qty, price }] : [];
   });
   let jobPricing = null;
   try {
-    jobPricing = calculateWorkOrderPriceBreakdown(jobPreviewItems, laborAmount);
+    jobPricing = calculateWorkOrderPriceBreakdown(jobPreviewItems, parseCurrencyInput(laborAmount));
   } catch {
     jobPricing = null;
   }
@@ -892,7 +1033,7 @@ function Modal({ modal, parts, onClose, onSavePart, onSaveJob, onSaveInvoice, sa
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     if (modal.type === "part") {
-      const part = { ...(modal.item || {}), sku: String(form.get("sku")).trim(), name: String(form.get("name")).trim(), category: String(form.get("category")).trim(), brand: String(form.get("brand")).trim(), stock: Number(form.get("stock")), minimum: Number(form.get("minimum")), price: Number(form.get("price")), cost: Number(form.get("cost")) };
+      const part = { ...(modal.item || {}), sku: String(form.get("sku")).trim(), name: String(form.get("name")).trim(), category: String(form.get("category")).trim(), brand: String(form.get("brand")).trim(), stock: Number(form.get("stock")), minimum: Number(form.get("minimum")), price: parseCurrencyInput(form.get("price")), cost: parseCurrencyInput(form.get("cost")) };
       if (!part.sku || !part.name || [part.stock, part.minimum, part.price, part.cost].some((value) => !Number.isFinite(value) || value < 0)) {
         setError("Alanları kontrol edin. Sayısal değerler sıfır veya daha büyük olmalı.");
         return;
@@ -917,8 +1058,8 @@ function Modal({ modal, parts, onClose, onSavePart, onSaveJob, onSaveInvoice, sa
         category: part?.category || line.category || "Genel",
         brand: part?.brand || line.brand || "",
         qty: Number(line.qty),
-        price: modal.type === "invoice" ? Number(line.price ?? part?.price) : line.price ?? part?.price,
-        cost: Number(line.cost ?? part?.cost ?? 0),
+        price: modal.type === "invoice" ? parseCurrencyInput(line.price ?? part?.price) : line.price ?? part?.price,
+        cost: parseCurrencyInput(line.cost ?? part?.cost ?? 0),
       };
     }).filter(Boolean);
     if (modal.type === "job" && lines.some((line) => !line.partId)) {
@@ -961,7 +1102,7 @@ function Modal({ modal, parts, onClose, onSavePart, onSaveJob, onSaveInvoice, sa
       let normalizedLaborAmount;
       let total;
       try {
-        normalizedLaborAmount = normalizeLaborAmount(laborAmount);
+        normalizedLaborAmount = normalizeLaborAmount(parseCurrencyInput(laborAmount));
         total = calculateWorkOrderNetTotal(items, normalizedLaborAmount);
       } catch (pricingError) {
         setError(pricingError.message || "İş emri tutarlarını kontrol edin.");
@@ -986,8 +1127,8 @@ function Modal({ modal, parts, onClose, onSavePart, onSaveJob, onSaveInvoice, sa
         )) : h("label", null, index === 0 ? "Parça" : " ", h("select", { value: line.partId, onChange: (event) => updateLine(index, "partId", event.target.value), required: index === 0 }, h("option", { value: "" }, "Parça seçin"), parts.map((entry) => h("option", { key: entry.id, value: entry.id }, `${entry.name} · ${entry.sku}`)))),
       h("label", null, index === 0 ? "Adet" : " ", h("input", { type: "number", min: 1, max: type === "job" ? line.archived ? line.originalQty : part ? part.stock + (line.originalQty || 0) : undefined : undefined, value: line.qty, onChange: (event) => updateLine(index, "qty", event.target.value), required: true })),
       type === "job" ? h("button", { className: "button button-small button-danger job-line-remove", type: "button", onClick: () => setLines((current) => current.filter((_, lineIndex) => lineIndex !== index)), "aria-label": `${line.name || part?.name || `Parça ${index + 1}`} satırını kaldır` }, h(Icon, { name: "close", size: 14 })) : null,
-      type === "invoice" ? h("label", null, index === 0 ? "Birim alış · KDV hariç (₺)" : " ", h("input", { type: "number", min: 0, step: "0.01", value: line.cost ?? part?.cost ?? "", onChange: (event) => updateLine(index, "cost", event.target.value), required: true })) : null,
-      type === "invoice" ? h("label", null, index === 0 ? "Satış fiyatı · KDV hariç (₺)" : " ", h("input", { type: "number", min: 0, step: "0.01", value: line.price ?? part?.price ?? "", onChange: (event) => updateLine(index, "price", event.target.value), required: true })) : null
+      type === "invoice" ? h("label", null, index === 0 ? "Birim alış · KDV hariç (₺)" : " ", h(CurrencyInput, { value: line.cost ?? part?.cost ?? "", onChange: (val) => updateLine(index, "cost", val), required: true })) : null,
+      type === "invoice" ? h("label", null, index === 0 ? "Satış fiyatı · KDV hariç (₺)" : " ", h(CurrencyInput, { value: line.price ?? part?.price ?? "", onChange: (val) => updateLine(index, "price", val), required: true })) : null
     );
   }
   return h("div", { className: "modal-backdrop", onMouseDown: (event) => { if (event.target === event.currentTarget) onClose(); } }, h("section", { className: `modal-card ${modal.type === "invoice" ? "invoice-modal" : ""}`, role: "dialog", "aria-modal": "true", "aria-labelledby": "modal-title" },
@@ -1000,8 +1141,8 @@ function Modal({ modal, parts, onClose, onSavePart, onSaveJob, onSaveInvoice, sa
         h("label", null, "Marka", h("input", { name: "brand", defaultValue: modal.item?.brand || "", placeholder: "Parça markası" })),
         h("label", null, "Stok adedi", h("input", { name: "stock", type: "number", min: 0, defaultValue: modal.item?.stock ?? 0, required: true })),
         h("label", null, "Kritik stok seviyesi", h("input", { name: "minimum", type: "number", min: 0, defaultValue: modal.item?.minimum ?? 5, required: true })),
-        h("label", null, "Alış fiyatı · KDV hariç (₺)", h("input", { name: "cost", type: "number", min: 0, step: "0.01", defaultValue: modal.item?.cost ?? 0, required: true })),
-        h("label", null, "Satış fiyatı · KDV hariç (₺)", h("input", { name: "price", type: "number", min: 0, step: "0.01", defaultValue: modal.item?.price ?? 0, required: true }))
+        h("label", null, "Alış fiyatı · KDV hariç (₺)", h(CurrencyInput, { name: "cost", value: String(modal.item?.cost ?? ""), required: true, placeholder: "0,00" })),
+        h("label", null, "Satış fiyatı · KDV hariç (₺)", h(CurrencyInput, { name: "price", value: String(modal.item?.price ?? ""), required: true, placeholder: "0,00" }))
       ) : modal.type === "job" ? h(React.Fragment, null,
         h("div", { className: "form-grid" },
           h("label", null, "İş emri tarihi", h("input", { name: "date", type: "date", value: businessDate, onChange: (event) => setBusinessDate(event.target.value), required: true })),
@@ -1012,7 +1153,7 @@ function Modal({ modal, parts, onClose, onSavePart, onSaveJob, onSaveInvoice, sa
           h("label", null, "Telefon", h("input", { name: "phone", type: "tel", defaultValue: modal.item?.phone || "", placeholder: "05xx xxx xx xx" }))
         ),
         h("div", { className: "modal-section-title" }, "Kullanılan parçalar", h("span", null, "Stok farkları kayıtta uygulanır")), h("p", { className: "part-paste-hint" }, "Satış fiyatları KDV hariçtir. Kodun sonundan arayabilir ya da Excel'den birden fazla satırı doğrudan yapıştırabilirsiniz.", pasteMessage ? h("strong", null, ` ${pasteMessage}`) : null), h("div", { className: "modal-lines" }, lines.map((line, index) => partLine(line, index, "job"))), h("button", { className: "add-line-button", type: "button", onClick: addLine }, h(Icon, { name: "plus", size: 15 }), "Parça satırı ekle"),
-        h("div", { className: "labor-amount-field" }, h("label", { htmlFor: "work-order-labor" }, "İşçilik tutarı · KDV hariç (₺)"), h("input", { id: "work-order-labor", name: "laborAmount", type: "number", min: 0, step: "0.01", inputMode: "decimal", value: laborAmount, onChange: (event) => { setLaborAmount(event.target.value); setError(""); }, "aria-describedby": "work-order-labor-hint" }), h("small", { id: "work-order-labor-hint" }, "Tek işçilik tutarı. Boş bırakılırsa 0 ₺ kaydedilir."))
+        h("div", { className: "labor-amount-field" }, h("label", { htmlFor: "work-order-labor" }, "İşçilik tutarı · KDV hariç (₺)"), h(CurrencyInput, { id: "work-order-labor", value: laborAmount, onChange: (val) => { setLaborAmount(val); setError(""); }, "aria-describedby": "work-order-labor-hint" }), h("small", { id: "work-order-labor-hint" }, "Tek işçilik tutarı. Boş bırakılırsa 0 ₺ kaydedilir."))
       ) : h(React.Fragment, null,
         h("div", { className: "form-grid invoice-meta-grid" },
           h("label", null, "Fatura numarası", h("input", { name: "invoiceNumber", placeholder: "Tedarikçi fatura numarası", required: true })),
@@ -1046,8 +1187,8 @@ function Modal({ modal, parts, onClose, onSavePart, onSaveJob, onSaveInvoice, sa
             h("div", { className: "form-grid" },
               h("label", null, "Adet", h("input", { type: "number", min: 1, step: 1, value: newInvoicePart.qty, onChange: (event) => updateNewInvoicePart("qty", event.target.value) })),
               h("label", null, "Kritik stok", h("input", { type: "number", min: 0, step: 1, value: newInvoicePart.minimum, onChange: (event) => updateNewInvoicePart("minimum", event.target.value) })),
-              h("label", null, "Alış fiyatı · KDV hariç (₺)", h("input", { type: "number", min: 0, step: "0.01", value: newInvoicePart.cost, onChange: (event) => updateNewInvoicePart("cost", event.target.value) })),
-              h("label", null, "Satış fiyatı · KDV hariç (₺)", h("input", { type: "number", min: 0, step: "0.01", value: newInvoicePart.price, onChange: (event) => updateNewInvoicePart("price", event.target.value) }))
+              h("label", null, "Alış fiyatı · KDV hariç (₺)", h(CurrencyInput, { value: newInvoicePart.cost, onChange: (val) => updateNewInvoicePart("cost", val) })),
+              h("label", null, "Satış fiyatı · KDV hariç (₺)", h(CurrencyInput, { value: newInvoicePart.price, onChange: (val) => updateNewInvoicePart("price", val) }))
             ),
             h("div", { className: "form-grid" },
               h("label", null, "Kategori", h("input", { value: newInvoicePart.category, onChange: (event) => updateNewInvoicePart("category", event.target.value), placeholder: "Genel" })),
