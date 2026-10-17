@@ -148,7 +148,7 @@ export async function savePart(part, actor) {
   await runTransaction(database, async (transaction) => {
     const snapshot = await transaction.get(reference);
     const existing = snapshot.exists() ? snapshot.data() : null;
-    updated = { ...part, id, sku, skuNormalized: sku.toLocaleLowerCase("tr"), sold: part.sold || 0, archived: false };
+    updated = { ...part, id, sku, skuNormalized: sku.toLocaleLowerCase("tr"), sold: part.sold || 0, archived: false, favorite: part.favorite || false };
     const previousStock = Number(existing?.stock || 0);
     const difference = Number(updated.stock || 0) - previousStock;
     transaction.set(reference, updated);
@@ -167,6 +167,17 @@ export async function savePart(part, actor) {
     }
   });
   return updated;
+}
+
+export async function togglePartFavorite(partId) {
+  const database = requireDatabase();
+  const reference = doc(database, "parts", partId);
+  const snapshot = await getDoc(reference);
+  if (!snapshot.exists()) throw new Error("Parça bulunamadı.");
+  const part = snapshot.data();
+  const updated = { favorite: !part.favorite };
+  await setDoc(reference, updated, { merge: true });
+  return { ...part, ...updated };
 }
 
 export async function deletePart(partId) {

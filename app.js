@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./style.css";
-import { cancelWorkOrder, completeWorkOrder, createPurchaseInvoice, createStockDraft, createWorkOrder, deleteFitment, deletePart, fetchServiceData, grantUserAccess, listAuthorizedUsers, receiveStockDraft, restorePart, revokeUserAccess, saveFitment, savePart, subscribeToServiceData, updateWorkOrder } from "./data.js";
+import { cancelWorkOrder, completeWorkOrder, createPurchaseInvoice, createStockDraft, createWorkOrder, deleteFitment, deletePart, fetchServiceData, grantUserAccess, listAuthorizedUsers, receiveStockDraft, restorePart, revokeUserAccess, saveFitment, savePart, subscribeToServiceData, togglePartFavorite, updateWorkOrder } from "./data.js";
 import { getOpenWorkOrders, getRevenueEligibleWorkOrders, getWorkOrderStatusClass, WORK_ORDER_STATUS } from "./workOrderLifecycle.js";
 import { formatFitmentSpec, formatFitmentVehicle, FUEL_TYPES, searchFitments, searchVehiclePartUsage } from "./vehicleCompatibility.js";
 import { parseInvoicePaste } from "./invoiceImport.js";
@@ -191,7 +191,47 @@ function App() {
   const [toastAction, setToastAction] = useState(null);
   const [saving, setSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
+  const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
+  const [globalSearchQuery, setGlobalSearchQuery] = useState("");
   const toggleTheme = () => setTheme((current) => current === "dark" ? "light" : "dark");
+
+  // Global arama
+  const globalSearchResults = React.useMemo(() => {
+    if (!globalSearchQuery.trim()) return [];
+    const q = globalSearchQuery.toLocaleLowerCase("tr").replace(/ı/g, "i");
+    const results = [];
+    data.parts.forEach(part => {
+      if (part.name.toLocaleLowerCase("tr").replace(/ı/g, "i").includes(q) ||
+          part.sku.toLocaleLowerCase("tr").replace(/ı/g, "i").includes(q)) {
+        results.push({ type: "part", item: part, label: part.name, sublabel: part.sku });
+      }
+    });
+    data.jobs.forEach(job => {
+      if (job.plate?.toLocaleLowerCase("tr").replace(/ı/g, "i").includes(q) ||
+          job.customer?.toLocaleLowerCase("tr").replace(/ı/g, "i").includes(q) ||
+          job.code?.toLocaleLowerCase("tr").replace(/ı/g, "i").includes(q)) {
+        results.push({ type: "job", item: job, label: job.plate, sublabel: job.customer });
+      }
+    });
+    return results.slice(0, 8);
+  }, [globalSearchQuery, data]);
+
+  // Klavye kısayolları
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === "k") {
+        e.preventDefault();
+        setGlobalSearchOpen(true);
+      }
+      if (e.key === "Escape") {
+        setGlobalSearchOpen(false);
+        setModal(null);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
     localStorage.setItem("demir-service-theme", theme);
@@ -308,6 +348,9 @@ function App() {
   const persistFitment = async (fitment) => {
     await runAction(async () => { await saveFitment(fitment); await reloadData(); setModal(null); }, "Araç uyumluluğu kaydedildi.");
   };
+  const toggleFavorite = async (partId) => {
+    await runAction(async () => { await togglePartFavorite(partId); await reloadData(); }, "Favori durumu güncellendi.");
+  };
   const removeFitment = async (fitment) => {
     const label = formatFitmentVehicle(fitment) || "bu kayıt";
     if (!window.confirm(`${label} uyumluluk kaydını silmek istiyor musunuz?`)) return;
@@ -416,7 +459,7 @@ function App() {
           h("circle", { cx: 17, cy: 17, r: 2 })
         )
       ),
-      h("header", { className: "topbar" }, h("div", { className: "breadcrumbs" }, "Demir Service", h("span", null, "/"), titles[page][0]), h("div", { className: "topbar-right" }, h(LiveClock, { compact: true }), h("button", { className: "icon-button theme-toggle", onClick: toggleTheme, title: theme === "dark" ? "Açık temaya geç" : "Koyu temaya geç", "aria-label": theme === "dark" ? "Açık temaya geç" : "Koyu temaya geç" }, h(Icon, { name: theme === "dark" ? "sun" : "moon" })), h("button", { className: "icon-button notification", onClick: () => { if (lowStock.length) openCriticalInventory(); else { setQuery(""); setPage("inventory"); } setToast(`${lowStock.length} parçada kritik stok uyarısı var.`); }, title: "Stok uyarıları" }, h(Icon, { name: "bell" }), lowStock.length ? h("i", null) : null), h("div", { className: "top-avatar" }, "ST"))),
+      h("header", { className: "topbar" }, h("div", { className: "breadcrumbs" }, "Demir Service", h("span", null, "/"), titles[page][0]), h("div", { className: "topbar-right" }, h("button", { className: "icon-button", onClick: () => setGlobalSearchOpen(true), title: "Global ara (Ctrl+K)" }, h(Icon, { name: "search" })), h(LiveClock, { compact: true }), h("button", { className: "icon-button theme-toggle", onClick: toggleTheme, title: theme === "dark" ? "Açık temaya geç" : "Koyu temaya geç", "aria-label": theme === "dark" ? "Açık temaya geç" : "Koyu temaya geç" }, h(Icon, { name: theme === "dark" ? "sun" : "moon" })), h("button", { className: "icon-button notification", onClick: () => { if (lowStock.length) openCriticalInventory(); else { setQuery(""); setPage("inventory"); } setToast(`${lowStock.length} parçada kritik stok uyarısı var.`); }, title: "Stok uyarıları" }, h(Icon, { name: "bell" }), lowStock.length ? h("i", null) : null), h("div", { className: "top-avatar" }, "ST"))),
       h("section", { className: "page-content", key: page },
         h("div", { className: "page-heading" }, h("div", null, h("p", { className: "eyebrow" }, "DEMİR EUROREPAR CAR SERVICE"), h("h1", null, titles[page][0]), h("p", { className: "page-subtitle" }, titles[page][1])), h("div", { className: "heading-actions" },
           page === "dashboard" ? h("button", { className: "button button-primary", onClick: () => openModal("job"), disabled: saving }, h(Icon, { name: "plus", size: 16 }), "Yeni iş emri") :
@@ -426,7 +469,7 @@ function App() {
           page === "orders" ? h("button", { className: "button button-primary", onClick: createDraft, disabled: saving }, h(Icon, { name: "plus", size: 16 }), "Sipariş taslağı oluştur") :
           page === "compatibility" ? h("button", { className: "button button-primary", onClick: () => openModal("fitment"), disabled: saving }, h(Icon, { name: "plus", size: 16 }), "Uyumluluk ekle") : null)),
         page === "dashboard" ? h(Dashboard, { data, lowStock, revenue, setPage, openModal, createDraft, openCriticalInventory, openWorkOrder, openWorkOrderList }) :
-        page === "inventory" ? h(Inventory, { parts: data.parts, query, setQuery, openModal, removePart, saving, filterIntent: inventoryFilterIntent, clearFilterIntent: () => setInventoryFilterIntent(null) }) :
+        page === "inventory" ? h(Inventory, { parts: data.parts, query, setQuery, openModal, removePart, saving, filterIntent: inventoryFilterIntent, clearFilterIntent: () => setInventoryFilterIntent(null), toggleFavorite }) :
         page === "workorders" ? h(WorkOrders, { jobs: data.jobs, query, setQuery, openModal, markJobComplete, cancelJob, saving, selectionIntent: workOrderSelectionIntent, clearSelectionIntent: () => setWorkOrderSelectionIntent(null) }) :
         page === "vehicles" ? h(VehicleHistory, { jobs: data.jobs }) :
         page === "compatibility" ? h(PartCompatibility, { jobs: data.jobs, fitments: data.fitments || [], openModal, removeFitment, saving }) :
@@ -440,6 +483,46 @@ function App() {
         }) : h(Reports, { data, revenue })
       )
     ),
+    globalSearchOpen ? h("div", { className: "global-search-overlay", onClick: () => setGlobalSearchOpen(false) },
+      h("div", { className: "global-search-modal", onClick: (e) => e.stopPropagation() },
+        h("div", { className: "global-search-header" },
+          h(Icon, { name: "search", size: 20 }),
+          h("input", {
+            type: "text",
+            placeholder: "Parça, plaka veya müşteri ara...",
+            value: globalSearchQuery,
+            onChange: (e) => setGlobalSearchQuery(e.target.value),
+            autoFocus: true,
+            onKeyDown: (e) => { if (e.key === "Escape") setGlobalSearchOpen(false); }
+          }),
+          h("kbd", null, "ESC")
+        ),
+        globalSearchResults.length ? h("div", { className: "global-search-results" },
+          globalSearchResults.map((result, index) =>
+            h("button", {
+              key: index,
+              className: "global-search-result",
+              onClick: () => {
+                if (result.type === "part") {
+                  setQuery(result.item.sku);
+                  setPage("inventory");
+                } else if (result.type === "job") {
+                  openWorkOrder(result.item.id);
+                }
+                setGlobalSearchOpen(false);
+                setGlobalSearchQuery("");
+              }
+            },
+              h("span", { className: "global-search-icon" }, h(Icon, { name: result.type === "part" ? "box" : "wrench", size: 16 })),
+              h("div", { className: "global-search-content" },
+                h("strong", null, result.label),
+                h("small", null, result.sublabel)
+              )
+            )
+          )
+        ) : globalSearchQuery ? h("div", { className: "global-search-empty" }, "Sonuç bulunamadı") : h("div", { className: "global-search-hint" }, "Ctrl+K ile hızlı arama")
+      )
+    ) : null,
     modal ? h(Modal, { modal, parts: data.parts, onClose: () => setModal(null), onSavePart: persistPart, onSaveJob: persistJob, onSaveInvoice: persistInvoice, onSaveFitment: persistFitment, saving }) : null,
     errorMessage ? h("div", { className: "toast toast-error", role: "alert" }, h("span", { className: "toast-check" }, "!"), errorMessage) : toast ? h("div", { className: "toast" }, h("span", { className: "toast-check" }, "✓"), toast, toastAction ? h("button", { className: "toast-action", onClick: () => toastAction.run().catch((error) => { console.error("Geri alma başarısız:", error); setErrorMessage(error.message || "Geri alma tamamlanamadı."); }) }, toastAction.label) : null) : null
   );
@@ -705,24 +788,25 @@ function LiveClock({ compact }) {
   }, []);
   return h("span", { className: compact ? "today-label" : "hero-time" }, now.toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" }), compact ? " · " : null, compact ? new Intl.DateTimeFormat("tr-TR", { day: "2-digit", month: "short", year: "numeric" }).format(now) : null);
 }
-function Inventory({ parts, query, setQuery, openModal, removePart, saving, filterIntent, clearFilterIntent }) {
+function Inventory({ parts, query, setQuery, openModal, removePart, saving, filterIntent, clearFilterIntent, toggleFavorite }) {
   const [stockFilter, setStockFilter] = useState(() => filterIntent || "all");
   useEffect(() => {
     if (!filterIntent) return;
     setStockFilter(filterIntent);
     clearFilterIntent();
   }, [filterIntent, clearFilterIntent]);
-  const filtered = parts.filter((part) => `${part.name} ${part.sku} ${part.category} ${part.brand}`.toLocaleLowerCase("tr").includes(query.toLocaleLowerCase("tr")) && (stockFilter === "all" || (stockFilter === "low" ? part.stock <= part.minimum : part.stock > part.minimum)));
+  const filtered = parts.filter((part) => `${part.name} ${part.sku} ${part.category} ${part.brand}`.toLocaleLowerCase("tr").includes(query.toLocaleLowerCase("tr")) && (stockFilter === "all" || (stockFilter === "low" ? part.stock <= part.minimum : stockFilter === "good" ? part.stock > part.minimum : stockFilter === "favorite" ? part.favorite : true)));
   return h(React.Fragment, null,
     h("div", { className: "list-toolbar" },
       h("div", { className: "search-wrap" }, h(Icon, { name: "search", size: 17 }), h("input", { value: query, onChange: (event) => setQuery(event.target.value), placeholder: "Parça adı, SKU veya kategori ara..." })),
-      h("select", { className: "filter-select", value: stockFilter, onChange: (event) => setStockFilter(event.target.value), "aria-label": "Stok durumu filtresi" }, h("option", { value: "all" }, "Tüm stoklar"), h("option", { value: "low" }, "Kritik stok"), h("option", { value: "good" }, "Stok yeterli")),
+      h("select", { className: "filter-select", value: stockFilter, onChange: (event) => setStockFilter(event.target.value), "aria-label": "Stok durumu filtresi" }, h("option", { value: "all" }, "Tüm stoklar"), h("option", { value: "low" }, "Kritik stok"), h("option", { value: "good" }, "Stok yeterli"), h("option", { value: "favorite" }, "Favoriler")),
       h("span", { className: "result-count" }, `${filtered.length} parça gösteriliyor`)
     ),
     h("section", { className: "panel table-panel" }, filtered.length ? h("div", { className: "table-scroll" },
       h("table", null,
-        h("thead", null, h("tr", null, ["PARÇA", "KATEGORİ", "STOK DURUMU", "ALIŞ FİYATI · KDV HARİÇ", "SATIŞ FİYATI · KDV HARİÇ", ""].map((label) => h("th", { key: label }, label)))),
+        h("thead", null, h("tr", null, ["", "PARÇA", "KATEGORİ", "STOK DURUMU", "ALIŞ FİYATI · KDV HARİÇ", "SATIŞ FİYATI · KDV HARİÇ", ""].map((label) => h("th", { key: label }, label)))),
         h("tbody", null, filtered.map((part) => h("tr", { key: part.id },
+          h("td", null, h("button", { className: "icon-button favorite-button", type: "button", onClick: () => toggleFavorite(part.id), disabled: saving, title: part.favorite ? "Favoriden kaldır" : "Favorilere ekle" }, h(Icon, { name: part.favorite ? "bell" : "car", size: 14, className: part.favorite ? "favorite-active" : "" }))),
           h("td", null, h("div", { className: "table-part" }, h("span", { className: "part-avatar" }, part.name.slice(0, 1)), h("span", null, h("strong", null, part.name), h("small", null, part.sku)))),
           h("td", null, h("span", { className: "category-tag" }, part.category)),
           h("td", null, h(StockStatus, { part })),
