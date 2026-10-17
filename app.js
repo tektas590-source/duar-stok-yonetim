@@ -264,10 +264,11 @@ function App() {
     { id: "invoices", label: "Alış Faturaları", icon: "receipt" },
     { id: "orders", label: "Taslak Siparişler", icon: "cart", badge: data.drafts.length || null },
     { id: "reports", label: "Raporlar", icon: "chart" },
+    { id: "servicebox", label: "ServiceBox", icon: "search", external: true },
   ];
   const isOwner = user?.email?.toLowerCase() === OWNER_EMAIL;
   if (isOwner) nav.push({ id: "access", label: "Yetkili Kullanıcılar", icon: "grid" });
-  const titles = { dashboard: ["Genel Bakış", "Servisinizin bugünkü durumuna göz atın."], inventory: ["Parça Envanteri", "Stoklarınızı ve parça fiyatlarınızı yönetin."], workorders: ["İş Emirleri", "Araç servis geçmişini ve devam eden işleri takip edin."], vehicles: ["Araç Servis Geçmişi", "Plakaya göre servis ziyaretlerini ve kullanılan parçaları bulun."], compatibility: ["Araç Uyumluluğu", "Marka, model, yakıt ve motor için uyumlu parçaları kaydedin; iş emri kullanımını da görün."], movements: ["Stok Hareketleri", "Giriş, çıkış ve düzeltmeleri kaynak ve kullanıcıyla izleyin."], invoices: ["Alış Faturaları", "Faturaları kaydedin, stok girişlerini anında işleyin."], orders: ["Taslak Siparişler", "Azalan parçalar için oluşturduğunuz sipariş önerileri."], reports: ["Raporlar", "Satış performansı ve iş emri cironuz."], access: ["Yetkili Kullanıcılar", "Hesap ekleyin veya servis erişimini kaldırın."] };
+  const titles = { dashboard: ["Genel Bakış", "Servisinizin bugünkü durumuna göz atın."], inventory: ["Parça Envanteri", "Stoklarınızı ve parça fiyatlarınızı yönetin."], workorders: ["İş Emirleri", "Araç servis geçmişini ve devam eden işleri takip edin."], vehicles: ["Araç Servis Geçmişi", "Plakaya göre servis ziyaretlerini ve kullanılan parçaları bulun."], compatibility: ["Araç Uyumluluğu", "Marka, model, yakıt ve motor için uyumlu parçaları kaydedin; iş emri kullanımını da görün."], movements: ["Stok Hareketleri", "Giriş, çıkış ve düzeltmeleri kaynak ve kullanıcıyla izleyin."], invoices: ["Alış Faturaları", "Faturaları kaydedin, stok girişlerini anında işleyin."], orders: ["Taslak Siparişler", "Azalan parçalar için oluşturduğunuz sipariş önerileri."], reports: ["Raporlar", "Satış performansı ve iş emri cironuz."], access: ["Yetkili Kullanıcılar", "Hesap ekleyin veya servis erişimini kaldırın."], servicebox: ["Peugeot ServiceBox", "Parça tespiti için Peugeot ServiceBox'a gidin."] };
   const openModal = (type, item = null) => setModal({ type, item });
   const openCriticalInventory = () => {
     setQuery("");
@@ -401,7 +402,7 @@ function App() {
     h("aside", { className: "sidebar" },
       h("div", { className: "brand" }, h("div", { className: "brand-mark" }, "D"), h("div", null, h("strong", null, "DEMİR"), h("span", null, "EUROREPAR CAR SERVICE"))),
       h("div", { className: "side-label" }, "ÇALIŞMA ALANI"),
-      h("nav", { className: "navigation" }, nav.map((item) => h("button", { key: item.id, className: `nav-item ${page === item.id ? "active" : ""}`, onClick: () => { setPage(item.id); setQuery(""); } }, h(Icon, { name: item.icon }), h("span", null, item.label), item.badge ? h("span", { className: "nav-badge" }, item.badge) : null))),
+      h("nav", { className: "navigation" }, nav.map((item) => h("button", { key: item.id, className: `nav-item ${page === item.id ? "active" : ""}`, onClick: () => item.external ? window.open("https://idfed.mpsa.com/as/authorization.oauth2?response_type=code&client_id=CIDHBJGJWDTBSTEPFPFESQQNEIOJKOUQ&redirect_uri=https%3A%2F%2Fservicebox.mpsa.com%2Fdo%2Foauth2Callback&scope=openid+prd%3Ajbn+profile&state=T_uiRpnctUziudhxhzOiQs3FnICKHQLg5r4UKy9F8ZHLfk_8YUirCf4cB6z9sPjeoUoT4aL1_rf1OHVHLsUgExJBPXNRHqNP&code_challenge=bpZaD0Od0siQfVjM9C0NRHF0n-jSaAWzINuDL8W97BU&code_challenge_method=S256", "_blank") : (setPage(item.id), setQuery("")) }, h(Icon, { name: item.icon }), h("span", null, item.label), item.badge ? h("span", { className: "nav-badge" }, item.badge) : null))),
       h("div", { className: "sidebar-bottom" }, h("div", { className: "sidebar-help" }, h("div", { className: "help-icon" }, h(Icon, { name: "wrench", size: 17 })), h("strong", null, "Servis yönetimi"), h("span", null, "Tüm operasyonlarınız tek yerde.")), h("div", { className: "profile" }, h("div", { className: "avatar" }, (user.displayName || user.email || "ST").split(/\s+/).map((name) => name[0]).join("").slice(0, 2)), h("div", { className: "profile-info" }, h("strong", null, user.displayName || "Yetkili kullanıcı"), h("span", null, user.email)), h("button", { className: "icon-button logout", onClick: logout, title: "Oturumu kapat" }, h(Icon, { name: "logout", size: 17 })))),
     ),
     h("main", { className: "main-area" },
@@ -422,6 +423,7 @@ function App() {
         page === "movements" ? h(StockMovements, { movements: data.movements }) :
         page === "invoices" ? h(Invoices, { invoices: data.invoices }) :
         page === "orders" ? h(Orders, { drafts: data.drafts, lowStock, receiveDraft, createDraft }) :
+        page === "servicebox" ? h(ServiceBoxPage) :
         page === "access" && isOwner ? h(AccessManagement, {
           onError: (error) => setErrorMessage(error.message || "Kullanıcı erişimi güncellenemedi."),
           onSuccess: (message) => setToast(message),
@@ -976,6 +978,38 @@ function WorkOrderPriceSummary({ values }) {
   );
 }
 
+function ServiceBoxPage() {
+  const serviceboxUrl = "https://idfed.mpsa.com/as/authorization.oauth2?response_type=code&client_id=CIDHBJGJWDTBSTEPFPFESQQNEIOJKOUQ&redirect_uri=https%3A%2F%2Fservicebox.mpsa.com%2Fdo%2Foauth2Callback&scope=openid+prd%3Ajbn+profile&state=T_uiRpnctUziudhxhzOiQs3FnICKHQLg5r4UKy9F8ZHLfk_8YUirCf4cB6z9sPjeoUoT4aL1_rf1OHVHLsUgExJBPXNRHqNP&code_challenge=bpZaD0Od0siQfVjM9C0NRHF0n-jSaAWzINuDL8W97BU&code_challenge_method=S256";
+
+  return h("section", { className: "panel servicebox-panel" },
+    h("div", { className: "panel-heading" },
+      h("div", null,
+        h("h2", null, "Peugeot ServiceBox"),
+        h("p", null, "Resmi Peugeot parça kataloğu ve teknik bilgiler")
+      )
+    ),
+    h("div", { className: "servicebox-content" },
+      h("div", { className: "servicebox-info" },
+        h("div", { className: "servicebox-icon" }, h(Icon, { name: "car", size: 48 })),
+        h("h3", null, "Parça Tespiti"),
+        h("p", null, "Peugeot ServiceBox ile araç bazlı parça tespiti yapabilir, orijinal parça numaralarını ve teknik bilgileri öğrenebilirsiniz."),
+        h("ul", null,
+          h("li", null, "Araç bazlı parça kataloğu"),
+          h("li", null, "Orijinal parça numaraları"),
+          h("li", null, "Teknik çizimler ve şemalar"),
+          h("li", null, "Montaj talimatları")
+        )
+      ),
+      h("div", { className: "servicebox-action" },
+        h("button", {
+          className: "button button-primary",
+          onClick: () => window.open(serviceboxUrl, "_blank")
+        }, h(Icon, { name: "arrow", size: 16 }), "ServiceBox'a Git")
+      )
+    )
+  );
+}
+
 function Modal({ modal, parts, onClose, onSavePart, onSaveJob, onSaveInvoice, onSaveFitment, saving }) {
   const [lines, setLines] = useState(() => modal.type === "job" && modal.item
     ? (modal.item.items || []).map((item) => ({ partId: item.partId || "", originalPartId: item.partId || "", qty: item.qty, search: `${item.name || ""}${item.sku ? ` · ${item.sku}` : ""}`, name: item.name || "", sku: item.sku || "", category: item.category || "Genel", brand: item.brand || "", price: item.price, originalQty: item.qty, originalPrice: item.price, archived: !parts.some((part) => part.id === item.partId) }))
@@ -1308,7 +1342,7 @@ function Modal({ modal, parts, onClose, onSavePart, onSaveJob, onSaveInvoice, on
           )
         ) : h("div", { className: "invoice-paste-panel" },
           h("label", null, "Fatura satırları", h("textarea", { value: pastedText, onChange: (event) => { setPastedText(event.target.value); setError(""); }, placeholder: "SKU\tParça Adı\tAdet\tAlış Fiyatı\tSatış Fiyatı\nOE-9812\tYağ filtresi\t4\t310\t450\nNEW-301\tHava filtresi\t2\t220\t390", rows: 7 })),
-          h("p", { className: "paste-hint" }, "Fiyatları KDV hariç girin. Excel'den veya faturadan satırları doğrudan yapıştırın. Başlıklı sütun önerisi: SKU, Parça Adı, Adet, Alış Fiyatı, Satış Fiyatı. Yeni stok kodu için ad ve satış fiyatı zorunludur; yeni stok kartı fatura kaydedilince otomatik oluşur. TSV, CSV ve noktalı virgül desteklenir."),
+          h("p", { className: "paste-hint" }, "Fiyatları KDV hariç girin. Excel'den kopyalayıp buraya yapıştırın. Desteklenen sütun başlıkları: SKU/Stok Kodu, Parça Adı, Adet, Alış Fiyatı, Satış Fiyatı, Kategori, Marka. TSV, CSV ve noktalı virgül formatları desteklenir."),
           pastedInvoice.rows ? h("div", { className: `paste-result ${pastedInvoice.errors.length ? "paste-result-error" : ""}` },
             h("strong", null, pastedInvoice.errors.length ? `${pastedInvoice.errors.length} satır kontrol edilmeli` : `${pastedInvoice.items.length} fatura satırı hazır`),
             pastedInvoice.errors.length ? h("ul", null, pastedInvoice.errors.slice(0, 5).map((message) => h("li", { key: message }, message))) : h("p", null, `${pastedInvoice.items.filter((item) => !item.partId).length} yeni stok kartı oluşturulacak; mevcut parçaların stoğu güncellenecek.`)

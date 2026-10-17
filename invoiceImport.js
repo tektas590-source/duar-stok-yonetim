@@ -22,13 +22,13 @@ export function parseInvoicePaste(text, parts) {
   const normalize = (value) => value.toLocaleLowerCase("tr").replace(/ı/g, "i").normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "");
   const headings = rows[0].map(normalize);
   const findColumn = (names) => headings.findIndex((heading) => names.some((name) => name.some((part) => heading.includes(part))));
-  const headerSku = findColumn([["sku"], ["parcakodu"], ["stokno"], ["urunno"], ["kod"]]);
-  const headerQty = findColumn([["adet"], ["miktar"], ["quantity"], ["qty"]]);
-  const headerCost = findColumn([["alisfiyati"], ["birimalis"], ["unitcost"], ["birimfiyat"]]);
-  const headerName = findColumn([["parcaadi"], ["urunadi"], ["urun"], ["name"]]);
-  const headerPrice = findColumn([["satisfiyat"], ["perakende"], ["sellingprice"], ["saleprice"]]);
-  const headerCategory = findColumn([["kategori"], ["category"]]);
-  const headerBrand = findColumn([["marka"], ["brand"]]);
+  const headerSku = findColumn([["sku"], ["parcakodu"], ["stokno"], ["urunno"], ["kod"], ["stokkodu"]]);
+  const headerQty = findColumn([["adet"], ["miktar"], ["quantity"], ["qty"], ["adedi"]]);
+  const headerCost = findColumn([["alisfiyati"], ["birimalis"], ["unitcost"], ["birimfiyat"], ["fiyat"], ["kdvharic"]]);
+  const headerName = findColumn([["parcaadi"], ["urunadi"], ["urun"], ["name"], ["aciklama"]]);
+  const headerPrice = findColumn([["satisfiyat"], ["perakende"], ["sellingprice"], ["saleprice"], ["satis"], ["birimsatis"]]);
+  const headerCategory = findColumn([["kategori"], ["category"], ["grup"]]);
+  const headerBrand = findColumn([["marka"], ["brand"], ["uretici"]]);
   const resolvedCost = headerCost >= 0 ? headerCost : findColumn([["fiyat"]]);
   const hasHeader = headerSku >= 0 && headerQty >= 0 && resolvedCost >= 0;
   const indexes = hasHeader
