@@ -446,11 +446,10 @@ function Login({ onSubmit, busy, error, notice, theme, toggleTheme, configured }
       !resetting ? h("label", null, "Şifre", h("input", { name: "password", type: "password", placeholder: registering ? "En az 6 karakter" : "Şifreniz", minLength: 6, required: true, autoComplete: registering ? "new-password" : "current-password" })) : null,
       error ? h("p", { className: "form-error", role: "alert" }, error) : null,
       notice ? h("p", { className: "form-notice", role: "status" }, notice) : null,
-      h("button", { className: "button button-primary login-submit", type: "submit", disabled: busy || !configured }, busy ? "İşleniyor..." : registering ? "Hesap oluştur" : resetting ? "Sıfırlama bağlantısı gönder" : "Giriş yap", h(Icon, { name: "arrow", size: 17 })),
+      h("button", { className: "button button-primary login-submit", type: "submit", disabled: busy }, busy ? "İşleniyor..." : registering ? "Hesap oluştur" : resetting ? "Sıfırlama bağlantısı gönder" : "Giriş yap", h(Icon, { name: "arrow", size: 17 })),
       resetting ? null : h("button", { className: "auth-mode-button", type: "button", disabled: busy, onClick: () => setMode(registering ? "login" : "register") }, registering ? "Zaten hesabınız var mı? Giriş yapın" : "İlk kez mi kullanıyorsunuz? Hesap oluşturun"),
       !registering && !resetting ? h("button", { className: "auth-mode-button", type: "button", disabled: busy, onClick: () => { setMode("reset"); } }, "Şifremi unuttum") : null,
-      resetting ? h("button", { className: "auth-mode-button", type: "button", disabled: busy, onClick: () => setMode("login") }, "Giriş ekranına dön") : null,
-      !configured ? h("p", { className: "form-error", role: "status" }, "Firebase yapılandırması gerekli. Kurulum adımları README.md dosyasında.") : null
+      resetting ? h("button", { className: "auth-mode-button", type: "button", disabled: busy, onClick: () => setMode("login") }, "Giriş ekranına dön") : null
     ),
     h("div", { className: "login-foot" }, h("span", null, "E-posta doğrulama · yönetici onayı"), h("span", null, "Demir Eurorepar"))
   ));

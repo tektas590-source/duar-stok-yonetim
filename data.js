@@ -19,7 +19,7 @@ import { db, OWNER_EMAIL } from "./firebase.js";
 const COLLECTIONS = ["parts", "jobs", "invoices", "drafts"];
 
 function requireDatabase() {
-  if (!db) throw new Error("Firebase bağlantısı ayarlı değil. Firebase web ayarlarını ekleyip uygulamayı yeniden başlatın.");
+  if (!db) throw new Error("Sunucu bağlantısı kurulamadı. Lütfen sayfayı yenileyip tekrar deneyin.");
   return db;
 }
 

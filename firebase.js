@@ -34,7 +34,7 @@ export const auth = app ? getAuth(app) : null;
 export const db = app ? getFirestore(app) : null;
 
 function requireAuth() {
-  if (!auth) throw new Error("Firebase bağlantısı ayarlı değil. README'deki Firebase kurulum adımlarını tamamlayın.");
+  if (!auth) throw new Error("Sunucu bağlantısı kurulamadı. Lütfen sayfayı yenileyip tekrar deneyin.");
   return auth;
 }
 
@@ -79,7 +79,7 @@ export function signOutUser() {
 
 export function subscribeToAuth(onUser, onError) {
   if (!auth || !db) {
-    onError(new Error("Firebase bağlantısı ayarlı değil. Firebase web ayarlarını .env.local dosyasına ve Vercel Environment Variables bölümüne ekleyin."));
+    onError(new Error("Sunucu bağlantısı kurulamadı. Lütfen sayfayı yenileyip tekrar deneyin."));
     return () => {};
   }
 
