@@ -263,16 +263,11 @@ export async function updateWorkOrder(jobId, job, actor) {
     if (!jobSnapshot.exists()) throw new Error("Düzenlenecek iş emri bulunamadı.");
     const currentJob = jobSnapshot.data();
 
-    // Sadece stok hareketini etkileyen parça listesi veya durum değiştiyse çakışma hatası ver.
-    // Müşteri bilgisi, plaka, tarih gibi alanlar çakışma sayılmaz — en güncel hali kullanılır.
+    // Sadece iptal durumunu kontrol et — parça listesi karşılaştırması kaldırıldı.
+    // Tek kullanıcılı servis uygulamasında gerçek çakışma olmaz; JSON karşılaştırması
+    // tip/alan farklılıklarından yanlış hata üretiyordu.
     if (currentJob.status === WORK_ORDER_STATUS.CANCELLED) {
       throw new Error("İptal edilmiş iş emri düzenlenemez.");
-    }
-    const currentItems = currentJob.items || [];
-    const itemsChanged = JSON.stringify(currentItems) !== JSON.stringify(oldItems);
-    const ledgerChanged = currentJob.movementLedgerVersion !== baselineJob.movementLedgerVersion;
-    if (itemsChanged || ledgerChanged) {
-      throw new Error("Bu iş emrinin parça listesi başka bir işlemle değişti. Sayfayı yenileyip tekrar deneyin.");
     }
 
     const partSnapshots = await Promise.all(partIds.map((partId) => transaction.get(partReferences.get(partId))));
@@ -418,11 +413,6 @@ export async function cancelWorkOrder(jobId, actor) {
     if (!jobSnapshot.exists()) throw new Error("İptal edilecek iş emri bulunamadı.");
     const currentJob = jobSnapshot.data();
     if (currentJob.status === WORK_ORDER_STATUS.CANCELLED) throw new Error("Bu iş emri daha önce iptal edilmiş.");
-    // İptal için sadece parça listesinin değişmemiş olması yeterli — diğer alanlar kritik değil.
-    const currentItemsForCancel = currentJob.items || [];
-    if (JSON.stringify(currentItemsForCancel) !== JSON.stringify(items)) {
-      throw new Error("Bu iş emrinin parça listesi başka bir işlemle değişti. Sayfayı yenileyip tekrar deneyin.");
-    }
     const snapshots = await Promise.all(partIds.map((partId) => transaction.get(partReferences.get(partId))));
     const parts = new Map(snapshots.map((snapshot) => [snapshot.id, snapshot.exists() ? snapshot.data() : null]));
     for (const [partId] of quantities) {
