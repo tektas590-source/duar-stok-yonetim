@@ -306,23 +306,48 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.1)
 .main-area::after {
   content: "";
   position: fixed;
-  bottom: -150px;
-  right: -200px;
-  width: 400px;
-  height: 400px;
-  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23a8f045' stroke-width='0.5' stroke-opacity='0.05'%3E%3Cpath d='M5 17h14l1-5-2-5H6l-2 5z M5 17v2h2v-2 M17 17v2h2v-2 M4 12h16 M7 15h.01 M17 15h.01'/%3E%3C/svg%3E");
-  background-size: 100px;
-  animation: car-float 20s linear infinite;
+  bottom: -100px;
+  right: -100px;
+  width: 300px;
+  height: 300px;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23a8f045' stroke-width='1'%3E%3Cpath d='M5 17h14l1-5-2-5H6l-2 5z M5 17v2h2v-2 M17 17v2h2v-2 M4 12h16 M7 15h.01 M17 15h.01'/%3E%3C/svg%3E");
+  background-size: 80px;
+  background-repeat: no-repeat;
+  background-position: center;
+  animation: car-float 25s ease-in-out infinite;
   pointer-events: none;
   z-index: 0;
-  opacity: 0.3;
+  opacity: 0.15;
+  filter: blur(1px);
 }
 @keyframes car-float {
-  0% { transform: translate(0, 0) rotate(0deg); }
-  25% { transform: translate(-50px, -30px) rotate(5deg); }
-  50% { transform: translate(-100px, 0) rotate(0deg); }
-  75% { transform: translate(-50px, 30px) rotate(-5deg); }
-  100% { transform: translate(0, 0) rotate(0deg); }
+  0% { transform: translate(0, 0) rotate(0deg) scale(1); }
+  25% { transform: translate(-80px, -50px) rotate(5deg) scale(1.1); }
+  50% { transform: translate(-150px, 0) rotate(0deg) scale(1); }
+  75% { transform: translate(-80px, 50px) rotate(-5deg) scale(1.1); }
+  100% { transform: translate(0, 0) rotate(0deg) scale(1); }
+}
+.main-area .car-animation {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.08;
+  animation: car-drive 30s linear infinite;
+}
+.car-animation svg {
+  width: 200px;
+  height: 200px;
+  stroke: var(--accent);
+  stroke-width: 0.5;
+  fill: none;
+}
+@keyframes car-drive {
+  0% { transform: translate(-50%, -50%) translateX(-500px) rotate(-10deg); }
+  50% { transform: translate(-50%, -50%) translateX(500px) rotate(10deg); }
+  100% { transform: translate(-50%, -50%) translateX(-500px) rotate(-10deg); }
 }
 
 /* ─── Topbar ─────────────────────────────────────── */
