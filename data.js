@@ -13,6 +13,7 @@ import {
 import { resolveBusinessDate } from "./businessDate.js";
 import { aggregateWorkOrderQuantities, calculateWorkOrderQuantityDeltas, calculateWorkOrderReversal } from "./workOrderInventory.js";
 import { WORK_ORDER_STATUS } from "./workOrderLifecycle.js";
+import { calculateWorkOrderNetTotal, normalizeLaborAmount } from "./workOrderPricing.js";
 import { db, OWNER_EMAIL } from "./firebase.js";
 
 const COLLECTIONS = ["parts", "jobs", "invoices", "drafts"];
@@ -167,6 +168,7 @@ export async function restorePart(partId) {
 export async function createWorkOrder(job, actor) {
   const database = requireDatabase();
   const businessDate = resolveBusinessDate(job.date);
+  const laborAmount = normalizeLaborAmount(job.laborAmount);
   const quantities = new Map();
   job.items.forEach((item) => quantities.set(item.partId, (quantities.get(item.partId) || 0) + item.qty));
   const partReferences = [...quantities.keys()].map((id) => doc(database, "parts", id));
@@ -197,7 +199,8 @@ export async function createWorkOrder(job, actor) {
       movementLedgerVersion: 1,
       updatedAt: new Date().toISOString(),
       items,
-      total: items.reduce((sum, item) => sum + item.qty * item.price, 0),
+      laborAmount,
+      total: calculateWorkOrderNetTotal(items, laborAmount),
     };
     for (const [partId, quantity] of quantities) {
       const part = parts.get(partId);
@@ -223,6 +226,7 @@ export async function createWorkOrder(job, actor) {
 export async function updateWorkOrder(jobId, job, actor) {
   const database = requireDatabase();
   const businessDate = resolveBusinessDate(job.date);
+  const laborAmount = normalizeLaborAmount(job.laborAmount);
   const jobReference = doc(database, "jobs", jobId);
   const baselineSnapshot = await getDoc(jobReference);
   if (!baselineSnapshot.exists()) throw new Error("Düzenlenecek iş emri bulunamadı.");
@@ -267,6 +271,7 @@ export async function updateWorkOrder(jobId, job, actor) {
       currentJob.model !== baselineJob.model ||
       currentJob.customer !== baselineJob.customer ||
       currentJob.phone !== baselineJob.phone ||
+      normalizeLaborAmount(currentJob.laborAmount) !== normalizeLaborAmount(baselineJob.laborAmount) ||
       JSON.stringify(currentJob.items || []) !== JSON.stringify(oldItems)) {
       throw new Error("Bu iş emri başka bir kullanıcı tarafından güncellendi. Son verileri yenileyip tekrar deneyin.");
     }
@@ -346,7 +351,8 @@ export async function updateWorkOrder(jobId, job, actor) {
       phone: String(job.phone || "").trim(),
       date: businessDate,
       items,
-      total: items.reduce((sum, item) => sum + item.qty * item.price, 0),
+      laborAmount,
+      total: calculateWorkOrderNetTotal(items, laborAmount),
       movementLedgerVersion: 1,
       updatedAt: new Date().toISOString(),
     };
