@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { searchVehiclePartUsage } from "./vehicleCompatibility.js";
+import { searchFitments, searchVehiclePartUsage } from "./vehicleCompatibility.js";
 
 const jobs = [
   {
@@ -63,4 +63,20 @@ test("searches by make/model and returns separate vehicle histories", () => {
 
 test("returns no vehicles until a search is entered", () => {
   assert.deepEqual(searchVehiclePartUsage(jobs, "  "), []);
+});
+
+const fitments = [
+  { id: "f1", make: "Peugeot", model: "3008", fuel: "Dizel", engine: "1.6", parts: [{ partId: "oil-filter", sku: "OF-1", name: "Yağ filtresi" }] },
+  { id: "f2", make: "Renault", model: "Clio", fuel: "Benzin", engine: "1.0", parts: [{ name: "Hava filtresi", sku: "AF-9" }] },
+];
+
+test("lists all fitments until a search is entered and sorts by make", () => {
+  assert.deepEqual(searchFitments(fitments, "  ").map((entry) => entry.id), ["f1", "f2"]);
+});
+
+test("searches fitments by make, engine, fuel and part name", () => {
+  assert.deepEqual(searchFitments(fitments, "dizel 1.6").map((entry) => entry.id), ["f1"]);
+  assert.deepEqual(searchFitments(fitments, "hava").map((entry) => entry.id), ["f2"]);
+  assert.deepEqual(searchFitments(fitments, "clio", "Benzin").map((entry) => entry.id), ["f2"]);
+  assert.deepEqual(searchFitments(fitments, "clio", "Dizel"), []);
 });

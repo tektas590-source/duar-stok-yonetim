@@ -1,9 +1,9 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./style.css";
-import { cancelWorkOrder, completeWorkOrder, createPurchaseInvoice, createStockDraft, createWorkOrder, deletePart, fetchServiceData, grantUserAccess, listAuthorizedUsers, receiveStockDraft, restorePart, revokeUserAccess, savePart, subscribeToServiceData, updateWorkOrder } from "./data.js";
+import { cancelWorkOrder, completeWorkOrder, createPurchaseInvoice, createStockDraft, createWorkOrder, deleteFitment, deletePart, fetchServiceData, grantUserAccess, listAuthorizedUsers, receiveStockDraft, restorePart, revokeUserAccess, saveFitment, savePart, subscribeToServiceData, updateWorkOrder } from "./data.js";
 import { getOpenWorkOrders, getRevenueEligibleWorkOrders, getWorkOrderStatusClass, WORK_ORDER_STATUS } from "./workOrderLifecycle.js";
-import { searchVehiclePartUsage } from "./vehicleCompatibility.js";
+import { formatFitmentSpec, formatFitmentVehicle, FUEL_TYPES, searchFitments, searchVehiclePartUsage } from "./vehicleCompatibility.js";
 import { parseInvoicePaste } from "./invoiceImport.js";
 import { findPartMatches, parsePastedPartQueries } from "./partSearch.js";
 import { changeInitialPassword, firebaseConfigured, OWNER_EMAIL, registerWithPassword, requestPasswordReset, signInWithPassword, signOutUser, subscribeToAuth } from "./firebase.js";
@@ -178,7 +178,7 @@ function App() {
   const [theme, setTheme] = useState(() => localStorage.getItem("demir-service-theme") === "light" ? "light" : "dark");
   const [user, setUser] = useState(null);
   const [authReady, setAuthReady] = useState(false);
-  const [data, setData] = useState({ parts: [], jobs: [], invoices: [], drafts: [], movements: [] });
+  const [data, setData] = useState({ parts: [], jobs: [], invoices: [], drafts: [], fitments: [], movements: [] });
   const [dataLoading, setDataLoading] = useState(false);
   const [authBusy, setAuthBusy] = useState(false);
   const [authNotice, setAuthNotice] = useState("");
@@ -215,7 +215,7 @@ function App() {
   }, []);
   useEffect(() => {
     if (!user) {
-      setData({ parts: [], jobs: [], invoices: [], drafts: [], movements: [] });
+      setData({ parts: [], jobs: [], invoices: [], drafts: [], fitments: [], movements: [] });
       setDataLoading(false);
       return undefined;
     }
@@ -267,7 +267,7 @@ function App() {
   ];
   const isOwner = user?.email?.toLowerCase() === OWNER_EMAIL;
   if (isOwner) nav.push({ id: "access", label: "Yetkili Kullanıcılar", icon: "grid" });
-  const titles = { dashboard: ["Genel Bakış", "Servisinizin bugünkü durumuna göz atın."], inventory: ["Parça Envanteri", "Stoklarınızı ve parça fiyatlarınızı yönetin."], workorders: ["İş Emirleri", "Araç servis geçmişini ve devam eden işleri takip edin."], vehicles: ["Araç Servis Geçmişi", "Plakaya göre servis ziyaretlerini ve kullanılan parçaları bulun."], compatibility: ["Araçtan Parça Uyumluluğu", "Marka, model veya plaka yazarak araçlarda kullanılan parçaları bulun."], movements: ["Stok Hareketleri", "Giriş, çıkış ve düzeltmeleri kaynak ve kullanıcıyla izleyin."], invoices: ["Alış Faturaları", "Faturaları kaydedin, stok girişlerini anında işleyin."], orders: ["Taslak Siparişler", "Azalan parçalar için oluşturduğunuz sipariş önerileri."], reports: ["Raporlar", "Satış performansı ve iş emri cironuz."], access: ["Yetkili Kullanıcılar", "Hesap ekleyin veya servis erişimini kaldırın."] };
+  const titles = { dashboard: ["Genel Bakış", "Servisinizin bugünkü durumuna göz atın."], inventory: ["Parça Envanteri", "Stoklarınızı ve parça fiyatlarınızı yönetin."], workorders: ["İş Emirleri", "Araç servis geçmişini ve devam eden işleri takip edin."], vehicles: ["Araç Servis Geçmişi", "Plakaya göre servis ziyaretlerini ve kullanılan parçaları bulun."], compatibility: ["Araç Uyumluluğu", "Marka, model, yakıt ve motor için uyumlu parçaları kaydedin; iş emri kullanımını da görün."], movements: ["Stok Hareketleri", "Giriş, çıkış ve düzeltmeleri kaynak ve kullanıcıyla izleyin."], invoices: ["Alış Faturaları", "Faturaları kaydedin, stok girişlerini anında işleyin."], orders: ["Taslak Siparişler", "Azalan parçalar için oluşturduğunuz sipariş önerileri."], reports: ["Raporlar", "Satış performansı ve iş emri cironuz."], access: ["Yetkili Kullanıcılar", "Hesap ekleyin veya servis erişimini kaldırın."] };
   const openModal = (type, item = null) => setModal({ type, item });
   const openCriticalInventory = () => {
     setQuery("");
@@ -303,6 +303,14 @@ function App() {
       return;
     }
     await runAction(async () => { await savePart(part, user.email); await reloadData(); setModal(null); }, "Parça kaydedildi.");
+  };
+  const persistFitment = async (fitment) => {
+    await runAction(async () => { await saveFitment(fitment); await reloadData(); setModal(null); }, "Araç uyumluluğu kaydedildi.");
+  };
+  const removeFitment = async (fitment) => {
+    const label = formatFitmentVehicle(fitment) || "bu kayıt";
+    if (!window.confirm(`${label} uyumluluk kaydını silmek istiyor musunuz?`)) return;
+    await runAction(async () => { await deleteFitment(fitment.id); await reloadData(); }, "Uyumluluk kaydı silindi.");
   };
   const removePart = async (part) => {
     if (!window.confirm(`"${part.name}" parçasını envanterden silmek istiyor musunuz? Geçmiş işlem satırları korunur.`)) return;
@@ -404,12 +412,13 @@ function App() {
           page === "inventory" ? h("button", { className: "button button-primary", onClick: () => openModal("part"), disabled: saving }, h(Icon, { name: "plus", size: 16 }), "Parça ekle") :
           page === "workorders" ? h("button", { className: "button button-primary", onClick: () => openModal("job"), disabled: saving }, h(Icon, { name: "plus", size: 16 }), "İş emri oluştur") :
           page === "invoices" ? h("button", { className: "button button-primary", onClick: () => openModal("invoice"), disabled: saving }, h(Icon, { name: "plus", size: 16 }), "Fatura ekle") :
-          page === "orders" ? h("button", { className: "button button-primary", onClick: createDraft, disabled: saving }, h(Icon, { name: "plus", size: 16 }), "Sipariş taslağı oluştur") : null)),
+          page === "orders" ? h("button", { className: "button button-primary", onClick: createDraft, disabled: saving }, h(Icon, { name: "plus", size: 16 }), "Sipariş taslağı oluştur") :
+          page === "compatibility" ? h("button", { className: "button button-primary", onClick: () => openModal("fitment"), disabled: saving }, h(Icon, { name: "plus", size: 16 }), "Uyumluluk ekle") : null)),
         page === "dashboard" ? h(Dashboard, { data, lowStock, revenue, setPage, openModal, createDraft, openCriticalInventory, openWorkOrder, openWorkOrderList }) :
         page === "inventory" ? h(Inventory, { parts: data.parts, query, setQuery, openModal, removePart, saving, filterIntent: inventoryFilterIntent, clearFilterIntent: () => setInventoryFilterIntent(null) }) :
         page === "workorders" ? h(WorkOrders, { jobs: data.jobs, query, setQuery, openModal, markJobComplete, cancelJob, saving, selectionIntent: workOrderSelectionIntent, clearSelectionIntent: () => setWorkOrderSelectionIntent(null) }) :
         page === "vehicles" ? h(VehicleHistory, { jobs: data.jobs }) :
-        page === "compatibility" ? h(PartCompatibility, { jobs: data.jobs }) :
+        page === "compatibility" ? h(PartCompatibility, { jobs: data.jobs, fitments: data.fitments || [], openModal, removeFitment, saving }) :
         page === "movements" ? h(StockMovements, { movements: data.movements }) :
         page === "invoices" ? h(Invoices, { invoices: data.invoices }) :
         page === "orders" ? h(Orders, { drafts: data.drafts, lowStock, receiveDraft, createDraft }) :
@@ -419,7 +428,7 @@ function App() {
         }) : h(Reports, { data, revenue })
       )
     ),
-    modal ? h(Modal, { modal, parts: data.parts, onClose: () => setModal(null), onSavePart: persistPart, onSaveJob: persistJob, onSaveInvoice: persistInvoice, saving }) : null,
+    modal ? h(Modal, { modal, parts: data.parts, onClose: () => setModal(null), onSavePart: persistPart, onSaveJob: persistJob, onSaveInvoice: persistInvoice, onSaveFitment: persistFitment, saving }) : null,
     errorMessage ? h("div", { className: "toast toast-error", role: "alert" }, h("span", { className: "toast-check" }, "!"), errorMessage) : toast ? h("div", { className: "toast" }, h("span", { className: "toast-check" }, "✓"), toast, toastAction ? h("button", { className: "toast-action", onClick: () => toastAction.run().catch((error) => { console.error("Geri alma başarısız:", error); setErrorMessage(error.message || "Geri alma tamamlanamadı."); }) }, toastAction.label) : null) : null
   );
 }
@@ -802,31 +811,65 @@ function VehicleHistory({ jobs }) {
       h("span", { className: "vehicle-card-meta" }, `${vehicle.jobs.length} ziyaret · son ${dateLabel(vehicle.lastDate)}`)
     ))) : h("section", { className: "panel empty-state" }, activeJobs.length ? "Aramanızla eşleşen araç bulunamadı." : "Araç geçmişi, iş emri kaydedildikçe burada oluşur."));
 }
-function PartCompatibility({ jobs }) {
+function PartCompatibility({ jobs, fitments, openModal, removeFitment, saving }) {
   const [query, setQuery] = useState("");
+  const [fuel, setFuel] = useState("all");
+  const catalog = searchFitments(fitments, query, fuel);
   const vehicles = searchVehiclePartUsage(jobs, query);
   return h(React.Fragment, null,
-    h("div", { className: "list-toolbar" }, h("div", { className: "search-wrap" }, h(Icon, { name: "search", size: 17 }), h("input", { value: query, onChange: (event) => setQuery(event.target.value), placeholder: "Araç markası, modeli veya plakası ara...", "aria-label": "Araç markası, modeli veya plakası ara" })), h("span", { className: "result-count" }, query.trim() ? `${vehicles.length} araç` : "Araç araması bekleniyor")),
-    h("p", { className: "page-hint" }, "Sonuçlar kayıtlı iş emirlerinde kullanılan parçaları gösterir; katalog uyumluluk garantisi değildir."),
-    !query.trim() ? h("section", { className: "panel empty-state vehicle-search-prompt" }, h("h3", null, "Araç aramaya başlayın"), h("p", null, "Marka, model veya plaka yazın; o araçlarda kullanılan parçaları görüntüleyin.")) : vehicles.length ? h("section", { className: "vehicle-fitment-grid" }, vehicles.map((vehicle) =>
-      h("article", { className: "panel fitment-card vehicle-fitment-card", key: vehicle.plate },
+    h("div", { className: "list-toolbar" },
+      h("div", { className: "search-wrap" }, h(Icon, { name: "search", size: 17 }), h("input", { value: query, onChange: (event) => setQuery(event.target.value), placeholder: "Marka, model, motor, yakıt veya parça ara...", "aria-label": "Uyumluluk kaydı ara" })),
+      h("select", { className: "filter-select", value: fuel, onChange: (event) => setFuel(event.target.value), "aria-label": "Yakıt tipi filtresi" }, h("option", { value: "all" }, "Tüm yakıtlar"), FUEL_TYPES.map((type) => h("option", { key: type, value: type }, type))),
+      h("span", { className: "result-count" }, `${catalog.length} uyumluluk kaydı`)
+    ),
+    h("p", { className: "page-hint" }, "Kendi girdiğiniz marka, model, Dizel/Benzin ve motor bilgisine göre uyumlu parçaları kaydedin. Aşağıdaki servis kullanımı yalnızca iş emirlerinden gelir."),
+    catalog.length ? h("section", { className: "vehicle-fitment-grid" }, catalog.map((fitment) =>
+      h("article", { className: "panel fitment-card vehicle-fitment-card", key: fitment.id },
         h("div", { className: "vehicle-fitment-heading" },
           h("span", { className: "vehicle-card-icon" }, h(Icon, { name: "car", size: 20 })),
-          h("div", { className: "vehicle-fitment-title" }, h("strong", null, `${vehicle.make} ${vehicle.model}`), h("small", null, vehicle.plate)),
-          h("span", { className: "vehicle-card-meta" }, `${vehicle.jobs.length} servis ziyareti`)
+          h("div", { className: "vehicle-fitment-title" }, h("strong", null, formatFitmentVehicle(fitment) || "Araç"), h("small", null, formatFitmentSpec(fitment))),
+          h("span", { className: `category-tag fuel-tag fuel-${normalizeFuelClass(fitment.fuel)}` }, fitment.fuel)
         ),
-        h("div", { className: "vehicle-profile-metrics vehicle-fitment-metrics" },
-          h("div", null, h("strong", null, vehicle.parts.length), h("span", null, "kullanılan parça")),
-          h("div", null, h("strong", null, dateLabel(vehicle.latestDate)), h("span", null, "son servis"))
-        ),
-        h("h3", { className: "vehicle-fitment-label" }, "Bu araçta kullanılan parçalar"),
-        vehicle.parts.length ? h("div", { className: "vehicle-fitment-parts" }, vehicle.parts.map((part) => h("div", { className: "vehicle-fitment-part", key: part.partId || part.sku || part.name },
-          h("span", null, h("strong", null, part.name), h("small", null, part.sku || "Stok kodu yok")),
-          h("span", { className: "vehicle-fitment-usage" }, `${part.quantity} adet · ${part.visits} ziyarette`),
-          h("small", { className: "vehicle-fitment-last-use" }, `Son kullanım ${dateLabel(part.lastDate)}`)
-        ))) : h("p", { className: "empty-state compact-empty" }, "Bu araç için parça kaydı bulunamadı.")
+        h("h3", { className: "vehicle-fitment-label" }, "Uyumlu parçalar"),
+        fitment.parts?.length ? h("div", { className: "vehicle-fitment-parts" }, fitment.parts.map((part, index) => h("div", { className: "vehicle-fitment-part", key: part.partId || `${part.sku || part.name}-${index}` },
+          h("span", null, h("strong", null, part.name), h("small", null, part.sku || (part.partId ? "Stok kodu yok" : "Elle eklenen parça")))
+        ))) : h("p", { className: "empty-state compact-empty" }, "Bu kayıtta henüz parça yok."),
+        h("div", { className: "fitment-card-actions row-actions" },
+          h("button", { className: "button button-small", type: "button", disabled: saving, onClick: () => openModal("fitment", fitment) }, "Düzenle"),
+          h("button", { className: "button button-small button-danger", type: "button", disabled: saving, onClick: () => removeFitment(fitment), "aria-label": `${formatFitmentVehicle(fitment)} kaydını sil` }, "Sil")
+        )
       )
-    )) : h("section", { className: "panel empty-state" }, "Aramanızla eşleşen araç bulunamadı."));
+    )) : h("section", { className: "panel empty-state vehicle-search-prompt" },
+      h("h3", null, fitments.length ? "Aramanızla eşleşen kayıt yok" : "Henüz uyumluluk kaydı yok"),
+      h("p", null, fitments.length ? "Marka, model, yakıt, motor veya parça adını değiştirerek tekrar arayın." : "Sağ üstten “Uyumluluk ekle” ile marka, model, Dizel veya Benzin, motor hacmi ve uyumlu parçaları kaydedin.")
+    ),
+    query.trim() ? vehicles.length ? h(React.Fragment, null,
+      h("h2", { className: "fitment-usage-heading" }, "Serviste kullanılan parçalar"),
+      h("p", { className: "page-hint" }, "Bu bölüm iş emirlerindeki gerçek kullanımdır; katalog kaydı değildir."),
+      h("section", { className: "vehicle-fitment-grid" }, vehicles.map((vehicle) =>
+        h("article", { className: "panel fitment-card vehicle-fitment-card", key: vehicle.plate },
+          h("div", { className: "vehicle-fitment-heading" },
+            h("span", { className: "vehicle-card-icon" }, h(Icon, { name: "car", size: 20 })),
+            h("div", { className: "vehicle-fitment-title" }, h("strong", null, `${vehicle.make} ${vehicle.model}`), h("small", null, vehicle.plate)),
+            h("span", { className: "vehicle-card-meta" }, `${vehicle.jobs.length} servis ziyareti`)
+          ),
+          h("div", { className: "vehicle-profile-metrics vehicle-fitment-metrics" },
+            h("div", null, h("strong", null, vehicle.parts.length), h("span", null, "kullanılan parça")),
+            h("div", null, h("strong", null, dateLabel(vehicle.latestDate)), h("span", null, "son servis"))
+          ),
+          h("h3", { className: "vehicle-fitment-label" }, "Bu araçta kullanılan parçalar"),
+          vehicle.parts.length ? h("div", { className: "vehicle-fitment-parts" }, vehicle.parts.map((part) => h("div", { className: "vehicle-fitment-part", key: part.partId || part.sku || part.name },
+            h("span", null, h("strong", null, part.name), h("small", null, part.sku || "Stok kodu yok")),
+            h("span", { className: "vehicle-fitment-usage" }, `${part.quantity} adet · ${part.visits} ziyarette`),
+            h("small", { className: "vehicle-fitment-last-use" }, `Son kullanım ${dateLabel(part.lastDate)}`)
+          ))) : h("p", { className: "empty-state compact-empty" }, "Bu araç için parça kaydı bulunamadı.")
+        )
+      ))
+    ) : h("section", { className: "panel empty-state compact-empty" }, "Aramanızla eşleşen iş emri aracı bulunamadı.") : null
+  );
+}
+function normalizeFuelClass(fuel) {
+  return String(fuel || "").toLocaleLowerCase("tr").replace(/\s+/g, "-");
 }
 function StockMovements({ movements }) {
   const [query, setQuery] = useState("");
@@ -933,9 +976,11 @@ function WorkOrderPriceSummary({ values }) {
   );
 }
 
-function Modal({ modal, parts, onClose, onSavePart, onSaveJob, onSaveInvoice, saving }) {
+function Modal({ modal, parts, onClose, onSavePart, onSaveJob, onSaveInvoice, onSaveFitment, saving }) {
   const [lines, setLines] = useState(() => modal.type === "job" && modal.item
     ? (modal.item.items || []).map((item) => ({ partId: item.partId || "", originalPartId: item.partId || "", qty: item.qty, search: `${item.name || ""}${item.sku ? ` · ${item.sku}` : ""}`, name: item.name || "", sku: item.sku || "", category: item.category || "Genel", brand: item.brand || "", price: item.price, originalQty: item.qty, originalPrice: item.price, archived: !parts.some((part) => part.id === item.partId) }))
+    : modal.type === "fitment" && modal.item
+      ? (modal.item.parts || []).map((item) => ({ partId: item.partId || "", search: `${item.name || ""}${item.sku ? ` · ${item.sku}` : ""}`, name: item.name || "", sku: item.sku || "" }))
     : [{ partId: "", qty: 1, search: "" }]);
   const [businessDate, setBusinessDate] = useState(() => modal.item?.date || dateKey(new Date()));
   const [laborAmount, setLaborAmount] = useState(() => String(modal.item?.laborAmount ?? 0));
@@ -945,7 +990,7 @@ function Modal({ modal, parts, onClose, onSavePart, onSaveJob, onSaveInvoice, sa
   const [pastedText, setPastedText] = useState("");
   const [invoiceItems, setInvoiceItems] = useState([]);
   const [newInvoicePart, setNewInvoicePart] = useState({ sku: "", name: "", qty: "1", cost: "", price: "", category: "Genel", brand: "", minimum: "5" });
-  const title = modal.type === "part" ? modal.item ? "Parçayı düzenle" : "Yeni parça ekle" : modal.type === "job" ? modal.item ? "İş emrini düzenle" : "Yeni iş emri" : "Alış faturası ekle";
+  const title = modal.type === "part" ? modal.item ? "Parçayı düzenle" : "Yeni parça ekle" : modal.type === "job" ? modal.item ? "İş emrini düzenle" : "Yeni iş emri" : modal.type === "fitment" ? modal.item ? "Uyumluluğu düzenle" : "Araç uyumluluğu ekle" : "Alış faturası ekle";
   const updateLine = (index, key, value) => setLines((current) => current.map((line, i) => i === index ? { ...line, [key]: value } : line));
   const addLine = () => setLines((current) => [...current, { partId: "", qty: 1, search: "" }]);
   const updateNewInvoicePart = (key, value) => setNewInvoicePart((current) => ({ ...current, [key]: value }));
@@ -1003,6 +1048,33 @@ function Modal({ modal, parts, onClose, onSavePart, onSaveJob, onSaveInvoice, sa
     setLines((current) => current.map((line, lineIndex) => lineIndex === index ? { ...line, partId: part.id, search: `${part.name} · ${part.sku}`, price: line.originalPartId === part.id ? (line.originalPrice ?? line.price) : part.price, originalQty: line.originalPartId === part.id ? line.originalQty : 0, archived: false } : line));
     setError("");
   }
+  function selectFitmentPart(index, part) {
+    setLines((current) => current.map((line, lineIndex) => lineIndex === index ? { ...line, partId: part.id, search: `${part.name} · ${part.sku}`, name: part.name, sku: part.sku } : line));
+    setError("");
+  }
+  function addCustomFitmentPart(index) {
+    setLines((current) => current.map((line, lineIndex) => {
+      if (lineIndex !== index) return line;
+      const name = String(line.search || "").split(" · ")[0].trim();
+      if (!name) return line;
+      return { ...line, partId: "", sku: "", name, search: name };
+    }));
+    setError("");
+    setPasteMessage("Parça envanter dışında, bu adla kaydedilecek.");
+  }
+  function fitmentPartLine(line, index) {
+    const matches = !line.partId && !line.name ? findPartMatches(line.search, parts).slice(0, 8) : [];
+    const customName = String(line.search || "").split(" · ")[0].trim();
+    return h("div", { className: "modal-item-line fitment-part-line", key: index },
+      h("label", { className: "part-search-label" }, index === 0 ? "Uyumlu parça" : " ", h("div", { className: "part-search-wrap" },
+        h("input", { type: "search", value: line.search || "", placeholder: "Parça adı, SKU veya elle yazın", autoComplete: "off", onChange: (event) => { setLines((current) => current.map((entry, lineIndex) => lineIndex === index ? { ...entry, partId: "", name: "", sku: "", search: event.target.value } : entry)); setError(""); setPasteMessage(""); }, "aria-label": `Uyumlu parça ${index + 1}` }),
+        matches.length ? h("div", { className: "part-search-results", role: "listbox" }, matches.map((entry) => h("button", { key: entry.id, type: "button", role: "option", onClick: () => selectFitmentPart(index, entry) }, h("span", null, h("strong", null, entry.name), h("small", null, `${entry.sku} · stok ${entry.stock}`)), h("span", { className: "part-result-stock" }, `${entry.stock} adet`)))) :
+          line.search && !line.partId && !line.name ? h("div", { className: "part-search-empty" }, "Envanterde eşleşme yok. Adı yazdıysanız elle ekleyebilirsiniz.") : null
+      )),
+      !line.partId && customName && !line.name ? h("button", { className: "button button-small", type: "button", onClick: () => addCustomFitmentPart(index) }, "Elle ekle") : null,
+      h("button", { className: "button button-small button-danger job-line-remove", type: "button", onClick: () => setLines((current) => { const next = current.filter((_, lineIndex) => lineIndex !== index); return next.length ? next : [{ partId: "", search: "" }]; }), "aria-label": `${line.name || `Parça ${index + 1}`} satırını kaldır` }, h(Icon, { name: "close", size: 14 }))
+    );
+  }
   function pastePartCodes(event, index) {
     const queries = parsePastedPartQueries(event.clipboardData.getData("text"));
     if (!queries.length) return;
@@ -1031,6 +1103,33 @@ function Modal({ modal, parts, onClose, onSavePart, onSaveJob, onSaveInvoice, sa
   function submit(event) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
+    if (modal.type === "fitment") {
+      const items = lines.map((line) => {
+        const part = parts.find((entry) => entry.id === line.partId);
+        const name = part?.name || line.name || String(line.search || "").split(" · ")[0].trim();
+        if (!name) return null;
+        return { partId: part?.id || line.partId || "", sku: part?.sku || line.sku || "", name };
+      }).filter(Boolean);
+      const fitment = {
+        ...(modal.item || {}),
+        make: String(form.get("make") || "").trim(),
+        model: String(form.get("model") || "").trim(),
+        year: String(form.get("year") || "").trim(),
+        fuel: String(form.get("fuel") || "").trim(),
+        engine: String(form.get("engine") || "").trim(),
+        parts: items,
+      };
+      if (!fitment.make || !fitment.model || !fitment.year || !fitment.fuel || !fitment.engine) {
+        setError("Marka, model, yıl, yakıt tipi ve motor hacmini girin.");
+        return;
+      }
+      if (!items.length) {
+        setError("En az bir uyumlu parça ekleyin. Envanterden seçin veya adı yazıp elle ekleyin.");
+        return;
+      }
+      onSaveFitment(fitment);
+      return;
+    }
     if (modal.type === "part") {
       const part = { ...(modal.item || {}), sku: String(form.get("sku")).trim(), name: String(form.get("name")).trim(), category: String(form.get("category")).trim(), brand: String(form.get("brand")).trim(), stock: Number(form.get("stock")), minimum: Number(form.get("minimum")), price: parseCurrencyInput(form.get("price")), cost: parseCurrencyInput(form.get("cost")) };
       if (!part.sku || !part.name || [part.stock, part.minimum, part.price, part.cost].some((value) => !Number.isFinite(value) || value < 0)) {
@@ -1142,6 +1241,18 @@ function Modal({ modal, parts, onClose, onSavePart, onSaveJob, onSaveInvoice, sa
         h("label", null, "Kritik stok seviyesi", h("input", { name: "minimum", type: "number", min: 0, defaultValue: modal.item?.minimum ?? 5, required: true })),
         h("label", null, "Alış fiyatı · KDV hariç (₺)", h(CurrencyInput, { name: "cost", value: String(modal.item?.cost ?? ""), required: true, placeholder: "0,00" })),
         h("label", null, "Satış fiyatı · KDV hariç (₺)", h(CurrencyInput, { name: "price", value: String(modal.item?.price ?? ""), required: true, placeholder: "0,00" }))
+      ) : modal.type === "fitment" ? h(React.Fragment, null,
+        h("div", { className: "form-grid" },
+          h("label", null, "Marka", h("input", { name: "make", defaultValue: modal.item?.make || "", placeholder: "Örn. Peugeot", required: true })),
+          h("label", null, "Model", h("input", { name: "model", defaultValue: modal.item?.model || "", placeholder: "Örn. 3008", required: true })),
+          h("label", null, "Yıl", h("input", { name: "year", type: "number", min: 1990, max: 2100, defaultValue: modal.item?.year || "", placeholder: "Örn. 2020", required: true })),
+          h("label", null, "Yakıt", h("select", { name: "fuel", defaultValue: modal.item?.fuel || "Dizel", required: true, "aria-label": "Yakıt tipi" }, FUEL_TYPES.map((type) => h("option", { key: type, value: type }, type)))),
+          h("label", null, "Motor", h("input", { name: "engine", defaultValue: modal.item?.engine || "", placeholder: "Örn. 1.6 BlueHDi", required: true }))
+        ),
+        h("div", { className: "modal-section-title" }, "Uyumlu parçalar", h("span", null, "Envanterden seçin veya adı yazın")),
+        h("p", { className: "part-paste-hint" }, "Parça adı veya SKU yazın. Stokta yoksa “Elle ekle” ile kaydedebilirsiniz.", pasteMessage ? h("strong", null, ` ${pasteMessage}`) : null),
+        h("div", { className: "modal-lines" }, lines.map((line, index) => fitmentPartLine(line, index))),
+        h("button", { className: "add-line-button", type: "button", onClick: addLine }, h(Icon, { name: "plus", size: 15 }), "Parça satırı ekle")
       ) : modal.type === "job" ? h(React.Fragment, null,
         h("div", { className: "form-grid" },
           h("label", null, "İş emri tarihi", h("input", { name: "date", type: "date", value: businessDate, onChange: (event) => setBusinessDate(event.target.value), required: true })),
@@ -1207,7 +1318,7 @@ function Modal({ modal, parts, onClose, onSavePart, onSaveJob, onSaveInvoice, sa
       modal.type === "invoice" && invoicePreviewItems.length ? h(VatSummary, { values: invoiceVat, title: "Fatura toplamı · KDV dahil" }) :
         modal.type === "job" && jobPricing ? h(WorkOrderPriceSummary, { values: jobPricing }) : null,
       error ? h("p", { className: "form-error", role: "alert" }, error) : null,
-      h("div", { className: "modal-footer" }, h("button", { className: "button button-quiet", onClick: onClose, type: "button", disabled: saving }, "Vazgeç"), h("button", { className: "button button-primary", type: "submit", disabled: saving }, saving ? "Kaydediliyor..." : modal.type === "part" ? "Kaydet" : modal.type === "job" ? modal.item ? "İş emrini güncelle" : "İş emrini oluştur" : "Faturayı kaydet", saving ? null : h(Icon, { name: "arrow", size: 15 })))
+      h("div", { className: "modal-footer" }, h("button", { className: "button button-quiet", onClick: onClose, type: "button", disabled: saving }, "Vazgeç"), h("button", { className: "button button-primary", type: "submit", disabled: saving }, saving ? "Kaydediliyor..." : modal.type === "part" ? "Kaydet" : modal.type === "job" ? modal.item ? "İş emrini güncelle" : "İş emrini oluştur" : modal.type === "fitment" ? "Uyumluluğu kaydet" : "Faturayı kaydet", saving ? null : h(Icon, { name: "arrow", size: 15 })))
     )
   ));
 }

@@ -1,5 +1,7 @@
 import { isCancelledWorkOrder } from "./workOrderLifecycle.js";
 
+export const FUEL_TYPES = ["Dizel", "Benzin"];
+
 function normalizeSearchText(value) {
   return String(value || "")
     .trim()
@@ -7,6 +9,35 @@ function normalizeSearchText(value) {
     .replace(/ı/g, "i")
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "");
+}
+
+export function formatFitmentVehicle(fitment) {
+  return [fitment?.make, fitment?.model, fitment?.year].filter(Boolean).join(" ").trim();
+}
+
+export function formatFitmentSpec(fitment) {
+  return [fitment?.engine, fitment?.fuel].filter(Boolean).join(" · ");
+}
+
+export function searchFitments(fitments, query, fuel = "all") {
+  const search = normalizeSearchText(query);
+  const selectedFuel = String(fuel || "all");
+  return [...(fitments || [])]
+    .filter((fitment) => selectedFuel === "all" || String(fitment.fuel || "") === selectedFuel)
+    .filter((fitment) => {
+      if (!search) return true;
+      const partsText = (fitment.parts || []).map((part) => `${part.name || ""} ${part.sku || ""}`).join(" ");
+      return normalizeSearchText(`${fitment.make} ${fitment.model} ${fitment.year} ${fitment.fuel} ${fitment.engine} ${partsText}`).includes(search);
+    })
+    .sort((first, second) => {
+      const make = String(first.make || "").localeCompare(String(second.make || ""), "tr");
+      if (make) return make;
+      const model = String(first.model || "").localeCompare(String(second.model || ""), "tr");
+      if (model) return model;
+      const year = String(first.year || "").localeCompare(String(second.year || ""), "tr");
+      if (year) return year;
+      return String(first.engine || "").localeCompare(String(second.engine || ""), "tr");
+    });
 }
 
 function normalizePlate(value) {

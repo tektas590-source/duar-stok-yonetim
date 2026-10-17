@@ -17,6 +17,7 @@ import { calculateWorkOrderNetTotal, normalizeLaborAmount } from "./workOrderPri
 import { db, OWNER_EMAIL } from "./firebase.js";
 
 const COLLECTIONS = ["parts", "jobs", "invoices", "drafts"];
+const OPTIONAL_COLLECTIONS = ["fitments"];
 
 function requireDatabase() {
   if (!db) throw new Error("Sunucu bağlantısı kurulamadı. Lütfen sayfayı yenileyip tekrar deneyin.");
@@ -47,6 +48,14 @@ export async function fetchServiceData() {
   const database = requireDatabase();
   const snapshots = await Promise.all(COLLECTIONS.map((name) => getDocs(collection(database, name))));
   const result = Object.fromEntries(COLLECTIONS.map((name, index) => [name, readCollection(snapshots[index])]));
+  await Promise.all(OPTIONAL_COLLECTIONS.map(async (name) => {
+    try {
+      result[name] = readCollection(await getDocs(collection(database, name)));
+    } catch (error) {
+      console.error(`${name} koleksiyonu okunamadı:`, error);
+      result[name] = [];
+    }
+  }));
   const allParts = result.parts;
   result.parts = result.parts.filter((part) => !part.archived);
   const movementSnapshots = await Promise.all(allParts.map((part) => getDocs(collection(database, "parts", part.id, "movements"))));
@@ -92,9 +101,12 @@ export async function fetchServiceData() {
 
 export function subscribeToServiceData(onChange, onError) {
   const database = requireDatabase();
-  const unsubscribe = COLLECTIONS.map((name) =>
-    onSnapshot(collection(database, name), onChange, onError)
-  );
+  const unsubscribe = [
+    ...COLLECTIONS.map((name) => onSnapshot(collection(database, name), onChange, onError)),
+    ...OPTIONAL_COLLECTIONS.map((name) => onSnapshot(collection(database, name), onChange, (error) => {
+      console.error(`${name} canlı aboneliği başarısız:`, error);
+    })),
+  ];
   return () => unsubscribe.forEach((stop) => stop());
 }
 
@@ -163,6 +175,47 @@ export async function deletePart(partId) {
 
 export async function restorePart(partId) {
   await setDoc(doc(requireDatabase(), "parts", partId), { archived: false }, { merge: true });
+}
+
+function normalizeFitmentRecord(fitment, id, timestamps = {}) {
+  return {
+    id,
+    make: String(fitment.make || "").trim(),
+    model: String(fitment.model || "").trim(),
+    year: String(fitment.year || "").trim(),
+    fuel: String(fitment.fuel || "").trim(),
+    engine: String(fitment.engine || "").trim(),
+    parts: (fitment.parts || []).map((part) => ({
+      partId: part.partId || "",
+      sku: String(part.sku || "").trim(),
+      name: String(part.name || "").trim(),
+    })).filter((part) => part.name),
+    createdAt: timestamps.createdAt,
+    updatedAt: timestamps.updatedAt,
+  };
+}
+
+export async function saveFitment(fitment) {
+  const database = requireDatabase();
+  const id = fitment.id || makeId();
+  const now = new Date().toISOString();
+  const reference = doc(database, "fitments", id);
+  const snapshot = await getDoc(reference);
+  const existing = snapshot.exists() ? snapshot.data() : null;
+  const record = normalizeFitmentRecord(fitment, id, {
+    createdAt: existing?.createdAt || fitment.createdAt || now,
+    updatedAt: now,
+  });
+  if (!record.make || !record.model || !record.year || !record.fuel || !record.engine) {
+    throw new Error("Marka, model, yıl, yakıt tipi ve motor hacmi zorunludur.");
+  }
+  if (!record.parts.length) throw new Error("En az bir uyumlu parça ekleyin.");
+  await setDoc(reference, record);
+  return record;
+}
+
+export async function deleteFitment(fitmentId) {
+  await deleteDoc(doc(requireDatabase(), "fitments", fitmentId));
 }
 
 export async function createWorkOrder(job, actor) {
