@@ -14,12 +14,12 @@ import { doc, getDoc, getFirestore, setDoc } from "firebase/firestore";
 export const OWNER_EMAIL = "tektas590@gmail.com";
 
 const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-  appId: import.meta.env.VITE_FIREBASE_APP_ID,
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "AIzaSyB64r0lgvQ6WVfEH3p8_AjUjl43ChnrJKE",
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "stok-16ef3.firebaseapp.com",
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "stok-16ef3",
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "stok-16ef3.firebasestorage.app",
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "63997599395",
+  appId: import.meta.env.VITE_FIREBASE_APP_ID || "1:63997599395:web:5a1adcff28bf74c5ea2916",
 };
 
 export const firebaseConfigured = Boolean(
