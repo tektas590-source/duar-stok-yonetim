@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState, useRef } from "react";
 import { createRoot } from "react-dom/client";
 import "./style.css";
 import { cancelWorkOrder, completeWorkOrder, createPurchaseInvoice, createStockDraft, createWorkOrder, deleteFitment, deletePart, fetchServiceData, grantUserAccess, listAuthorizedUsers, receiveStockDraft, restorePart, revokeUserAccess, saveFitment, savePart, sendChatMessage, subscribeToChat, subscribeToServiceData, togglePartFavorite, updateWorkOrder } from "./data.js";
+import * as XLSX from "xlsx";
 import { getOpenWorkOrders, getRevenueEligibleWorkOrders, getWorkOrderStatusClass, WORK_ORDER_STATUS } from "./workOrderLifecycle.js";
 import { formatFitmentSpec, formatFitmentVehicle, FUEL_TYPES, searchFitments, searchVehiclePartUsage } from "./vehicleCompatibility.js";
 import { parseInvoicePaste } from "./invoiceImport.js";
@@ -311,12 +312,13 @@ function App() {
     { id: "invoices", label: "Alış Faturaları", icon: "receipt" },
     { id: "orders", label: "Taslak Siparişler", icon: "cart", badge: data.drafts.length || null },
     { id: "reports", label: "Raporlar", icon: "chart" },
+    { id: "stockcompare", label: "Stok Karşılaştır", icon: "chart" },
     { id: "chat", label: "Sohbet", icon: "bell", badge: chatMessages.length || null },
     { id: "servicebox", label: "ServiceBox", icon: "search", external: true },
   ];
   const isOwner = user?.email?.toLowerCase() === OWNER_EMAIL;
   if (isOwner) nav.push({ id: "access", label: "Yetkili Kullanıcılar", icon: "grid" });
-  const titles = { dashboard: ["Genel Bakış", "Servisinizin bugünkü durumuna göz atın."], inventory: ["Parça Envanteri", "Stoklarınızı ve parça fiyatlarınızı yönetin."], workorders: ["İş Emirleri", "Araç servis geçmişini ve devam eden işleri takip edin."], vehicles: ["Araç Servis Geçmişi", "Plakaya göre servis ziyaretlerini ve kullanılan parçaları bulun."], compatibility: ["Araç Uyumluluğu", "Marka, model, yakıt ve motor için uyumlu parçaları kaydedin; iş emri kullanımını da görün."], movements: ["Stok Hareketleri", "Giriş, çıkış ve düzeltmeleri kaynak ve kullanıcıyla izleyin."], invoices: ["Alış Faturaları", "Faturaları kaydedin, stok girişlerini anında işleyin."], orders: ["Taslak Siparişler", "Azalan parçalar için oluşturduğunuz sipariş önerileri."], reports: ["Raporlar", "Satış performansı ve iş emri cironuz."], access: ["Yetkili Kullanıcılar", "Hesap ekleyin veya servis erişimini kaldırın."], chat: ["Sohbet", "Ekibinizle iletişim kurun."], servicebox: ["Peugeot ServiceBox", "Parça tespiti için Peugeot ServiceBox'a gidin."] };
+  const titles = { dashboard: ["Genel Bakış", "Servisinizin bugünkü durumuna göz atın."], inventory: ["Parça Envanteri", "Stoklarınızı ve parça fiyatlarınızı yönetin."], workorders: ["İş Emirleri", "Araç servis geçmişini ve devam eden işleri takip edin."], vehicles: ["Araç Servis Geçmişi", "Plakaya göre servis ziyaretlerini ve kullanılan parçaları bulun."], compatibility: ["Araç Uyumluluğu", "Marka, model, yakıt ve motor için uyumlu parçaları kaydedin; iş emri kullanımını da görün."], movements: ["Stok Hareketleri", "Giriş, çıkış ve düzeltmeleri kaynak ve kullanıcıyla izleyin."], invoices: ["Alış Faturaları", "Faturaları kaydedin, stok girişlerini anında işleyin."], orders: ["Taslak Siparişler", "Azalan parçalar için oluşturduğunuz sipariş önerileri."], reports: ["Raporlar", "Satış performansı ve iş emri cironuz."], stockcompare: ["Stok Karşılaştır", "Excel ile stok karşılaştırma yapın."], access: ["Yetkili Kullanıcılar", "Hesap ekleyin veya servis erişimini kaldırın."], chat: ["Sohbet", "Ekibinizle iletişim kurun."], servicebox: ["Peugeot ServiceBox", "Parça tespiti için Peugeot ServiceBox'a gidin."] };
   const openModal = (type, item = null) => setModal({ type, item });
   const openCriticalInventory = () => {
     setQuery("");
@@ -484,6 +486,7 @@ function App() {
         page === "movements" ? h(StockMovements, { movements: data.movements }) :
         page === "invoices" ? h(Invoices, { invoices: data.invoices }) :
         page === "orders" ? h(Orders, { drafts: data.drafts, lowStock, receiveDraft, createDraft }) :
+        page === "stockcompare" ? h(StockCompare, { parts: data.parts }) :
         page === "chat" ? h(ChatPage, { messages: chatMessages, user, sendMessage: async (text) => { await sendChatMessage(user.email, user.displayName, text); }, saving }) :
         page === "servicebox" ? h(ServiceBoxPage) :
         page === "access" && isOwner ? h(AccessManagement, {
@@ -1198,6 +1201,103 @@ function ChatPage({ messages, user, sendMessage, saving }) {
         disabled: !messageText.trim() || saving
       }, h(Icon, { name: "arrow", size: 16 }), saving ? "..." : "Gönder")
     )
+  );
+}
+
+function StockCompare({ parts }) {
+  const [uploadedData, setUploadedData] = useState([]);
+  const [comparisons, setComparisons] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [fileName, setFileName] = useState("");
+
+  async function handleFileUpload(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    setFileName(file.name);
+    setLoading(true);
+
+    try {
+      const data = await file.arrayBuffer();
+      const workbook = XLSX.read(data, { type: "array" });
+      const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+      const jsonData = XLSX.utils.sheet_to_json(firstSheet, { header: 1 });
+
+      const stockData = jsonData.slice(1).map((row) => ({
+        sku: String(row[0] || "").trim(),
+        name: String(row[1] || "").trim(),
+        stock: Number(row[2]) || 0,
+      })).filter(item => item.sku && item.name);
+
+      setUploadedData(stockData);
+
+      const comparison = stockData.map(excelItem => {
+        const systemPart = parts.find(p => p.sku.toLocaleLowerCase("tr") === excelItem.sku.toLocaleLowerCase("tr"));
+        return {
+          sku: excelItem.sku,
+          name: excelItem.name,
+          excelStock: excelItem.stock,
+          systemStock: systemPart?.stock || 0,
+          diff: (systemPart?.stock || 0) - excelItem.stock,
+          exists: !!systemPart,
+        };
+      });
+
+      setComparisons(comparison);
+    } catch (error) {
+      console.error("Excel okuma hatası:", error);
+      alert("Excel dosyası okunamadı. Lütfen dosya formatını kontrol edin.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return h("section", { className: "stock-compare" },
+    h("div", { className: "panel-heading" },
+      h("div", null,
+        h("h2", null, "Stok Karşılaştırma"),
+        h("p", null, "Excel dosyasını yükleyerek stok karşılaştırması yapın")
+      )
+    ),
+    h("div", { className: "upload-section" },
+      h("label", { className: "upload-label" },
+        h("input", {
+          type: "file",
+          accept: ".xlsx,.xls,.csv",
+          onChange: handleFileUpload,
+          disabled: loading
+        }),
+        h("div", { className: "upload-content" },
+          h(Icon, { name: "box", size: 32 }),
+          h("span", null, loading ? "Yükleniyor..." : fileName || "Excel dosyasını seçin"),
+          h("small", null, ".xlsx, .xls veya .csv formatı")
+        )
+      )
+    ),
+    comparisons.length > 0 ? h("div", { className: "comparison-results" },
+      h("div", { className: "comparison-summary" },
+        h("span", null, `${comparisons.length} parça karşılaştırıldı`),
+        h("span", null, `${comparisons.filter(c => !c.exists).length} sistemde yok`),
+        h("span", null, `${comparisons.filter(c => Math.abs(c.diff) > 0).length} stok farkı var`)
+      ),
+      h("div", { className: "table-scroll" },
+        h("table", null,
+          h("thead", null, h("tr", null, ["SKU", "Parça Adı", "Excel Stok", "Sistem Stok", "Fark", "Durum"].map((label) => h("th", { key: label }, label)))),
+          h("tbody", null, comparisons.map((item, index) => h("tr", { key: index },
+            h("td", null, h("strong", null, item.sku)),
+            h("td", null, item.name),
+            h("td", null, item.excelStock),
+            h("td", null, item.systemStock),
+            h("td", null, h("span", {
+              className: item.diff > 0 ? "diff-positive" : item.diff < 0 ? "diff-negative" : "diff-zero"
+            }, item.diff > 0 ? `+${item.diff}` : item.diff)),
+            h("td", null, h("span", {
+              className: item.exists ? "status-match" : "status-missing"
+            }, item.exists ? "Eşleşiyor" : "Yok"))
+          )))
+        )
+      )
+    ) : uploadedData.length > 0 ? h("div", { className: "empty-state" }, "Karşılaştırma verileri yükleniyor...") : h("div", { className: "empty-state" }, "Excel dosyası yükleyerek stok karşılaştırması yapın.")
   );
 }
 
