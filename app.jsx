@@ -484,6 +484,20 @@ function App() {
   if (user.mustChangePassword) return h(PasswordChange, { onSubmit: updateAdminPassword, busy: authBusy, error: errorMessage, theme, toggleTheme });
   if (dataLoading && !data.parts.length && !data.jobs.length && !data.invoices.length) return h(LoadingScreen, { message: "Bulut servis kayıtları yükleniyor..." });
   return h("div", { className: "app-shell" },
+    !firebaseConfigured ? h("div", { className: "panel", style: { borderColor: "rgba(255,107,107,0.3)" } },
+      h("div", { className: "panel-heading" }, h("strong", null, "Firebase yapılandırılmamış"), h("span", null, "Bulut bağlantısı kapalı")),
+      h("div", { style: { padding: "16px 24px", fontSize: "13px", lineHeight: "1.6" } },
+        h("p", null, "Personel, müşteri, randevu ve diğer kayıtları oluşturmak için bir Firebase projesi gereklidir.")),
+      h("div", { style: { padding: "0 24px 20px", fontSize: "12px", color: "var(--text-muted)" } },
+        h("p", { style: { margin: "0 0 10px" } }, "Yapılması gerekenler:"),
+        h("ul", { style: { margin: "0 0 12px", paddingLeft: "18px" } },
+          h("li", null, "Firebase Console'da bir proje oluşturun (Firestore etkinleştirin)."),
+          h("li", null, "Proje Ayarları → Genel → Uygulamalar → Web yapılandırmasını kopyalayın."),
+          h("li", null, "Proje kökünde .env.local dosyası oluşturun ve VITE_FIREBASE_* değerlerini yapıştırın."),
+          h("li", null, "Sayfayı yenileyin."))),
+      h("div", { style: { padding: "0 24px 16px", fontSize: "11px", color: "var(--text-muted)" } },
+        h("code", null, "VITE_FIREBASE_API_KEY=...\nVITE_FIREBASE_AUTH_DOMAIN=...\nVITE_FIREBASE_PROJECT_ID=...\nVITE_FIREBASE_STORAGE_BUCKET=...\nVITE_FIREBASE_MESSAGING_SENDER_ID=...\nVITE_FIREBASE_APP_ID=...")))
+    : null,
     h("aside", { className: "sidebar" },
       h("div", { className: "brand" }, h("div", { className: "brand-mark" }, "D"), h("div", null, h("strong", null, "DEMİR"), h("span", null, "EUROREPAR CAR SERVICE"))),
       h("div", { className: "side-label" }, "ÇALIŞMA ALANI"),
@@ -717,8 +731,112 @@ function AccessManagement({ onError, onSuccess }) {
           users.map((entry) => h("div", { className: "access-user-row", key: entry.id }, h("div", null, h("strong", null, entry.email), h("span", null, "E-posta/şifre ile giriş yetkisi")), h("button", { className: "button button-quiet", type: "button", disabled: busy, onClick: () => revoke(entry.email) }, "Erişimi kaldır")))
         )
     )
+    ,
+    h(AIAssistant, { personnel: data.personnel, customers: data.customers, appointments: data.appointments, parts: data.parts, jobs: data.jobs })
   );
 }
+function AIAssistant({ personnel, customers, appointments, parts, jobs }) {
+  const [open, setOpen] = useState(false);
+  const [input, setInput] = useState("");
+  const [messages, setMessages] = useState([
+    { id: "1", sender: "ai", text: "Merhaba! Ben Demir Service AI asistanınız. Personel, müşteri, randevu, parça stoku veya iş emirleri hakkında sorularınıza yardımcı olabilirim. Nasıl yardımcı olabilirim?" }
+  ]);
+  const [typing, setTyping] = useState(false);
+  const messagesEndRef = React.useRef(null);
+
+  function money(v) {
+    return new Intl.NumberFormat("tr-TR", { style: "currency", currency: "TRY" }).format(Number(v || 0));
+  }
+
+  function answer(question) {
+    const q = question.toLocaleLowerCase("tr");
+    const pCount = personnel.length;
+    const cCount = customers.length;
+    const aCount = appointments.length;
+    const partCount = parts.length;
+    const jobCount = jobs.length;
+    const activeJobs = jobs.filter((j) => (j.status || "").toLocaleLowerCase("tr") !== "tamamlandı" && (j.status || "").toLocaleLowerCase("tr") !== "iptal").length;
+    const totalRevenue = jobs.reduce((s, j) => s + Number(j.total || 0), 0);
+    const lowStock = parts.filter((p) => Number(p.stock || 0) <= Number(p.minimum || 0)).length;
+
+    if (q.includes("personel") || q.includes("çalışan")) {
+      if (q.includes("maaş") || q.includes("komisyon")) {
+        const top = [...personnel].sort((a, b) => Number(b.commissionRate || 0) - Number(a.commissionRate || 0))[0];
+        return `Toplam ${pCount} personel kaydı var. En yüksek komisyon oranına sahip personel: ${top?.name || "yok"} (%${top?.commissionRate || 0}). Tüm personeli "Personel" sekmesinden görüntüleyebilirsiniz.`;
+      }
+      return `Sisteminizde toplam ${pCount} personel kaydı bulunuyor. Personel eklemek için "Personel" sekmesine gidin ve "Personel ekle" butonuna tıklayın.`;
+    }
+    if (q.includes("müşteri") || q.includes("arac") || q.includes("plaka")) {
+      return `Toplam ${cCount} müşteri kaydı var. Müşteri ve araç kayıtlarını "Müşteri Yönetimi" sekmesinden yönetebilirsiniz.`;
+    }
+    if (q.includes("randevu")) {
+      const pending = appointments.filter((a) => a.status === "pending").length;
+      return `Toplam ${aCount} randevu var, ${pending} tanesi beklemede. Randevuları "Randevu Takvimi" sekmesinden planlayabilirsiniz.`;
+    }
+    if (q.includes("parça") || q.includes("stok") || q.includes("envanter")) {
+      return `Toplam ${partCount} parça kaydı var, ${lowStock} tanesi Kritik stok seviyesinde (stok ≤ minimum). Parçaları "Parça Envanteri" sekmesinden görüntüleyebilirsiniz.`;
+    }
+    if (q.includes("fatura") || q.includes("alış") || q.includes("satış")) {
+      return `Fatura kayıtlarını "Alış Faturaları" sekmesinden yönetebilirsiniz. Yeni fatura eklemek için "Fatura ekle" butonunu kullanın.`;
+    }
+    if (q.includes("iş emri") || q.includes("servis") || q.includes("çiro")) {
+      return `Toplam ${jobCount} iş emri var, ${activeJobs} tanesi devam etmekte. Toplam ciro: ${money(totalRevenue)}. İş emirlerini "İş Emirleri" sekmesinden takip edebilirsiniz.`;
+    }
+    if (q.includes("merhaba") || q.includes("selam") || q.includes("nasılsın")) {
+      return "Merhaba! Demir Service AI asistanınız olarak size yardımcı olmaya hazırım. Personel, müşteri, randevu, stok, fatura veya iş emirleri hakkında sorunuzu sorabilirsiniz.";
+    }
+    if (q.includes("yardım") || q.includes("ne yapabilir")) {
+      return "Şunlar hakkında bilgi verebilirim: personel yönetimi, müşteri kayıtları, randevu planlama, parça stoku, fatura takibi ve iş emri ciro raporları. Sorunuzu yazın!";
+    }
+    return `Üzgünüm, bu konuda bilgi yokum. "Personel", "Müşteri", "Randevu", "Parça/Stok", "Fatura" veya "İş Emri" hakkında soru sorabilirsiniz. Toplam: ${pCount} personel, ${cCount} müşteri, ${aCount} randevu, ${partCount} parça, ${jobCount} iş emri.`;
+  }
+
+  async function handleSend(e) {
+    e.preventDefault();
+    if (!input.trim() || typing) return;
+    const userMsg = { id: Date.now().toString(), sender: "user", text: input };
+    setMessages((m) => [...m, userMsg]);
+    setInput("");
+    setTyping(true);
+    setTimeout(() => {
+      const reply = answer(input);
+      setMessages((m) => [...m, { id: (Date.now() + 1).toString(), sender: "ai", text: reply }]);
+      setTyping(false);
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }, 800);
+  }
+
+  return h("div", { className: "ai-assistant" },
+    h("button", {
+      className: "ai-toggle " + (open ? "ai-open" : ""),
+      "aria-label": open ? "Asistanı kapat" : "AI asistanı aç",
+      onClick: () => setOpen(!open)
+    }, h(Icon, { name: "help", size: 18 }), open ? h("span", null, "Kapat") : h("span", null, "AI")),
+    open ? h("div", { className: "ai-panel" },
+      h("div", { className: "ai-header" },
+        h("div", { className: "ai-avatar" }, "AI"),
+        h("div", null, h("strong", null, "AI Asistan"), h("small", null, "Demir Service"))),
+      h("div", { className: "ai-messages" },
+        messages.map((msg) => h("div", {
+          key: msg.id,
+          className: `ai-msg ${msg.sender === "ai" ? "ai-msg-ai" : "ai-msg-user"}`
+        }, h("div", { className: "ai-msg-bubble" }, msg.text), typing && msg.sender === "ai" ? h("span", { className: "ai-typing" }, "yazıyor...") : null)),
+        typing ? h("div", { className: "ai-msg ai-msg-ai", style: { marginBottom: 8 } }, h("div", { className: "ai-msg-bubble" }, h("span", { className: "ai-typing" }, "Asistan yazıyor..."))) : null,
+        h("div", { ref: messagesEndRef })
+      ),
+      h("form", { className: "ai-form", onSubmit: handleSend },
+        h("input", {
+          type: "text",
+          value: input,
+          onChange: (e) => setInput(e.target.value),
+          placeholder: "Sorunuzu yazın...",
+          disabled: typing
+        }),
+        h("button", { type: "submit", className: "button button-primary", disabled: !input.trim() || typing }, h(Icon, { name: "arrow", size: 14 })))
+    ) : null
+  );
+}
+
 function Dashboard({ data, lowStock, revenue, setPage, openModal, createDraft, openCriticalInventory, openWorkOrder, openWorkOrderList, onOpenVehicle, onOpenLowStockPart, onOpenTopPart, onOpenOpenJobs, onOpenTotalCiro, onOpenInventory, onOpenMovement, onOpenInvoice }) {
   const openJobs = getOpenWorkOrders(data.jobs).length;
   const recentJobs = [...data.jobs].sort((first, second) => (second.updatedAt || second.date || "").localeCompare(first.updatedAt || first.date || "")).slice(0, 5);
@@ -2319,7 +2437,7 @@ function Modal({ modal, parts, customers, personnel, onClose, onSavePart, onSave
       modal.type === "invoice" && invoicePreviewItems.length ? h(VatSummary, { values: invoiceVat, title: "Fatura toplamı · KDV dahil" }) :
         modal.type === "job" && jobPricing ? h(WorkOrderPriceSummary, { values: jobPricing }) : null,
       error ? h("p", { className: "form-error", role: "alert" }, error) : null,
-      h("div", { className: "modal-footer" }, h("button", { className: "button button-quiet", onClick: onClose, type: "button", disabled: saving }, "Vazgeç"), h("button", { className: "button button-primary", type: "submit", disabled: saving }, saving ? "Kaydediliyor..." : modal.type === "part" ? "Kaydet" : modal.type === "job" ? modal.item ? "İş emrini güncelle" : "İş emrini oluştur" : modal.type === "fitment" ? "Uyumluluğu kaydet" : "Faturayı kaydet", saving ? null : h(Icon, { name: "arrow", size: 15 })))
+      h("div", { className: "modal-footer" }, h("button", { className: "button button-quiet", onClick: onClose, type: "button", disabled: saving }, "Vazgeç"), h("button", { className: "button button-primary", type: "submit", disabled: saving }, saving ? "Kaydediliyor..." : modal.type === "part" ? "Kaydet" : modal.type === "job" ? modal.item ? "İş emrini güncelle" : "İş emrini oluştur" : modal.type === "fitment" ? "Uyumluluğu kaydet" : modal.type === "customer" ? "Müşteriyi kaydet" : modal.type === "personnel" ? "Personeli kaydet" : modal.type === "appointment" ? "Randevuyu kaydet" : modal.type === "notification" ? "Bildirimi oluştur" : "Faturayı kaydet", saving ? null : h(Icon, { name: "arrow", size: 15 })))
     )
   ));
 }
