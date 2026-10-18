@@ -2498,3 +2498,312 @@ html[data-theme="light"] .invoice-input-tabs button.active { box-shadow: 0 2px 8
 /* ─── Misc helpers ───────────────────────────────── */
 .invoice-lines-title { padding-top: 0; }
 .invoice-draft-panel > .modal-section-title { padding-top: 0; }
+
+/* ─── Modern Enhancement Layer ─────────────────────── */
+:root {
+  --glass: rgba(255, 255, 255, 0.03);
+  --glass-border: rgba(255, 255, 255, 0.08);
+  --glass-hover: rgba(255, 255, 255, 0.06);
+  --accent-gradient: linear-gradient(135deg, var(--accent) 0%, #8fe035 100%);
+  --surface-gradient: linear-gradient(135deg, var(--surface) 0%, var(--surface-raised) 100%);
+  --text-gradient: linear-gradient(135deg, var(--text-main) 0%, var(--accent) 100%);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-smooth: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+html[data-theme="light"] {
+  --glass: rgba(0, 0, 0, 0.03);
+  --glass-border: rgba(0, 0, 0, 0.08);
+  --glass-hover: rgba(0, 0, 0, 0.04);
+}
+
+/* ─── App Shell Polish ─────────────────────────────── */
+.app-shell { position: relative; isolation: isolate; }
+.main-area { background: var(--bg); position: relative; }
+
+/* ─── Sidebar Enhancements ─────────────────────────── */
+.sidebar { background: var(--surface-gradient); border-right: 1px solid var(--glass-border); }
+.nav-item { border: 1px solid transparent; background: transparent; }
+.nav-item:hover {
+  background: var(--glass-hover);
+  border-color: var(--glass-border);
+  color: var(--text-main);
+  transform: translateX(4px);
+}
+.nav-item.active {
+  background: var(--accent-gradient);
+  box-shadow: 0 10px 30px var(--accent-glow), inset 0 0 0 1px rgba(255,255,255,0.1);
+  border-color: transparent;
+}
+.nav-item.active::before {
+  content: "";
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 3px;
+  background: var(--text-on-accent);
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
+}
+
+/* ─── Glass Cards ──────────────────────────────────── */
+.panel, .metric-card {
+  background: var(--surface-gradient);
+  border: 1px solid var(--glass-border);
+  position: relative;
+  overflow: hidden;
+}
+.panel::after, .metric-card::after {
+  content: "";
+  position: absolute;
+  top: 0; left: 0; right: 0; height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.4), transparent);
+  opacity: 0;
+  transition: var(--ease-smooth);
+}
+.panel:hover::after, .metric-card:hover::after { opacity: 1; }
+.panel:hover, .metric-card:hover {
+  border-color: var(--glass-border);
+  transform: translateY(-4px);
+}
+
+/* ─── Button Polish ────────────────────────────────── */
+.button { position: relative; overflow: hidden; }
+.button::after {
+  content: "";
+  position: absolute;
+  top: 50%; left: 50%;
+  width: 0; height: 0;
+  background: rgba(255,255,255,0.2);
+  border-radius: 50%;
+  transition: width 0.4s ease, height 0.4s ease;
+  transform: translate(-50%, -50%);
+}
+.button:active::after { width: 200%; height: 200%; }
+.button-primary { background: var(--accent-gradient); box-shadow: 0 8px 24px var(--accent-glow); }
+.button-primary:hover {
+  box-shadow: 0 14px 32px var(--accent-glow);
+  filter: brightness(1.1);
+}
+.button-outline {
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-main);
+}
+.button-outline:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+.button-ghost {
+  background: transparent;
+  color: var(--text-muted);
+  padding: 0;
+}
+.button-ghost:hover {
+  color: var(--text-main);
+  background: var(--glass-hover);
+}
+
+/* ─── Skeleton Loader ──────────────────────────────── */
+.skeleton {
+  background: linear-gradient(90deg, var(--surface) 25%, var(--glass-hover) 50%, var(--surface) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: var(--radius-sm);
+  color: transparent;
+}
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+.skeleton-text { height: 14px; margin-bottom: 12px; border-radius: 6px; }
+.skeleton-text.title { height: 18px; width: 60%; }
+.skeleton-text.body { height: 14px; width: 100%; }
+.skeleton-text.small { height: 12px; width: 40%; }
+.skeleton-avatar { width: 32px; height: 32px; border-radius: var(--radius-full); }
+.skeleton-button { height: 44px; border-radius: var(--radius-md); width: 140px; }
+.skeleton-circle { width: 48px; height: 48px; border-radius: var(--radius-full); }
+
+/* ─── Page Header Polish ───────────────────────────── */
+.page-heading h1 {
+  font: 800 28px var(--font-heading);
+  background: var(--text-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  filter: drop-shadow(0 2px 4px rgba(168, 240, 69, 0.15));
+  letter-spacing: -0.5px;
+}
+
+/* ─── Table Polish ─────────────────────────────────── */
+.table-scroll { border: 1px solid var(--glass-border); background: var(--surface); }
+table { border-collapse: separate; border-spacing: 0; }
+th { background: var(--surface-raised); border-bottom: 1px solid var(--glass-border); font-size: 10px; letter-spacing: 0.12em; }
+td { border-bottom: 1px solid var(--glass-border); background: var(--surface); }
+tbody tr:hover td { background: var(--glass-hover); transition: background 0.2s ease; }
+.clickable-row:hover { transform: scale(1.005); }
+
+/* ─── Badge Polish ─────────────────────────────────── */
+.job-status, .stock-status, .compare-status-badge {
+  backdrop-filter: blur(4px);
+  border: 1px solid transparent;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+}
+.job-status i { box-shadow: 0 0 10px currentColor; }
+
+/* ─── Toast Polish ─────────────────────────────────── */
+.toast {
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--glass-border);
+  box-shadow: 0 20px 40px rgba(0,0,0,0.3);
+}
+.toast-error {
+  border-color: rgba(255, 107, 107, 0.3);
+  background: rgba(15, 8, 8, 0.95);
+}
+
+/* ─── Modal Polish ─────────────────────────────────── */
+.modal-backdrop {
+  background: rgba(0, 0, 0, 0.85);
+  backdrop-filter: blur(16px);
+}
+.modal-card {
+  background: var(--surface-gradient);
+  border: 1px solid var(--glass-border);
+  box-shadow: 0 24px 60px rgba(0,0,0,0.5);
+}
+.modal-header { border-bottom: 1px solid var(--glass-border); }
+.modal-footer {
+  border-top: 1px solid var(--glass-border);
+  background: var(--surface-raised);
+}
+
+/* ─── Input Polish ─────────────────────────────────── */
+input, select, textarea {
+  background: var(--surface-raised);
+  border: 1px solid var(--glass-border);
+}
+input:focus, select:focus, textarea:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft), var(--shadow-md);
+}
+
+/* ─── Empty States Polish ──────────────────────────── */
+.empty-panel, .empty-state { backdrop-filter: blur(4px); }
+.empty-illustration { box-shadow: 0 0 30px var(--accent-glow); }
+
+/* ─── Login Screen Polish ──────────────────────────── */
+.login-card {
+  backdrop-filter: blur(20px);
+  border: 1px solid var(--glass-border);
+  box-shadow: 0 32px 80px rgba(0,0,0,0.4);
+}
+.login-decoration { border: 1px solid rgba(182, 237, 102, 0.04); }
+
+/* ─── Access Management Polish ─────────────────────── */
+.access-user-row {
+  background: var(--surface);
+  border-bottom: 1px solid var(--glass-border);
+}
+.access-user-row:hover { background: var(--glass-hover); }
+
+/* ─── ServiceBox / B2B Card Polish ─────────────────── */
+.servicebox-link-card {
+  background: var(--surface-gradient);
+  border: 1px solid var(--glass-border);
+  position: relative;
+  overflow: hidden;
+}
+.servicebox-link-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, var(--accent-soft) 0%, transparent 60%);
+  opacity: 0;
+  transition: var(--ease-smooth);
+}
+.servicebox-link-card:hover::before { opacity: 1; }
+.servicebox-icon { box-shadow: 0 12px 32px var(--accent-glow); position: relative; z-index: 1; }
+
+/* ─── Activity / Alert List Polish ─────────────────── */
+.alert-item, .activity-item {
+  border-top: 1px solid var(--glass-border);
+  background: var(--surface);
+}
+.alert-item-interactive:hover, .activity-item-interactive:hover {
+  background: var(--glass-hover);
+  transform: translateX(4px);
+}
+
+/* ─── Dashboard Insights Polish ────────────────────── */
+.dashboard-insights { grid-template-columns: 1fr 1.3fr 1fr; }
+.parts-performance-panel, .trend-panel, .activity-panel {
+  background: var(--surface-gradient);
+  border: 1px solid var(--glass-border);
+}
+
+/* ─── Progress / Bar Polish ────────────────────────── */
+.bar-track { background: var(--surface-raised); overflow: hidden; border-radius: var(--radius-full); }
+.bar-fill {
+  background: linear-gradient(90deg, var(--accent), #8fe035);
+  border-radius: var(--radius-full);
+  transition: width 0.8s cubic-bezier(0.23, 1, 0.32, 1);
+}
+.mini-bar-track {
+  background: linear-gradient(to top, var(--accent), rgba(182,237,102,0.4));
+  border-radius: 4px 4px 0 0;
+}
+
+/* ─── Scrollbar Polish ─────────────────────────────── */
+::-webkit-scrollbar-thumb {
+  background: var(--glass-border);
+  border-radius: 10px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
+html[data-theme="light"] ::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.1); }
+
+/* ─── Focus States ─────────────────────────────────── */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+/* ─── Page Transition ──────────────────────────────── */
+.page-content { animation: fadeUp 0.4s var(--ease-smooth) both; }
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes pulse-glow {
+  0%, 100% { opacity: 0.5; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.15); }
+}
+.service-lead::before, .service-lead::after {
+  animation: pulse-glow 5s ease-in-out infinite;
+}
+.service-lead::after { animation-direction: reverse; }
+
+/* ─── Responsive Enhancements ─────────────────────── */
+@media (max-width: 768px) {
+  .page-content { padding: 20px 16px 32px; }
+  .modal-card { width: min(100%, 95vw); margin: 16px; }
+  .metric-card { padding: 20px; }
+  .panel { padding: 20px; }
+  .servicebox-link-card { padding: 24px; }
+  .nav-item { height: 56px; }
+}
+@media (max-width: 480px) {
+  .metric-card { padding: 16px; }
+  .panel { padding: 16px; }
+  .modal-footer { flex-direction: column; gap: 8px; }
+  .modal-footer .button { width: 100%; justify-content: center; }
+}
+
+/* ─── Print Friendly ───────────────────────────────── */
+@media print {
+  .sidebar, .topbar, .modal-backdrop, .toast, .button { display: none !important; }
+  .main-area { margin-left: 0 !important; }
+  .panel { border: 1px solid #000; box-shadow: none; background: #fff !important; color: #000 !important; }
+}
