@@ -2351,7 +2351,7 @@ function PersonnelPage({ personnel, jobs, openModal, saving }) {
   return h(React.Fragment, null,
     h("div", { className: "list-toolbar" },
       h("div", { className: "search-wrap" }, h(Icon, { name: "search", size: 17 }), h("input", { value: query, onChange: (e) => setQuery(e.target.value), placeholder: "Ad veya pozisyon ara..." })),
-      h("button", { className: "button button-primary", type: "button", disabled: saving, onClick: () => openPersonnelModal() }, h(Icon, { name: "plus", size: 15 }), "Personel ekle")
+      h("button", { className: "button button-primary", type: "button", disabled: saving, onClick: () => openPersonnelModal() }, h(Icon, { name: "plus", size: 15 }), "Personel ekle"),
     ),
     h("section", { className: "panel report-panel" },
       h("div", { className: "metric-grid report-metrics" },
@@ -2371,7 +2371,7 @@ function PersonnelPage({ personnel, jobs, openModal, saving }) {
             h("td", { className: "action-cell", onClick: (e) => e.stopPropagation() },
               h("button", { className: "button button-small button-outline", type: "button", disabled: saving, onClick: () => openPersonnelModal(p) }, "Düzenle"))
           ))))
-  ));
+      )));
 }
 
 /* ─── Randevu Sayfası ──────────────────────────────────────────────────────── */
