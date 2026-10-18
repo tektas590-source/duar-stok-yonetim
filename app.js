@@ -518,7 +518,7 @@ function App() {
         page === "invoices" ? h(Invoices, { invoices: data.invoices }) :
         page === "orders" ? h(Orders, { drafts: data.drafts, lowStock, receiveDraft, createDraft }) :
         page === "stockcompare" ? h(StockCompare, { parts: data.parts, openModal }) :
-        page === "chat" ? h(ChatPage, { messages: chatMessages, user, sendMessage: async (text) => { await sendChatMessage(user.email, user.displayName, text); } }) :
+        page === "chat" ? h(ChatPage, { messages: chatMessages, user, sendMessage: async (text) => { await sendChatMessage(user.email, user.displayName, text); }, saving, configured: firebaseConfigured }) :
         page === "servicebox" ? h(ServiceBoxPage) :
         page === "access" && isOwner ? h(AccessManagement, {
           onError: (error) => setErrorMessage(error.message || "Kullanıcı erişimi güncellenemedi."),
@@ -1277,7 +1277,7 @@ function ServiceBoxPage() {
   );
 }
 
-function ChatPage({ messages, user, sendMessage, saving }) {
+function ChatPage({ messages, user, sendMessage, saving, configured }) {
   const [messageText, setMessageText] = useState("");
   const [chatError, setChatError] = useState("");
   const [isSending, setIsSending] = useState(false);
@@ -1290,6 +1290,10 @@ function ChatPage({ messages, user, sendMessage, saving }) {
   async function handleSubmit(e) {
     e.preventDefault();
     if (!messageText.trim() || isSending || saving) return;
+    if (!configured) {
+      setChatError("Sunucu bağlantısı yapılandırılmamış. Lütfen .env.local dosyasındaki VITE_FIREBASE_* değerlerini doldurun ve sayfayı yenileyin.");
+      return;
+    }
     
     setIsSending(true);
     setChatError("");
