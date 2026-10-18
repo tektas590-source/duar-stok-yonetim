@@ -17,7 +17,7 @@ import { calculateWorkOrderNetTotal, normalizeLaborAmount } from "./workOrderPri
 import { db, OWNER_EMAIL } from "./firebase.js";
 
 const COLLECTIONS = ["parts", "jobs", "invoices", "drafts"];
-const OPTIONAL_COLLECTIONS = ["fitments", "chat"];
+const OPTIONAL_COLLECTIONS = ["fitments", "chat", "customers", "personnel", "appointments", "notifications"];
 
 function requireDatabase() {
   if (!db) throw new Error("Sunucu bağlantısı kurulamadı. Lütfen sayfayı yenileyip tekrar deneyin.");
@@ -757,4 +757,159 @@ export async function revokeUserAccess(email) {
   const normalizedEmail = email.trim().toLowerCase();
   if (normalizedEmail === OWNER_EMAIL) throw new Error("Servis yöneticisinin erişimi kaldırılamaz.");
   await deleteDoc(doc(requireDatabase(), "authorizedUsers", normalizedEmail));
+}
+
+// ── Personnel (Çalışan) Yönetimi ─────────────────────────────────────────────
+export async function savePersonnel(personnel, actor) {
+  const database = requireDatabase();
+  const id = personnel.id || makeId();
+  const now = new Date().toISOString();
+  const record = {
+    id,
+    name: String(personnel.name || "").trim(),
+    role: String(personnel.role || "").trim(),
+    phone: String(personnel.phone || "").trim(),
+    email: String(personnel.email || "").trim(),
+    commissionRate: Number.isFinite(Number(personnel.commissionRate)) ? Number(personnel.commissionRate) : 0,
+    baseSalary: Number.isFinite(Number(personnel.baseSalary)) ? Number(personnel.baseSalary) : 0,
+    active: personnel.active !== false,
+    createdAt: personnel.createdAt || now,
+    updatedAt: now,
+  };
+  if (!record.name || !record.role) throw new Error("Ad ve pozisyon zorunludur.");
+  await setDoc(doc(database, "personnel", id), record);
+  return record;
+}
+
+export async function listPersonnel() {
+  const database = requireDatabase();
+  const snapshot = await getDocs(collection(database, "personnel"));
+  return readCollection(snapshot).sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export async function deletePersonnel(personnelId) {
+  await deleteDoc(doc(requireDatabase(), "personnel", personnelId));
+}
+
+export async function getPersonnelPerformance(jobs, personnelList) {
+  const byPerson = new Map();
+  personnelList.forEach((p) => byPerson.set(p.id, { ...p, jobs: 0, revenue: 0, commission: 0 }));
+  jobs.forEach((job) => {
+    const pid = job.personnelId;
+    if (!pid || !byPerson.has(pid)) return;
+    const p = byPerson.get(pid);
+    p.jobs += 1;
+    const total = Number(job.total || 0);
+    p.revenue += total;
+    p.commission += total * (p.commissionRate / 100);
+  });
+  return [...byPerson.values()];
+}
+
+// ── Müşteri Yönetimi ─────────────────────────────────────────────────────────
+export async function saveCustomer(customer, actor) {
+  const database = requireDatabase();
+  const id = customer.id || makeId();
+  const now = new Date().toISOString();
+  const record = {
+    id,
+    name: String(customer.name || "").trim(),
+    phone: String(customer.phone || "").trim(),
+    email: String(customer.email || "").trim(),
+    address: String(customer.address || "").trim(),
+    city: String(customer.city || "").trim(),
+    taxNumber: String(customer.taxNumber || "").trim(),
+    active: customer.active !== false,
+    createdAt: customer.createdAt || now,
+    updatedAt: now,
+  };
+  if (!record.name || !record.phone) throw new Error("Ad ve telefon zorunludur.");
+  await setDoc(doc(database, "customers", id), record);
+  return record;
+}
+
+export async function listCustomers() {
+  const database = requireDatabase();
+  const snapshot = await getDocs(collection(database, "customers"));
+  return readCollection(snapshot).sort((a, b) => a.name.localeCompare(b.name));
+}
+
+export async function deleteCustomer(customerId) {
+  await deleteDoc(doc(requireDatabase(), "customers", customerId));
+}
+
+// ── Randevu Yönetimi ─────────────────────────────────────────────────────────
+export async function saveAppointment(appointment, actor) {
+  const database = requireDatabase();
+  const id = appointment.id || makeId();
+  const now = new Date().toISOString();
+  const record = {
+    id,
+    customerId: String(appointment.customerId || "").trim(),
+    vehiclePlate: String(appointment.vehiclePlate || "").trim().toLocaleUpperCase("tr"),
+    vehicleMake: String(appointment.vehicleMake || "").trim(),
+    vehicleModel: String(appointment.vehicleModel || "").trim(),
+    serviceType: String(appointment.serviceType || "").trim(),
+    description: String(appointment.description || "").trim(),
+    date: String(appointment.date || ""),
+    time: String(appointment.time || ""),
+    status: appointment.status || "pending",
+    personnelId: String(appointment.personnelId || "").trim(),
+    createdAt: appointment.createdAt || now,
+    updatedAt: now,
+  };
+  if (!record.customerId || !record.vehiclePlate || !record.date || !record.time) {
+    throw new Error("Müşteri, plaka, tarih ve saat zorunludur.");
+  }
+  await setDoc(doc(database, "appointments", id), record);
+  return record;
+}
+
+export async function listAppointments() {
+  const database = requireDatabase();
+  const snapshot = await getDocs(collection(database, "appointments"));
+  return readCollection(snapshot).sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+}
+
+export async function deleteAppointment(appointmentId) {
+  await deleteDoc(doc(requireDatabase(), "appointments", appointmentId));
+}
+
+export async function updateAppointmentStatus(appointmentId, status, actor) {
+  const database = requireDatabase();
+  await setDoc(doc(database, "appointments", appointmentId), { status, updatedAt: new Date().toISOString() }, { merge: true });
+}
+
+// ── Bildirim Yönetimi ────────────────────────────────────────────────────────
+export async function createNotification(notification, actor) {
+  const database = requireDatabase();
+  const id = makeId();
+  const record = {
+    id,
+    title: String(notification.title || "").trim(),
+    message: String(notification.message || "").trim(),
+    type: notification.type || "info",
+    recipientEmail: String(notification.recipientEmail || actor || "").trim(),
+    read: false,
+    createdAt: new Date().toISOString(),
+    link: String(notification.link || ""),
+  };
+  if (!record.title || !record.message) throw new Error("Başlık ve mesaj zorunludur.");
+  await setDoc(doc(database, "notifications", id), record);
+  return record;
+}
+
+export async function listNotifications() {
+  const database = requireDatabase();
+  const snapshot = await getDocs(collection(database, "notifications"));
+  return readCollection(snapshot).sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
+}
+
+export async function markNotificationRead(notificationId) {
+  const database = requireDatabase();
+  await setDoc(doc(database, "notifications", notificationId), { read: true }, { merge: true });
+}
+
+export async function deleteNotification(notificationId) {
+  await deleteDoc(doc(requireDatabase(), "notifications", notificationId));
 }
