@@ -297,17 +297,18 @@ export async function updateWorkOrder(jobId, job, actor) {
   const baselineJob = { id: baselineSnapshot.id, ...baselineSnapshot.data() };
   if (baselineJob.status === WORK_ORDER_STATUS.CANCELLED) throw new Error("İptal edilmiş iş emri düzenlenemez.");
   const oldItems = Array.isArray(baselineJob.items) ? baselineJob.items : [];
-  if (oldItems.some((item) => !item.partId)) {
-    throw new Error("Bu eski iş emrinde parça bağlantısı eksik. Stok güvenliği için düzenlenemiyor.");
-  }
 
-  const partDeltas = new Map(calculateWorkOrderQuantityDeltas(oldItems, job.items || []).map((entry) => [entry.partId, entry]));
+  // Sadece geçerli partId olan satırlar için stok deltasını hesapla
+  const oldStockItems = oldItems.filter((item) => Boolean(item.partId));
+  const newStockItems = (job.items || []).filter((item) => Boolean(item.partId));
+
+  const partDeltas = new Map(calculateWorkOrderQuantityDeltas(oldStockItems, newStockItems).map((entry) => [entry.partId, entry]));
   const oldQuantities = new Map([...partDeltas].map(([partId, entry]) => [partId, entry.previousQty]));
   const partIds = [...partDeltas.keys()];
   const partReferences = new Map(partIds.map((partId) => [partId, doc(database, "parts", partId)]));
   const code = baselineJob.code || jobId;
   const baselineMovements = new Map();
-  if (!baselineJob.movementLedgerVersion) {
+  if (!baselineJob.movementLedgerVersion && partIds.length) {
     const snapshots = await Promise.all(partIds.map((partId) => getDocs(collection(database, "parts", partId, "movements"))));
     snapshots.forEach((snapshot, index) => {
       const partId = partIds[index];
@@ -327,9 +328,6 @@ export async function updateWorkOrder(jobId, job, actor) {
     if (!jobSnapshot.exists()) throw new Error("Düzenlenecek iş emri bulunamadı.");
     const currentJob = jobSnapshot.data();
 
-    // Sadece iptal durumunu kontrol et — parça listesi karşılaştırması kaldırıldı.
-    // Tek kullanıcılı servis uygulamasında gerçek çakışma olmaz; JSON karşılaştırması
-    // tip/alan farklılıklarından yanlış hata üretiyordu.
     if (currentJob.status === WORK_ORDER_STATUS.CANCELLED) {
       throw new Error("İptal edilmiş iş emri düzenlenemez.");
     }
@@ -339,8 +337,11 @@ export async function updateWorkOrder(jobId, job, actor) {
 
     for (const partId of partIds) {
       const part = currentParts.get(partId);
-      if (!part) throw new Error("İş emrindeki parça envanterde bulunamadı; stok farkları uygulanamadı.");
       const delta = partDeltas.get(partId).delta;
+      if (!part) {
+        if (delta !== 0) throw new Error("İş emrindeki bir parça envanterde bulunamadı; stok farkları uygulanamadı.");
+        continue;
+      }
       if (delta > 0 && part.archived) throw new Error(`${part.name} arşivlenmiş olduğu için miktarı artırılamaz.`);
       if (delta > Number(part.stock || 0)) throw new Error(`${part.name} için değişiklik sonrası yeterli stok bulunmuyor.`);
     }
@@ -349,6 +350,7 @@ export async function updateWorkOrder(jobId, job, actor) {
       const historicalDate = baselineJob.date || day();
       for (const [partId, movementReference] of baselineMovements) {
         const part = currentParts.get(partId);
+        if (!part) continue;
         const movement = movementRecord({ id: partId, name: part.name, sku: part.sku }, {
           qty: -oldQuantities.get(partId),
           type: "İş emri",
@@ -367,6 +369,7 @@ export async function updateWorkOrder(jobId, job, actor) {
 
     for (const partId of partIds) {
       const part = currentParts.get(partId);
+      if (!part) continue;
       const delta = partDeltas.get(partId).delta;
       if (!delta) continue;
       const stockBefore = Number(part.stock || 0);
@@ -388,21 +391,32 @@ export async function updateWorkOrder(jobId, job, actor) {
     }
 
     const items = (job.items || []).map((item) => {
-      const part = currentParts.get(item.partId);
+      const part = item.partId ? currentParts.get(item.partId) : null;
       const oldItem = oldItems.find((entry) => entry.partId === item.partId);
+      const price = Number.isFinite(Number(item.price))
+        ? Number(item.price)
+        : (oldItem && Number.isFinite(Number(oldItem.price)))
+          ? Number(oldItem.price)
+          : (part?.price ?? 0);
       return {
         ...item,
-        name: part.name,
-        sku: part.sku,
-        category: part.category || item.category || "Genel",
-        brand: part.brand || item.brand || "",
-        price: oldItem
-          ? Number.isFinite(Number(oldItem.price)) ? Number(oldItem.price) : part.price
-          : part.price,
+        name: part?.name || item.name || oldItem?.name || "Parça",
+        sku: part?.sku || item.sku || oldItem?.sku || "",
+        category: part?.category || item.category || oldItem?.category || "Genel",
+        brand: part?.brand || item.brand || oldItem?.brand || "",
+        price,
       };
     });
+
+    const nextStatus = job.status && [WORK_ORDER_STATUS.IN_PROGRESS, WORK_ORDER_STATUS.COMPLETED].includes(job.status)
+      ? job.status
+      : currentJob.status;
+    const isNowCompleted = nextStatus === WORK_ORDER_STATUS.COMPLETED && currentJob.status !== WORK_ORDER_STATUS.COMPLETED;
+    const isReopened = nextStatus === WORK_ORDER_STATUS.IN_PROGRESS && currentJob.status === WORK_ORDER_STATUS.COMPLETED;
+
     updatedRecord = {
       ...currentJob,
+      status: nextStatus,
       plate: String(job.plate || "").trim().toLocaleUpperCase("tr"),
       make: String(job.make || "").trim(),
       model: String(job.model || "").trim(),
@@ -414,6 +428,8 @@ export async function updateWorkOrder(jobId, job, actor) {
       total: calculateWorkOrderNetTotal(items, laborAmount),
       movementLedgerVersion: 1,
       updatedAt: new Date().toISOString(),
+      ...(isNowCompleted ? { completedAt: new Date().toISOString(), completedBy: actor || OWNER_EMAIL } : {}),
+      ...(isReopened ? { completedAt: null, completedBy: null } : {}),
     };
     transaction.set(jobReference, updatedRecord);
   });

@@ -189,6 +189,8 @@ function App() {
   const [query, setQuery] = useState("");
   const [inventoryFilterIntent, setInventoryFilterIntent] = useState(null);
   const [workOrderSelectionIntent, setWorkOrderSelectionIntent] = useState(null);
+  const [workOrderStatusFilterIntent, setWorkOrderStatusFilterIntent] = useState(null);
+  const [vehicleQueryIntent, setVehicleQueryIntent] = useState(null);
   const [toast, setToast] = useState("");
   const [toastAction, setToastAction] = useState(null);
   const [saving, setSaving] = useState(false);
@@ -333,7 +335,18 @@ function App() {
   const openWorkOrderList = () => {
     setQuery("");
     setWorkOrderSelectionIntent(null);
+    setWorkOrderStatusFilterIntent(null);
     setPage("workorders");
+  };
+  const openOpenWorkOrders = () => {
+    setQuery("");
+    setWorkOrderSelectionIntent(null);
+    setWorkOrderStatusFilterIntent(WORK_ORDER_STATUS.IN_PROGRESS);
+    setPage("workorders");
+  };
+  const openVehicleHistory = (plate) => {
+    setVehicleQueryIntent(plate);
+    setPage("vehicles");
   };
   const runAction = async (action, success) => {
     setErrorMessage("");
@@ -478,15 +491,33 @@ function App() {
           page === "invoices" ? h("button", { className: "button button-primary", onClick: () => openModal("invoice"), disabled: saving }, h(Icon, { name: "plus", size: 16 }), "Fatura ekle") :
           page === "orders" ? h("button", { className: "button button-primary", onClick: createDraft, disabled: saving }, h(Icon, { name: "plus", size: 16 }), "Sipariş taslağı oluştur") :
           page === "compatibility" ? h("button", { className: "button button-primary", onClick: () => openModal("fitment"), disabled: saving }, h(Icon, { name: "plus", size: 16 }), "Uyumluluk ekle") : null)),
-        page === "dashboard" ? h(Dashboard, { data, lowStock, revenue, setPage, openModal, createDraft, openCriticalInventory, openWorkOrder, openWorkOrderList }) :
+        page === "dashboard" ? h(Dashboard, {
+          data,
+          lowStock,
+          revenue,
+          setPage,
+          openModal,
+          createDraft,
+          openCriticalInventory,
+          openWorkOrder,
+          openWorkOrderList,
+          onOpenVehicle: openVehicleHistory,
+          onOpenOpenJobs: openOpenWorkOrders,
+          onOpenTotalCiro: () => setPage("reports"),
+          onOpenInventory: () => { setQuery(""); setInventoryFilterIntent("all"); setPage("inventory"); },
+          onOpenLowStockPart: (part) => { setQuery(part.sku || part.name); setInventoryFilterIntent("all"); setPage("inventory"); },
+          onOpenTopPart: (part) => { setQuery(part.sku || part.name); setInventoryFilterIntent("all"); setPage("inventory"); },
+          onOpenInvoice: () => setPage("invoices"),
+          onOpenMovement: () => setPage("movements"),
+        }) :
         page === "inventory" ? h(Inventory, { parts: data.parts, query, setQuery, openModal, removePart, saving, filterIntent: inventoryFilterIntent, clearFilterIntent: () => setInventoryFilterIntent(null), toggleFavorite }) :
-        page === "workorders" ? h(WorkOrders, { jobs: data.jobs, query, setQuery, openModal, markJobComplete, cancelJob, saving, selectionIntent: workOrderSelectionIntent, clearSelectionIntent: () => setWorkOrderSelectionIntent(null) }) :
-        page === "vehicles" ? h(VehicleHistory, { jobs: data.jobs }) :
+        page === "workorders" ? h(WorkOrders, { jobs: data.jobs, query, setQuery, openModal, markJobComplete, cancelJob, saving, selectionIntent: workOrderSelectionIntent, clearSelectionIntent: () => setWorkOrderSelectionIntent(null), statusFilterIntent: workOrderStatusFilterIntent, clearStatusFilterIntent: () => setWorkOrderStatusFilterIntent(null) }) :
+        page === "vehicles" ? h(VehicleHistory, { jobs: data.jobs, queryIntent: vehicleQueryIntent, clearQueryIntent: () => setVehicleQueryIntent(null) }) :
         page === "compatibility" ? h(PartCompatibility, { jobs: data.jobs, fitments: data.fitments || [], openModal, removeFitment, saving }) :
         page === "movements" ? h(StockMovements, { movements: data.movements }) :
         page === "invoices" ? h(Invoices, { invoices: data.invoices }) :
         page === "orders" ? h(Orders, { drafts: data.drafts, lowStock, receiveDraft, createDraft }) :
-        page === "stockcompare" ? h(StockCompare, { parts: data.parts }) :
+        page === "stockcompare" ? h(StockCompare, { parts: data.parts, openModal }) :
         page === "chat" ? h(ChatPage, { messages: chatMessages, user, sendMessage: async (text) => { await sendChatMessage(user.email, user.displayName, text); } }) :
         page === "servicebox" ? h(ServiceBoxPage) :
         page === "access" && isOwner ? h(AccessManagement, {
@@ -660,22 +691,31 @@ function AccessManagement({ onError, onSuccess }) {
     )
   );
 }
-function Dashboard({ data, lowStock, revenue, setPage, openModal, createDraft, openCriticalInventory, openWorkOrder, openWorkOrderList }) {
+function Dashboard({ data, lowStock, revenue, setPage, openModal, createDraft, openCriticalInventory, openWorkOrder, openWorkOrderList, onOpenVehicle, onOpenLowStockPart, onOpenTopPart, onOpenOpenJobs, onOpenTotalCiro, onOpenInventory, onOpenMovement, onOpenInvoice }) {
   const openJobs = getOpenWorkOrders(data.jobs).length;
   const recentJobs = [...data.jobs].sort((first, second) => (second.updatedAt || second.date || "").localeCompare(first.updatedAt || first.date || "")).slice(0, 5);
   const metrics = [
-    ["Toplam ciro", money(revenue), "Parça + işçilik · KDV dahil"],
-    ["Açık iş emirleri", String(openJobs).padStart(2, "0"), "Devam eden işler"],
-    ["Envanter kalemi", String(data.parts.length).padStart(2, "0"), `${data.parts.reduce((sum, part) => sum + Number(part.stock || 0), 0)} toplam adet`],
-    ["Kritik stok", String(lowStock.length).padStart(2, "0"), "Minimum seviyede veya altında"],
+    { label: "Toplam ciro", value: money(revenue), caption: "Parça + işçilik · KDV dahil", onClick: onOpenTotalCiro || (() => setPage("reports")), title: "Ciro raporlarını görüntüle" },
+    { label: "Açık iş emirleri", value: String(openJobs).padStart(2, "0"), caption: "Devam eden işler", onClick: onOpenOpenJobs || openWorkOrderList, title: "Devam eden iş emirlerini listele" },
+    { label: "Envanter kalemi", value: String(data.parts.length).padStart(2, "0"), caption: `${data.parts.reduce((sum, part) => sum + Number(part.stock || 0), 0)} toplam adet`, onClick: onOpenInventory || (() => setPage("inventory")), title: "Tüm envanteri görüntüle" },
+    { label: "Kritik stok", value: String(lowStock.length).padStart(2, "0"), caption: "Minimum seviyede veya altında", onClick: openCriticalInventory, title: "Kritik stoktaki parçaları filtrele" },
   ];
   return h(React.Fragment, null,
-    h(ServiceStatusLead, { openJobs, lowStock: lowStock.length, onOpenJobs: openWorkOrderList, onOpenLowStock: openCriticalInventory }),
-    h("div", { className: "metric-grid dashboard-metric-grid" }, metrics.map(([label, value, caption]) =>
-      h("article", { className: "metric-card", key: label },
-        h("span", { className: "metric-top" }, label),
-        h("strong", { className: "metric-value" }, value),
-        h("span", { className: "metric-bottom" }, caption)
+    h(ServiceStatusLead, { openJobs, lowStock: lowStock.length, onOpenJobs: onOpenOpenJobs || openWorkOrderList, onOpenLowStock: openCriticalInventory }),
+    h("div", { className: "metric-grid dashboard-metric-grid" }, metrics.map((metric) =>
+      h("article", {
+        className: "metric-card metric-card-interactive",
+        key: metric.label,
+        tabIndex: 0,
+        role: "button",
+        onClick: metric.onClick,
+        onKeyDown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); metric.onClick(); } },
+        title: metric.title,
+        "aria-label": `${metric.label}: ${metric.value}. ${metric.title}`
+      },
+        h("span", { className: "metric-top" }, metric.label, h(Icon, { name: "arrow", size: 13, className: "metric-arrow-icon" })),
+        h("strong", { className: "metric-value" }, metric.value),
+        h("span", { className: "metric-bottom" }, metric.caption)
       )
     )),
     h("div", { className: "dashboard-secondary-actions" },
@@ -685,24 +725,39 @@ function Dashboard({ data, lowStock, revenue, setPage, openModal, createDraft, o
     h("div", { className: "dashboard-operations-grid" },
       h("section", { className: "panel recent-panel" },
         h("div", { className: "panel-heading" }, h("div", null, h("h2", null, "Son iş emirleri"), h("p", null, "En son kaydedilen servis işleri")), h("button", { className: "text-button", onClick: openWorkOrderList }, "Tüm iş emirleri", h(Icon, { name: "arrow", size: 15 }))),
-        recentJobs.length ? h(DashboardJobTable, { jobs: recentJobs, onOpenJob: openWorkOrder }) : h("div", { className: "empty-state compact-empty" }, "Henüz iş emri bulunmuyor.")
+        recentJobs.length ? h(DashboardJobTable, { jobs: recentJobs, onOpenJob: openWorkOrder, onEditJob: (job) => openModal("job", job), onOpenVehicle }) : h("div", { className: "empty-state compact-empty" }, "Henüz iş emri bulunmuyor.")
       ),
       h("section", { className: "panel lowstock-panel" },
         h("div", { className: "panel-heading" }, h("div", null, h("h2", null, "Stok uyarıları"), h("p", null, "Minimum seviyede veya altında")), h("button", { className: "text-button", onClick: openCriticalInventory }, "Kritik parçalar", h(Icon, { name: "arrow", size: 15 }))),
         lowStock.length ? h(React.Fragment, null,
-          h("div", { className: "alert-list" }, lowStock.slice(0, 5).map((part) => h("div", { className: "alert-item", key: part.id }, h("span", { className: "part-avatar" }, part.name.slice(0, 1)), h("div", { className: "alert-name" }, h("strong", null, part.name), h("span", null, part.sku)), h("span", { className: "stock-alert" }, `${part.stock} / ${part.minimum} adet`)))),
+          h("div", { className: "alert-list" }, lowStock.slice(0, 5).map((part) =>
+            h("div", {
+              className: "alert-item alert-item-interactive",
+              key: part.id,
+              tabIndex: 0,
+              role: "button",
+              onClick: () => onOpenLowStockPart ? onOpenLowStockPart(part) : openCriticalInventory(),
+              onKeyDown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); if (onOpenLowStockPart) onOpenLowStockPart(part); else openCriticalInventory(); } },
+              title: `${part.name} parçasına git`
+            },
+              h("span", { className: "part-avatar" }, part.name.slice(0, 1)),
+              h("div", { className: "alert-name" }, h("strong", null, part.name), h("span", null, part.sku)),
+              h("span", { className: "stock-alert" }, `${part.stock} / ${part.minimum} adet`),
+              h(Icon, { name: "arrow", size: 13, className: "row-arrow-icon" })
+            )
+          )),
           h("button", { className: "button button-small stock-draft-action", onClick: createDraft }, h(Icon, { name: "cart", size: 14 }), "Sipariş taslağı oluştur")
         ) : h("div", { className: "empty-state compact-empty" }, "Kritik stok uyarısı bulunmuyor.")
       )
     ),
-    h(DashboardInsights, { data, setPage })
+    h(DashboardInsights, { data, setPage, openWorkOrder, onOpenTopPart, onOpenMovement, onOpenInvoice })
   );
 }
 
-function DashboardJobTable({ jobs, onOpenJob }) {
+function DashboardJobTable({ jobs, onOpenJob, onEditJob, onOpenVehicle }) {
   return h("div", { className: "table-scroll dashboard-job-table" },
     h("table", null,
-      h("thead", null, h("tr", null, ["İŞ EMRİ", "ARAÇ", "MÜŞTERİ", "TUTAR · KDV DAHİL", "DURUM"].map((label) => h("th", { key: label }, label)))),
+      h("thead", null, h("tr", null, ["İŞ EMRİ", "ARAÇ", "MÜŞTERİ", "TUTAR · KDV DAHİL", "DURUM", "İŞLEM"].map((label) => h("th", { key: label }, label)))),
       h("tbody", null, jobs.map((job) => h("tr", {
         key: job.id,
         className: "clickable-row",
@@ -712,15 +767,34 @@ function DashboardJobTable({ jobs, onOpenJob }) {
           h("span", { className: "dashboard-job-desktop" }, h("strong", { className: "job-id" }, job.code || job.id), h("small", { className: "table-date" }, dateLabel(job.date))),
           h("span", { className: "dashboard-job-mobile" }, h("span", { className: "dashboard-mobile-top" }, h("strong", { className: "dashboard-mobile-plate" }, job.plate), h("span", { className: `job-status ${getWorkOrderStatusClass(job.status)}` }, h("i", null), job.status), h("strong", { className: "dashboard-mobile-amount" }, money(vatIncludedAmount(job.total)))), h("small", null, `${job.code || "İş emri"} · ${dateLabel(job.date)} · ${job.customer}`))
         )),
-        h("td", null, h("div", { className: "vehicle-cell" }, h("strong", null, job.plate), h("small", null, `${job.make} ${job.model}`))),
+        h("td", null, h("div", {
+          className: "vehicle-cell vehicle-cell-interactive",
+          role: "button",
+          tabIndex: 0,
+          onClick: (e) => {
+            if (onOpenVehicle) {
+              e.stopPropagation();
+              onOpenVehicle(job.plate);
+            }
+          },
+          title: `${job.plate} araç geçmişine git`
+        }, h("strong", null, job.plate), h("small", null, `${job.make} ${job.model}`))),
         h("td", { className: "muted-cell" }, job.customer),
         h("td", { className: "price-cell" }, money(vatIncludedAmount(job.total))),
-        h("td", null, h("span", { className: `job-status ${getWorkOrderStatusClass(job.status)}` }, h("i", null), job.status))
+        h("td", null, h("span", { className: `job-status ${getWorkOrderStatusClass(job.status)}` }, h("i", null), job.status)),
+        h("td", { className: "action-cell", onClick: (e) => e.stopPropagation() },
+          h("button", {
+            className: "button button-small button-outline",
+            type: "button",
+            onClick: () => onEditJob(job),
+            title: "İş emrini düzenle"
+          }, "Düzenle")
+        )
       )))
     )
   );
 }
-function DashboardInsights({ data, setPage }) {
+function DashboardInsights({ data, setPage, openWorkOrder, onOpenTopPart, onOpenMovement, onOpenInvoice }) {
   const today = new Date();
   const revenueJobs = getRevenueEligibleWorkOrders(data.jobs);
   const topParts = [...data.parts].sort((first, second) => Number(second.sold || 0) - Number(first.sold || 0)).slice(0, 5);
@@ -740,19 +814,32 @@ function DashboardInsights({ data, setPage }) {
   });
   const movementReferences = new Set(data.movements.map((movement) => movement.referenceCode).filter(Boolean));
   const recentItems = [
-    ...data.movements.map((movement) => ({ id: movement.id, date: movement.createdAt, title: movement.name, detail: `${movement.type} · ${movement.referenceCode || ""}`, amount: movement.qty, kind: "movement" })),
-    ...revenueJobs.filter((job) => !movementReferences.has(job.code)).map((job) => ({ id: `job-${job.id}`, date: job.updatedAt || `${job.date}T12:00:00`, title: `${job.plate} · ${job.make} ${job.model}`, detail: `İş emri · ${job.customer}`, amount: null, total: job.total, kind: "job" })),
-    ...data.invoices.filter((invoice) => !movementReferences.has(invoice.code)).map((invoice) => ({ id: `invoice-${invoice.id}`, date: `${invoice.date}T12:00:00`, title: invoice.supplier, detail: `Alış faturası · ${invoice.code}`, amount: null, total: invoice.total, kind: "invoice" })),
+    ...data.movements.map((movement) => ({ id: movement.id, date: movement.createdAt, title: movement.name, detail: `${movement.type} · ${movement.referenceCode || ""}`, amount: movement.qty, kind: "movement", raw: movement })),
+    ...revenueJobs.filter((job) => !movementReferences.has(job.code)).map((job) => ({ id: `job-${job.id}`, jobId: job.id, date: job.updatedAt || `${job.date}T12:00:00`, title: `${job.plate} · ${job.make} ${job.model}`, detail: `İş emri · ${job.customer}`, amount: null, total: job.total, kind: "job" })),
+    ...data.invoices.filter((invoice) => !movementReferences.has(invoice.code)).map((invoice) => ({ id: `invoice-${invoice.id}`, invoiceId: invoice.id, date: `${invoice.date}T12:00:00`, title: invoice.supplier, detail: `Alış faturası · ${invoice.code}`, amount: null, total: invoice.total, kind: "invoice" })),
   ].sort((first, second) => (second.date || "").localeCompare(first.date || "")).slice(0, 6);
   return h("div", { className: "dashboard-insights" },
     h("section", { className: "panel parts-performance-panel" },
       h("div", { className: "panel-heading" }, h("div", null, h("h2", null, "En çok işlem gören parçalar"), h("p", null, "İş emirlerindeki adet · tüm dönemler")), h("button", { className: "text-button", onClick: () => setPage("reports") }, "Raporlar", h(Icon, { name: "arrow", size: 14 }))),
-      topParts.length ? h("div", { className: "top-parts-list" }, topParts.map((part, index) => h("div", { className: "top-part-row", key: part.id },
-        h("span", { className: "top-part-rank" }, String(index + 1).padStart(2, "0")),
-        h("div", { className: "top-part-data" }, h("div", { className: "top-part-label" }, h("strong", null, part.name), h("span", null, `${Number(part.sold || 0)} adet`)), h("div", { className: "bar-track" }, h("div", { className: "bar-fill", style: { width: `${Math.max(4, Number(part.sold || 0) / maxPartSales * 100)}%` } })))
-      ))) : h("div", { className: "empty-state compact-empty" }, "Parça kullanımı, iş emirleri kaydedildikçe burada görünür.")
+      topParts.length ? h("div", { className: "top-parts-list" }, topParts.map((part, index) =>
+        h("div", {
+          className: "top-part-row top-part-interactive",
+          key: part.id,
+          tabIndex: 0,
+          role: "button",
+          onClick: () => onOpenTopPart ? onOpenTopPart(part) : setPage("inventory"),
+          onKeyDown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); if (onOpenTopPart) onOpenTopPart(part); else setPage("inventory"); } },
+          title: `${part.name} envanterde ara`
+        },
+          h("span", { className: "top-part-rank" }, String(index + 1).padStart(2, "0")),
+          h("div", { className: "top-part-data" },
+            h("div", { className: "top-part-label" }, h("strong", null, part.name), h("span", null, `${Number(part.sold || 0)} adet`)),
+            h("div", { className: "bar-track" }, h("div", { className: "bar-fill", style: { width: `${Math.max(4, Number(part.sold || 0) / maxPartSales * 100)}%` } }))
+          )
+        )
+      )) : h("div", { className: "empty-state compact-empty" }, "Parça kullanımı, iş emirleri kaydedildikçe burada görünür.")
     ),
-    h("section", { className: "panel trend-panel" },
+    h("section", { className: "panel trend-panel", style: { cursor: "pointer" }, onClick: () => setPage("reports"), title: "Ciro raporlarını görüntüle" },
       h("div", { className: "panel-heading" }, h("div", null, h("h2", null, "Ciro akışı"), h("p", null, "Parça ve işçilik toplamı · KDV dahil")), h("span", { className: "report-period" }, "TRY · KDV dahil")),
       h("div", { className: "trend-sections" },
         h(RevenueBars, { title: "Son 7 gün", values: recentDays }),
@@ -761,11 +848,30 @@ function DashboardInsights({ data, setPage }) {
     ),
     h("section", { className: "panel activity-panel" },
       h("div", { className: "panel-heading" }, h("div", null, h("h2", null, "Son hareketler"), h("p", null, "Kaynak ve gerçek stok miktarları")), h("button", { className: "text-button", onClick: () => setPage("movements") }, "Stok hareketleri", h(Icon, { name: "arrow", size: 14 }))),
-      recentItems.length ? h("div", { className: "activity-list" }, recentItems.map((item) => h("div", { className: "activity-item", key: item.id },
-        h("span", { className: `activity-mark ${item.kind}` }, item.kind === "movement" ? (item.amount > 0 ? "+" : "−") : item.kind === "job" ? "İŞ" : "AL"),
-        h("div", null, h("strong", null, item.title), h("small", null, item.detail)),
-        h("span", { className: `activity-amount ${item.kind === "movement" ? (item.amount > 0 ? "positive" : "negative") : ""}` }, item.kind === "movement" ? `${item.amount > 0 ? "+" : ""}${item.amount} adet` : money(vatIncludedAmount(item.total)))
-      ))) : h("div", { className: "empty-state compact-empty" }, "Henüz işlem kaydı yok.")
+      recentItems.length ? h("div", { className: "activity-list" }, recentItems.map((item) =>
+        h("div", {
+          className: "activity-item activity-item-interactive",
+          key: item.id,
+          tabIndex: 0,
+          role: "button",
+          onClick: () => {
+            if (item.kind === "job") {
+              const jId = item.jobId || item.id.replace(/^job-/, "");
+              openWorkOrder(jId);
+            } else if (item.kind === "invoice") {
+              if (onOpenInvoice) onOpenInvoice(); else setPage("invoices");
+            } else {
+              if (onOpenMovement) onOpenMovement(); else setPage("movements");
+            }
+          },
+          title: `${item.title} detayına git`
+        },
+          h("span", { className: `activity-mark ${item.kind}` }, item.kind === "movement" ? (item.amount > 0 ? "+" : "−") : item.kind === "job" ? "İŞ" : "AL"),
+          h("div", null, h("strong", null, item.title), h("small", null, item.detail)),
+          h("span", { className: `activity-amount ${item.kind === "movement" ? (item.amount > 0 ? "positive" : "negative") : ""}` }, item.kind === "movement" ? `${item.amount > 0 ? "+" : ""}${item.amount} adet` : money(vatIncludedAmount(item.total))),
+          h(Icon, { name: "arrow", size: 13, className: "row-arrow-icon" })
+        )
+      )) : h("div", { className: "empty-state compact-empty" }, "Henüz işlem kaydı yok.")
     )
   );
 }
@@ -851,14 +957,24 @@ function JobTable({ jobs, compact }) {
     )
   );
 }
-function WorkOrders({ jobs, query, setQuery, openModal, markJobComplete, cancelJob, saving, selectionIntent, clearSelectionIntent }) {
+function WorkOrders({ jobs, query, setQuery, openModal, markJobComplete, cancelJob, saving, selectionIntent, clearSelectionIntent, statusFilterIntent, clearStatusFilterIntent }) {
   const [selected, setSelected] = useState(null);
-  const [status, setStatus] = useState("all");
+  const [status, setStatus] = useState(() => statusFilterIntent || "all");
+  useEffect(() => {
+    if (statusFilterIntent) {
+      setStatus(statusFilterIntent);
+      clearStatusFilterIntent?.();
+    }
+  }, [statusFilterIntent, clearStatusFilterIntent]);
   useEffect(() => {
     if (!selectionIntent) return;
     setStatus("all");
     setSelected(selectionIntent);
     clearSelectionIntent();
+    setTimeout(() => {
+      const el = document.getElementById(`job-row-${selectionIntent}`);
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 120);
   }, [selectionIntent, clearSelectionIntent]);
   const filtered = jobs.filter((job) => `${job.code || job.id} ${job.plate} ${job.customer} ${job.make} ${job.model}`.toLocaleLowerCase("tr").includes(query.toLocaleLowerCase("tr")) && (status === "all" || job.status === status));
   return h(React.Fragment, null,
@@ -869,25 +985,48 @@ function WorkOrders({ jobs, query, setQuery, openModal, markJobComplete, cancelJ
     ),
     h("section", { className: "panel table-panel" }, filtered.length ? h("div", { className: "table-scroll" },
       h("table", null,
-        h("thead", null, h("tr", null, ["İŞ EMRİ", "ARAÇ", "MÜŞTERİ", "İŞLEM / PARÇALAR", "TUTAR · KDV DAHİL", "DURUM"].map((label) => h("th", { key: label }, label)))),
+        h("thead", null, h("tr", null, ["İŞ EMRİ", "ARAÇ", "MÜŞTERİ", "İŞLEM / PARÇALAR", "TUTAR · KDV DAHİL", "DURUM", "İŞLEM"].map((label) => h("th", { key: label }, label)))),
         h("tbody", null, filtered.map((job) => h(React.Fragment, { key: job.id },
-          h("tr", { className: "clickable-row", tabIndex: 0, "aria-expanded": selected === job.id, onClick: () => setSelected(selected === job.id ? null : job.id), onKeyDown: (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setSelected(selected === job.id ? null : job.id); } } },
+          h("tr", {
+            id: `job-row-${job.id}`,
+            className: `clickable-row ${selected === job.id ? "selected-row" : ""}`,
+            tabIndex: 0,
+            "aria-expanded": selected === job.id,
+            onClick: () => setSelected(selected === job.id ? null : job.id),
+            onKeyDown: (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setSelected(selected === job.id ? null : job.id); } }
+          },
             h("td", null, h("strong", { className: "job-id" }, job.code || job.id), h("small", { className: "table-date" }, dateLabel(job.date))),
             h("td", null, h("div", { className: "vehicle-cell" }, h("strong", null, job.plate), h("small", null, `${job.make} ${job.model}`))),
             h("td", null, h("div", { className: "vehicle-cell" }, h("strong", null, job.customer), h("small", null, job.phone || "Telefon belirtilmedi"))),
             h("td", null, h("span", { className: "muted-cell" }, `${job.items.length} parça kalemi`)),
             h("td", { className: "price-cell" }, money(vatIncludedAmount(job.total))),
-            h("td", null, h("span", { className: `job-status ${getWorkOrderStatusClass(job.status)}` }, h("i", null), job.status))
+            h("td", null, h("span", { className: `job-status ${getWorkOrderStatusClass(job.status)}` }, h("i", null), job.status)),
+            h("td", { className: "action-cell", onClick: (e) => e.stopPropagation() },
+              h("button", {
+                className: "button button-small button-outline job-quick-edit",
+                type: "button",
+                disabled: saving,
+                onClick: () => openModal("job", job),
+                "aria-label": `${job.code || "İş emri"} kaydını düzenle`
+              }, "Düzenle")
+            )
           ),
-          selected === job.id ? h("tr", { className: "job-detail-row" }, h("td", { colSpan: 6 }, h("div", { className: "job-detail" }, h("strong", null, "Araç servis geçmişi / kullanılan parçalar"), job.items.map((item, index) => h("span", { key: `${item.partId || item.sku || item.name}-${index}` }, `${item.name} · ${item.qty} adet · ${money(Number(item.price || 0) * Number(item.qty || 0))} KDV hariç`)), h("span", null, `İşçilik · ${money(normalizeLaborAmount(job.laborAmount))} KDV hariç`), h("span", null, `Ara toplam · ${money(Number(job.total || 0))} KDV hariç`), h("span", null, `%${VAT_RATE * 100} KDV · ${money(calculateVat(Number(job.total || 0)).vat)}`), h("span", { className: "job-detail-total" }, `İş emri toplamı · ${money(vatIncludedAmount(job.total))} KDV dahil`), job.status === WORK_ORDER_STATUS.CANCELLED ? h("span", { className: "job-cancelled-note" }, "Kayıt iptal edildi; stok hareketleri korunuyor.") : h("div", { className: "job-lifecycle-actions" }, job.status === WORK_ORDER_STATUS.IN_PROGRESS ? h("button", { className: "button button-small", type: "button", disabled: saving, onClick: () => markJobComplete(job) }, "Tamamlandı") : null, h("button", { className: "button button-small button-danger", type: "button", disabled: saving, onClick: () => cancelJob(job) }, "İş emrini iptal et"), h("button", { className: "button button-small job-edit-action", type: "button", disabled: saving, onClick: () => openModal("job", job), "aria-label": `${job.code || "İş emri"} kaydını düzenle` }, "İş emrini düzenle"))))) : null
+          selected === job.id ? h("tr", { className: "job-detail-row" }, h("td", { colSpan: 7 }, h("div", { className: "job-detail" }, h("strong", null, "Araç servis geçmişi / kullanılan parçalar"), job.items.map((item, index) => h("span", { key: `${item.partId || item.sku || item.name}-${index}` }, `${item.name} · ${item.qty} adet · ${money(Number(item.price || 0) * Number(item.qty || 0))} KDV hariç`)), h("span", null, `İşçilik · ${money(normalizeLaborAmount(job.laborAmount))} KDV hariç`), h("span", null, `Ara toplam · ${money(Number(job.total || 0))} KDV hariç`), h("span", null, `%${VAT_RATE * 100} KDV · ${money(calculateVat(Number(job.total || 0)).vat)}`), h("span", { className: "job-detail-total" }, `İş emri toplamı · ${money(vatIncludedAmount(job.total))} KDV dahil`), job.status === WORK_ORDER_STATUS.CANCELLED ? h("span", { className: "job-cancelled-note" }, "Kayıt iptal edildi; stok hareketleri korunuyor.") : h("div", { className: "job-lifecycle-actions" }, job.status === WORK_ORDER_STATUS.IN_PROGRESS ? h("button", { className: "button button-small", type: "button", disabled: saving, onClick: () => markJobComplete(job) }, "Tamamlandı") : null, h("button", { className: "button button-small button-danger", type: "button", disabled: saving, onClick: () => cancelJob(job) }, "İş emrini iptal et"), h("button", { className: "button button-small job-edit-action", type: "button", disabled: saving, onClick: () => openModal("job", job), "aria-label": `${job.code || "İş emri"} kaydını düzenle` }, "İş emrini düzenle"))))) : null
         )))
       )
     ) : h("div", { className: "empty-state" }, "Henüz iş emri bulunmuyor."))
   );
 }
-function VehicleHistory({ jobs }) {
-  const [query, setQuery] = useState("");
-  const [selectedPlate, setSelectedPlate] = useState("");
+function VehicleHistory({ jobs, queryIntent, clearQueryIntent }) {
+  const [query, setQuery] = useState(() => queryIntent || "");
+  const [selectedPlate, setSelectedPlate] = useState(() => queryIntent ? queryIntent.trim().toLocaleUpperCase("tr") : "");
+  useEffect(() => {
+    if (queryIntent) {
+      setQuery(queryIntent);
+      setSelectedPlate(queryIntent.trim().toLocaleUpperCase("tr"));
+      clearQueryIntent?.();
+    }
+  }, [queryIntent, clearQueryIntent]);
   const activeJobs = jobs.filter((job) => job.status !== WORK_ORDER_STATUS.CANCELLED);
   const vehicles = new Map();
   [...activeJobs].sort((first, second) => (second.date || "").localeCompare(first.date || "")).forEach((job) => {
@@ -1214,11 +1353,125 @@ function ChatPage({ messages, user, sendMessage, saving }) {
   );
 }
 
-function StockCompare({ parts }) {
-  const [uploadedData, setUploadedData] = useState([]);
+function parseTurkishOrStandardNumber(val) {
+  if (typeof val === "number") return val;
+  if (!val && val !== 0) return 0;
+  let s = String(val).trim();
+  if (!s) return 0;
+  if (s.includes(".") && s.includes(",")) {
+    if (s.lastIndexOf(",") > s.lastIndexOf(".")) {
+      s = s.replace(/\./g, "").replace(",", ".");
+    } else {
+      s = s.replace(/,/g, "");
+    }
+  } else if (s.includes(",")) {
+    s = s.replace(",", ".");
+  }
+  const n = Number(s);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function cleanSku(s) {
+  return String(s || "")
+    .trim()
+    .toLocaleLowerCase("tr")
+    .replace(/[\s\-_./\\#]/g, "");
+}
+
+function parseExcelStockRows(rows) {
+  if (!Array.isArray(rows) || rows.length === 0) return [];
+
+  const skuKeywords = ["sku", "stok kodu", "parca kodu", "parça kodu", "kod", "referans", "ref", "oem", "malzeme kodu", "parca no", "parça no"];
+  const nameKeywords = ["parca adi", "parça adı", "parca", "parça", "urun adi", "ürün adı", "urun", "ürün", "aciklama", "açıklama", "tanim", "tanım", "ad", "isim"];
+  const qtyKeywords = ["stok", "adet", "miktar", "mevcut", "bakiye", "sayim", "sayım", "kalan", "fiili", "sayılan", "sayilan"];
+
+  let headerRowIndex = -1;
+  let skuCol = -1;
+  let nameCol = -1;
+  let qtyCol = -1;
+
+  for (let r = 0; r < Math.min(rows.length, 10); r++) {
+    const row = rows[r];
+    if (!Array.isArray(row)) continue;
+    let foundSku = -1;
+    let foundQty = -1;
+    let foundName = -1;
+
+    for (let c = 0; c < row.length; c++) {
+      const cellVal = String(row[c] || "").trim().toLowerCase();
+      if (!cellVal) continue;
+      if (foundSku === -1 && skuKeywords.some(k => cellVal === k || cellVal.includes(k))) {
+        foundSku = c;
+      } else if (foundQty === -1 && qtyKeywords.some(k => cellVal === k || cellVal.includes(k))) {
+        foundQty = c;
+      } else if (foundName === -1 && nameKeywords.some(k => cellVal === k || cellVal.includes(k))) {
+        foundName = c;
+      }
+    }
+
+    if (foundSku !== -1 || (foundQty !== -1 && foundName !== -1)) {
+      headerRowIndex = r;
+      skuCol = foundSku;
+      nameCol = foundName;
+      qtyCol = foundQty;
+      break;
+    }
+  }
+
+  let dataRows = [];
+  if (headerRowIndex !== -1) {
+    if (skuCol === -1) skuCol = 0;
+    if (qtyCol === -1) {
+      qtyCol = [0, 1, 2, 3].find(c => c !== skuCol && c !== nameCol) ?? 2;
+    }
+    dataRows = rows.slice(headerRowIndex + 1);
+  } else {
+    skuCol = 0;
+    let firstValid = rows.find(r => Array.isArray(r) && r.some(v => v !== null && v !== undefined && String(v).trim() !== ""));
+    if (firstValid && firstValid.length === 2) {
+      const val1 = String(firstValid[1] || "").trim();
+      const num1 = parseTurkishOrStandardNumber(val1);
+      if (Number.isFinite(num1) && !isNaN(Number(val1.replace(",", ".")))) {
+        qtyCol = 1;
+        nameCol = -1;
+      } else {
+        nameCol = 1;
+        qtyCol = -1;
+      }
+    } else {
+      nameCol = 1;
+      qtyCol = 2;
+    }
+    dataRows = rows;
+  }
+
+  const items = [];
+  for (const row of dataRows) {
+    if (!Array.isArray(row) || row.length === 0) continue;
+    const rawSku = skuCol !== -1 ? String(row[skuCol] || "").trim() : "";
+    if (!rawSku) continue;
+    if (skuKeywords.some(k => rawSku.toLowerCase() === k)) continue;
+
+    const rawName = nameCol !== -1 && row[nameCol] !== undefined ? String(row[nameCol] || "").trim() : "";
+    let rawQtyVal = qtyCol !== -1 ? row[qtyCol] : 0;
+    const qty = parseTurkishOrStandardNumber(rawQtyVal);
+
+    items.push({
+      sku: rawSku,
+      name: rawName,
+      stock: Number.isFinite(qty) ? qty : 0,
+    });
+  }
+
+  return items;
+}
+
+function StockCompare({ parts = [], openModal }) {
   const [comparisons, setComparisons] = useState([]);
   const [loading, setLoading] = useState(false);
   const [fileName, setFileName] = useState("");
+  const [activeTab, setActiveTab] = useState("all");
+  const [searchQuery, setSearchQuery] = useState("");
 
   async function handleFileUpload(e) {
     const file = e.target.files[0];
@@ -1233,32 +1486,90 @@ function StockCompare({ parts }) {
       const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
       const jsonData = XLSX.utils.sheet_to_json(firstSheet, { header: 1 });
 
-      const stockData = jsonData.slice(1).map((row) => ({
-        sku: String(row[0] || "").trim(),
-        name: String(row[1] || "").trim(),
-        stock: Number(row[2]) || 0,
-      })).filter(item => item.sku && item.name);
+      const rawExcelRows = parseExcelStockRows(jsonData);
+      if (!rawExcelRows.length) {
+        alert("Excel dosyasında geçerli parça ve stok verisi bulunamadı.");
+        setLoading(false);
+        return;
+      }
 
-      setUploadedData(stockData);
+      // Aggregate repeated SKUs in Excel
+      const aggregatedExcel = new Map();
+      for (const item of rawExcelRows) {
+        const normKey = cleanSku(item.sku);
+        if (!normKey) continue;
+        if (aggregatedExcel.has(normKey)) {
+          const existing = aggregatedExcel.get(normKey);
+          existing.stock += item.stock;
+          if (!existing.name && item.name) existing.name = item.name;
+        } else {
+          aggregatedExcel.set(normKey, { ...item });
+        }
+      }
+      const excelItems = Array.from(aggregatedExcel.values());
 
-      const comparison = stockData.map(excelItem => {
-        const systemPart = parts.find(p => p.sku.toLocaleLowerCase("tr") === excelItem.sku.toLocaleLowerCase("tr"));
-        const excelStockNum = Number(excelItem.stock) || 0;
-        const systemStockNum = Number(systemPart?.stock) || 0;
-        const diff = systemStockNum - excelStockNum;
-        return {
-          sku: excelItem.sku,
-          name: excelItem.name,
-          excelStock: excelStockNum,
-          systemStock: systemStockNum,
-          diff: diff,
-          exists: !!systemPart,
-        };
-      });
+      const matchedSystemPartIds = new Set();
+      const comparisonList = [];
 
-      console.log("Karşılaştırma sonuçları:", comparison);
-      console.log("Stok farkı olan:", comparison.filter(c => c.exists && Math.abs(c.diff) > 0));
-      setComparisons(comparison);
+      // 1. Process Excel items
+      for (const excelItem of excelItems) {
+        const excelNorm = cleanSku(excelItem.sku);
+        let systemPart = parts.find(p => cleanSku(p.sku) === excelNorm);
+        if (!systemPart && excelItem.name && excelItem.name.trim().length > 2) {
+          systemPart = parts.find(p => p.name.trim().toLocaleLowerCase("tr") === excelItem.name.trim().toLocaleLowerCase("tr"));
+        }
+
+        const excelStock = Number(excelItem.stock) || 0;
+        if (systemPart) {
+          matchedSystemPartIds.add(systemPart.id);
+          const systemStock = Number(systemPart.stock) || 0;
+          const diff = excelStock - systemStock;
+          comparisonList.push({
+            sku: excelItem.sku || systemPart.sku,
+            name: excelItem.name || systemPart.name,
+            excelStock: excelStock,
+            systemStock: systemStock,
+            diff: diff,
+            status: diff === 0 ? "matched" : "diff",
+            partId: systemPart.id,
+          });
+        } else {
+          comparisonList.push({
+            sku: excelItem.sku,
+            name: excelItem.name || "",
+            excelStock: excelStock,
+            systemStock: null,
+            diff: excelStock,
+            status: "missing_in_system",
+            partId: null,
+          });
+        }
+      }
+
+      // 2. Process system parts missing from Excel
+      for (const part of parts) {
+        if (!matchedSystemPartIds.has(part.id)) {
+          const systemStock = Number(part.stock) || 0;
+          comparisonList.push({
+            sku: part.sku,
+            name: part.name,
+            excelStock: null,
+            systemStock: systemStock,
+            diff: -systemStock,
+            status: "missing_in_excel",
+            partId: part.id,
+          });
+        }
+      }
+
+      setComparisons(comparisonList);
+
+      const hasDiscrepancy = comparisonList.some(c => c.status !== "matched");
+      if (hasDiscrepancy) {
+        setActiveTab("unmatched");
+      } else {
+        setActiveTab("all");
+      }
     } catch (error) {
       console.error("Excel okuma hatası:", error);
       alert("Excel dosyası okunamadı. Lütfen dosya formatını kontrol edin.");
@@ -1267,23 +1578,49 @@ function StockCompare({ parts }) {
     }
   }
 
-  const missingParts = comparisons.filter(c => !c.exists);
-  const mismatchedParts = comparisons.filter(c => c.exists && Number.isFinite(c.diff) && c.diff !== 0);
-  const matchedParts = comparisons.filter(c => c.exists && (!Number.isFinite(c.diff) || c.diff === 0));
+  function handleReset() {
+    setComparisons([]);
+    setFileName("");
+    setSearchQuery("");
+    setActiveTab("all");
+  }
 
-  console.log("Toplam karşılaştırma:", comparisons.length);
-  console.log("Sistemde olmayan:", missingParts.length);
-  console.log("Stok farkı olan:", mismatchedParts.length);
-  console.log("Eşleşen:", matchedParts.length);
+  const diffParts = comparisons.filter(c => c.status === "diff");
+  const missingInSystemParts = comparisons.filter(c => c.status === "missing_in_system");
+  const missingInExcelParts = comparisons.filter(c => c.status === "missing_in_excel");
+  const matchedParts = comparisons.filter(c => c.status === "matched");
+  const unmatchedParts = comparisons.filter(c => c.status !== "matched");
+
+  const query = searchQuery.trim().toLocaleLowerCase("tr");
+  const filteredList = comparisons.filter(item => {
+    if (activeTab === "unmatched" && item.status === "matched") return false;
+    if (activeTab === "diff" && item.status !== "diff") return false;
+    if (activeTab === "missing_in_system" && item.status !== "missing_in_system") return false;
+    if (activeTab === "missing_in_excel" && item.status !== "missing_in_excel") return false;
+    if (activeTab === "matched" && item.status !== "matched") return false;
+
+    if (query) {
+      const matchSku = item.sku.toLocaleLowerCase("tr").includes(query) || cleanSku(item.sku).includes(cleanSku(query));
+      const matchName = (item.name || "").toLocaleLowerCase("tr").includes(query);
+      if (!matchSku && !matchName) return false;
+    }
+    return true;
+  });
 
   return h("section", { className: "stock-compare" },
-    h("div", { className: "panel-heading" },
+    h("div", { className: "compare-header-row" },
       h("div", null,
         h("h2", null, "Stok Karşılaştırma"),
-        h("p", null, "Excel dosyasını yükleyerek stok karşılaştırması yapın")
-      )
+        h("p", null, "Excel dosyasındaki sayım ile sistemdeki stokları karşılaştırın, eşleşmeyenleri ve farkları anında tespit edin.")
+      ),
+      comparisons.length > 0 ? h("button", {
+        className: "button button-secondary button-small",
+        onClick: handleReset,
+        type: "button"
+      }, h(Icon, { name: "close", size: 14 }), "Yeni Dosya Yükle") : null
     ),
-    h("div", { className: "upload-section" },
+
+    comparisons.length === 0 ? h("div", { className: "upload-section" },
       h("label", { className: "upload-label" },
         h("input", {
           type: "file",
@@ -1292,86 +1629,207 @@ function StockCompare({ parts }) {
           disabled: loading
         }),
         h("div", { className: "upload-content" },
-          h(Icon, { name: "box", size: 32 }),
-          h("span", null, loading ? "Yükleniyor..." : fileName || "Excel dosyasını seçin"),
-          h("small", null, ".xlsx, .xls veya .csv formatı")
+          h(Icon, { name: "box", size: 36 }),
+          h("span", null, loading ? "Excel okunuyor ve karşılaştırılıyor..." : fileName || "Excel dosyasını seçin veya buraya sürükleyin"),
+          h("small", null, ".xlsx, .xls veya .csv formatı (Stok Kodu, Parça Adı, Miktar)")
         )
       )
-    ),
+    ) : null,
+
     comparisons.length > 0 ? h(React.Fragment, null,
-      h("div", { className: "comparison-summary" },
-        h("span", null, `${comparisons.length} parça karşılaştırıldı`),
-        h("span", null, `${missingParts.length} sistemde yok`),
-        h("span", null, `${mismatchedParts.length} stok farkı var`)
+      h("div", { className: "compare-metrics-grid" },
+        h("div", {
+          className: `compare-metric-card is-unmatched ${activeTab === "unmatched" ? "active" : ""}`,
+          onClick: () => setActiveTab("unmatched"),
+          style: { cursor: "pointer" }
+        },
+          h("span", { className: "compare-metric-label" }, "Eşleşmeyen / Farklı"),
+          h("strong", { className: "compare-metric-num" }, unmatchedParts.length),
+          h("span", { className: "compare-metric-sub" }, "İnceleme gerekenler")
+        ),
+        h("div", {
+          className: `compare-metric-card is-diff ${activeTab === "diff" ? "active" : ""}`,
+          onClick: () => setActiveTab("diff"),
+          style: { cursor: "pointer" }
+        },
+          h("span", { className: "compare-metric-label" }, "Stok Farkı Olan"),
+          h("strong", { className: "compare-metric-num" }, diffParts.length),
+          h("span", { className: "compare-metric-sub" }, "Sayımlar uyuşmuyor")
+        ),
+        h("div", {
+          className: `compare-metric-card is-missing-system ${activeTab === "missing_in_system" ? "active" : ""}`,
+          onClick: () => setActiveTab("missing_in_system"),
+          style: { cursor: "pointer" }
+        },
+          h("span", { className: "compare-metric-label" }, "Sistemde Olmayan"),
+          h("strong", { className: "compare-metric-num" }, missingInSystemParts.length),
+          h("span", { className: "compare-metric-sub" }, "Excel'de var, sistemde yok")
+        ),
+        h("div", {
+          className: `compare-metric-card is-missing-excel ${activeTab === "missing_in_excel" ? "active" : ""}`,
+          onClick: () => setActiveTab("missing_in_excel"),
+          style: { cursor: "pointer" }
+        },
+          h("span", { className: "compare-metric-label" }, "Excel'de Olmayan"),
+          h("strong", { className: "compare-metric-num" }, missingInExcelParts.length),
+          h("span", { className: "compare-metric-sub" }, "Sistemde kayıtlı, Excel'de yok")
+        ),
+        h("div", {
+          className: `compare-metric-card is-matched ${activeTab === "matched" ? "active" : ""}`,
+          onClick: () => setActiveTab("matched"),
+          style: { cursor: "pointer" }
+        },
+          h("span", { className: "compare-metric-label" }, "Birebir Eşleşen"),
+          h("strong", { className: "compare-metric-num" }, matchedParts.length),
+          h("span", { className: "compare-metric-sub" }, "Stok adetleri birebir aynı")
+        )
       ),
-      missingParts.length > 0 ? h("section", { className: "panel missing-parts-panel" },
-        h("div", { className: "panel-heading" },
-          h("div", null,
-            h("h2", null, "Sistemde Olmayan Parçalar"),
-            h("p", null, `${missingParts.length} parça Excel'de var ama sistemde kayıtlı değil`)
-          )
+
+      h("div", { className: "compare-toolbar" },
+        h("div", { className: "compare-tabs" },
+          h("button", {
+            type: "button",
+            className: `compare-tab-btn ${activeTab === "all" ? "active" : ""}`,
+            onClick: () => setActiveTab("all")
+          }, "Tümü", h("span", { className: "compare-tab-badge" }, comparisons.length)),
+          h("button", {
+            type: "button",
+            className: `compare-tab-btn ${activeTab === "unmatched" ? "active" : ""}`,
+            onClick: () => setActiveTab("unmatched")
+          }, "Tüm Farklar", h("span", { className: "compare-tab-badge" }, unmatchedParts.length)),
+          h("button", {
+            type: "button",
+            className: `compare-tab-btn ${activeTab === "diff" ? "active" : ""}`,
+            onClick: () => setActiveTab("diff")
+          }, "Stok Farkı", h("span", { className: "compare-tab-badge" }, diffParts.length)),
+          h("button", {
+            type: "button",
+            className: `compare-tab-btn ${activeTab === "missing_in_system" ? "active" : ""}`,
+            onClick: () => setActiveTab("missing_in_system")
+          }, "Sistemde Yok", h("span", { className: "compare-tab-badge" }, missingInSystemParts.length)),
+          h("button", {
+            type: "button",
+            className: `compare-tab-btn ${activeTab === "missing_in_excel" ? "active" : ""}`,
+            onClick: () => setActiveTab("missing_in_excel")
+          }, "Excel'de Yok", h("span", { className: "compare-tab-badge" }, missingInExcelParts.length)),
+          h("button", {
+            type: "button",
+            className: `compare-tab-btn ${activeTab === "matched" ? "active" : ""}`,
+            onClick: () => setActiveTab("matched")
+          }, "Eşleşen", h("span", { className: "compare-tab-badge" }, matchedParts.length))
         ),
-        h("div", { className: "table-scroll" },
-          h("table", null,
-            h("thead", null, h("tr", null, ["SKU", "Parça Adı", "Excel Stok"].map((label) => h("th", { key: label }, label)))),
-            h("tbody", null, missingParts.map((item, index) => h("tr", { key: index, className: "missing-row" },
-              h("td", null, h("strong", null, item.sku)),
-              h("td", null, item.name),
-              h("td", null, item.excelStock)
-            )))
+        h("div", { className: "search-input-wrap", style: { minWidth: "220px" } },
+          h("input", {
+            type: "search",
+            value: searchQuery,
+            onChange: (e) => setSearchQuery(e.target.value),
+            placeholder: "SKU veya parça adı ara...",
+            className: "filter-search"
+          })
+        )
+      ),
+
+      h("div", { className: "table-scroll" },
+        h("table", null,
+          h("thead", null,
+            h("tr", null,
+              ["DURUM", "STOK KODU (SKU)", "PARÇA ADI", "EXCEL SAYIM", "SİSTEM STOK", "FARK", "İŞLEM"].map((label) => h("th", { key: label }, label))
+            )
+          ),
+          h("tbody", null,
+            filteredList.length === 0
+              ? h("tr", null, h("td", { colSpan: 7, className: "empty-state compact-empty" }, "Seçili filtre veya aramaya uygun parça bulunamadı."))
+              : filteredList.map((item, index) => {
+                  const rowClass = item.status === "missing_in_system"
+                    ? "compare-row-missing-system"
+                    : item.status === "missing_in_excel"
+                    ? "compare-row-missing-excel"
+                    : item.status === "diff"
+                    ? "compare-row-diff"
+                    : "";
+
+                  const badgeClass = item.status === "missing_in_system"
+                    ? "status-missing-system"
+                    : item.status === "missing_in_excel"
+                    ? "status-missing-excel"
+                    : item.status === "diff"
+                    ? "status-diff"
+                    : "status-matched";
+
+                  const badgeLabel = item.status === "missing_in_system"
+                    ? "Sistemde Yok"
+                    : item.status === "missing_in_excel"
+                    ? "Excel'de Yok"
+                    : item.status === "diff"
+                    ? "Stok Farkı"
+                    : "Eşleşti";
+
+                  return h("tr", { key: `${item.sku}-${item.status}-${index}`, className: rowClass },
+                    h("td", null, h("span", { className: `compare-status-badge ${badgeClass}` }, badgeLabel)),
+                    h("td", null, h("strong", null, item.sku)),
+                    h("td", null, item.name || h("span", { className: "text-muted" }, "—")),
+                    h("td", null, item.excelStock !== null ? `${item.excelStock} adet` : h("span", { className: "text-muted" }, "—")),
+                    h("td", null, item.systemStock !== null ? `${item.systemStock} adet` : h("span", { className: "text-muted" }, "—")),
+                    h("td", null,
+                      item.status === "matched"
+                        ? h("span", { className: "diff-zero" }, "0")
+                        : item.status === "missing_in_system"
+                        ? h("span", { className: "diff-positive" }, `+${item.excelStock} (Yeni)`)
+                        : item.status === "missing_in_excel"
+                        ? h("span", { className: "diff-negative" }, `-${item.systemStock}`)
+                        : item.diff > 0
+                        ? h("span", { className: "diff-positive" }, `+${item.diff}`)
+                        : h("span", { className: "diff-negative" }, `${item.diff}`)
+                    ),
+                    h("td", null,
+                      item.status === "missing_in_system" && openModal
+                        ? h("button", {
+                            className: "button button-small button-primary",
+                            type: "button",
+                            onClick: () => openModal("part", {
+                              sku: item.sku,
+                              name: item.name || "",
+                              stock: item.excelStock || 0,
+                              minimum: 5,
+                              cost: 0,
+                              price: 0
+                            })
+                          }, h(Icon, { name: "plus", size: 14 }), "Envantere Ekle")
+                        : h("span", { className: "text-muted" }, "—")
+                    )
+                  );
+                })
           )
         )
-      ) : null,
-      mismatchedParts.length > 0 ? h("section", { className: "panel mismatched-parts-panel" },
-        h("div", { className: "panel-heading" },
-          h("div", null,
-            h("h2", null, "Stok Farkı Olan Parçalar"),
-            h("p", null, `${mismatchedParts.length} parçada stok farkı var`)
-          )
-        ),
-        h("div", { className: "table-scroll" },
-          h("table", null,
-            h("thead", null, h("tr", null, ["SKU", "Parça Adı", "Excel Stok", "Sistem Stok", "Fark"].map((label) => h("th", { key: label }, label)))),
-            h("tbody", null, mismatchedParts.map((item, index) => h("tr", { key: index },
-              h("td", null, h("strong", null, item.sku)),
-              h("td", null, item.name),
-              h("td", null, item.excelStock),
-              h("td", null, item.systemStock),
-              h("td", null, h("span", {
-                className: item.diff > 0 ? "diff-positive" : item.diff < 0 ? "diff-negative" : "diff-zero"
-              }, item.diff !== 0 ? (item.diff > 0 ? `+${item.diff}` : item.diff) : "0"))
-            )))
-          )
-        )
-      ) : null,
-      matchedParts.length > 0 ? h("section", { className: "panel matched-parts-panel" },
-        h("div", { className: "panel-heading" },
-          h("div", null,
-            h("h2", null, "Eşleşen Parçalar"),
-            h("p", null, `${matchedParts.length} parçada stok eşleşiyor`)
-          )
-        ),
-        h("div", { className: "table-scroll" },
-          h("table", null,
-            h("thead", null, h("tr", null, ["SKU", "Parça Adı", "Stok"].map((label) => h("th", { key: label }, label)))),
-            h("tbody", null, matchedParts.map((item, index) => h("tr", { key: index },
-              h("td", null, h("strong", null, item.sku)),
-              h("td", null, item.name),
-              h("td", null, item.systemStock)
-            )))
-          )
-        )
-      ) : null
-    ) : uploadedData.length > 0 ? h("div", { className: "empty-state" }, "Karşılaştırma verileri yükleniyor...") : h("div", { className: "empty-state" }, "Excel dosyası yükleyerek stok karşılaştırması yapın.")
+      )
+    ) : null
   );
 }
 
 function Modal({ modal, parts, onClose, onSavePart, onSaveJob, onSaveInvoice, onSaveFitment, saving }) {
   const [lines, setLines] = useState(() => modal.type === "job" && modal.item
-    ? (modal.item.items || []).map((item) => ({ partId: item.partId || "", originalPartId: item.partId || "", qty: item.qty, search: `${item.name || ""}${item.sku ? ` · ${item.sku}` : ""}`, name: item.name || "", sku: item.sku || "", category: item.category || "Genel", brand: item.brand || "", price: item.price, originalQty: item.qty, originalPrice: item.price, archived: !parts.some((part) => part.id === item.partId) }))
+    ? (modal.item.items || []).map((item) => {
+        const matchingPart = parts.find((part) => part.id === item.partId);
+        const resolvedPrice = item.price !== undefined && item.price !== null ? item.price : (matchingPart?.price ?? "");
+        return {
+          partId: item.partId || "",
+          originalPartId: item.partId || "",
+          qty: item.qty,
+          search: `${item.name || ""}${item.sku ? ` · ${item.sku}` : ""}`,
+          name: item.name || "",
+          sku: item.sku || "",
+          category: item.category || "Genel",
+          brand: item.brand || "",
+          price: resolvedPrice,
+          originalQty: item.qty,
+          originalPrice: resolvedPrice,
+          archived: !matchingPart
+        };
+      })
     : modal.type === "fitment" && modal.item
       ? (modal.item.parts || []).map((item) => ({ partId: item.partId || "", search: `${item.name || ""}${item.sku ? ` · ${item.sku}` : ""}`, name: item.name || "", sku: item.sku || "" }))
     : [{ partId: "", qty: 1, search: "" }]);
+  const [status, setStatus] = useState(() => modal.item?.status || "IN_PROGRESS");
   const [businessDate, setBusinessDate] = useState(() => modal.item?.date || dateKey(new Date()));
   const [laborAmount, setLaborAmount] = useState(() => String(modal.item?.laborAmount ?? 0));
   const [error, setError] = useState("");
@@ -1424,7 +1882,8 @@ function Modal({ modal, parts, onClose, onSavePart, onSaveJob, onSaveInvoice, on
   const invoiceVat = calculateVat(invoicePreviewItems.reduce((sum, item) => sum + item.qty * item.cost, 0));
   const jobPreviewItems = lines.flatMap((line) => {
     const part = parts.find((entry) => entry.id === line.partId);
-    const price = parseCurrencyInput(line.price ?? part?.price);
+    const rawPrice = line.price !== undefined && line.price !== "" ? line.price : part?.price;
+    const price = parseCurrencyInput(rawPrice);
     const qty = Number(line.qty);
     return line.partId && Number.isInteger(qty) && qty > 0 && Number.isFinite(price) && price >= 0 ? [{ qty, price }] : [];
   });
@@ -1435,7 +1894,18 @@ function Modal({ modal, parts, onClose, onSavePart, onSaveJob, onSaveInvoice, on
     jobPricing = null;
   }
   function selectPart(index, part) {
-    setLines((current) => current.map((line, lineIndex) => lineIndex === index ? { ...line, partId: part.id, search: `${part.name} · ${part.sku}`, price: line.originalPartId === part.id ? (line.originalPrice ?? line.price) : part.price, originalQty: line.originalPartId === part.id ? line.originalQty : 0, archived: false } : line));
+    setLines((current) => current.map((line, lineIndex) => lineIndex === index ? {
+      ...line,
+      partId: part.id,
+      name: part.name,
+      sku: part.sku,
+      category: part.category || "Genel",
+      brand: part.brand || "",
+      search: `${part.name} · ${part.sku}`,
+      price: line.originalPartId === part.id ? (line.originalPrice ?? line.price ?? part.price) : part.price,
+      originalQty: line.originalPartId === part.id ? line.originalQty : 0,
+      archived: false
+    } : line));
     setError("");
   }
   function selectFitmentPart(index, part) {
@@ -1536,9 +2006,36 @@ function Modal({ modal, parts, onClose, onSavePart, onSaveJob, onSaveInvoice, on
       onSaveInvoice({ invoiceNumber: String(form.get("invoiceNumber")).trim(), supplier: String(form.get("supplier")).trim(), date: businessDate, items: invoiceItems, total: invoiceItems.reduce((sum, item) => sum + item.qty * item.cost, 0) });
       return;
     }
-    const rawItems = lines.map((line) => {
+    let activeJobLines = lines;
+    if (modal.type === "job") {
+      activeJobLines = lines.filter((line) => line.partId || (line.search && line.search.trim()) || (line.name && line.name.trim()));
+      activeJobLines = activeJobLines.map((line) => {
+        if (!line.partId && line.search && line.search.trim()) {
+          const trimmed = line.search.trim();
+          const exact = parts.find(p => p.sku.trim().toLocaleLowerCase("tr") === trimmed.toLocaleLowerCase("tr") || p.name.trim().toLocaleLowerCase("tr") === trimmed.toLocaleLowerCase("tr"));
+          if (exact) {
+            return { ...line, partId: exact.id, name: exact.name, sku: exact.sku, price: line.price !== undefined && line.price !== "" ? line.price : exact.price };
+          }
+          const matches = findPartMatches(trimmed, parts);
+          if (matches.length === 1) {
+            const m = matches[0];
+            return { ...line, partId: m.id, name: m.name, sku: m.sku, price: line.price !== undefined && line.price !== "" ? line.price : m.price };
+          }
+        }
+        return line;
+      });
+
+      if (activeJobLines.some((line) => !line.partId && !line.archived)) {
+        setError("Lütfen parça satırlarında arama listesinden bir parça seçin veya boş satırları kaldırın.");
+        return;
+      }
+    }
+    const rawItems = (modal.type === "job" ? activeJobLines : lines).map((line) => {
       const part = parts.find((entry) => entry.id === line.partId);
       if (!line.partId || !Number.isInteger(Number(line.qty)) || Number(line.qty) <= 0 || (!part && !line.archived)) return null;
+      const unitPrice = modal.type === "job"
+        ? (Number.isFinite(parseCurrencyInput(line.price)) ? parseCurrencyInput(line.price) : (part?.price ?? 0))
+        : modal.type === "invoice" ? parseCurrencyInput(line.price ?? part?.price) : (line.price ?? part?.price);
       return {
         partId: line.partId,
         sku: part?.sku || line.sku || "",
@@ -1546,14 +2043,10 @@ function Modal({ modal, parts, onClose, onSavePart, onSaveJob, onSaveInvoice, on
         category: part?.category || line.category || "Genel",
         brand: part?.brand || line.brand || "",
         qty: Number(line.qty),
-        price: modal.type === "invoice" ? parseCurrencyInput(line.price ?? part?.price) : line.price ?? part?.price,
+        price: unitPrice,
         cost: parseCurrencyInput(line.cost ?? part?.cost ?? 0),
       };
     }).filter(Boolean);
-    if (modal.type === "job" && lines.some((line) => !line.partId)) {
-      setError("Her parça satırı için arama sonuçlarından bir parça seçin.");
-      return;
-    }
     const groupedItems = new Map();
     rawItems.forEach((item) => {
       const existing = groupedItems.get(item.partId);
@@ -1573,8 +2066,20 @@ function Modal({ modal, parts, onClose, onSavePart, onSaveJob, onSaveInvoice, on
       onSaveInvoice({ invoiceNumber: String(form.get("invoiceNumber")).trim(), supplier: String(form.get("supplier")).trim(), date: businessDate, items, total: items.reduce((sum, item) => sum + item.qty * item.cost, 0) });
       return;
     }
-    if (!items.length && !(modal.type === "job" && modal.item)) { setError("En az bir geçerli parça ve adet girmelisiniz."); return; }
     if (modal.type === "job") {
+      let normalizedLaborAmount;
+      let total;
+      try {
+        normalizedLaborAmount = normalizeLaborAmount(parseCurrencyInput(laborAmount));
+        total = calculateWorkOrderNetTotal(items, normalizedLaborAmount);
+      } catch (pricingError) {
+        setError(pricingError.message || "İş emri tutarlarını kontrol edin.");
+        return;
+      }
+      if (!items.length && normalizedLaborAmount <= 0) {
+        setError("İş emri için en az bir parça veya işçilik tutarı girmelisiniz.");
+        return;
+      }
       const previousByPart = new Map();
       (modal.item?.items || []).forEach((item) => previousByPart.set(item.partId, (previousByPart.get(item.partId) || 0) + Number(item.qty || 0)));
       const requiredByPart = items.reduce((totals, item) => ({ ...totals, [item.partId]: (totals[item.partId] || 0) + item.qty }), {});
@@ -1586,17 +2091,19 @@ function Modal({ modal, parts, onClose, onSavePart, onSaveJob, onSaveInvoice, on
         setError("Eklenen parçalardan en az biri için yeterli stok bulunmuyor.");
         return;
       }
-      if (!modal.item && !items.length) { setError("İş emri için en az bir parça ekleyin."); return; }
-      let normalizedLaborAmount;
-      let total;
-      try {
-        normalizedLaborAmount = normalizeLaborAmount(parseCurrencyInput(laborAmount));
-        total = calculateWorkOrderNetTotal(items, normalizedLaborAmount);
-      } catch (pricingError) {
-        setError(pricingError.message || "İş emri tutarlarını kontrol edin.");
-        return;
-      }
-      onSaveJob({ id: modal.item?.id, date: businessDate, plate: String(form.get("plate")).trim().toLocaleUpperCase("tr"), make: String(form.get("make")).trim(), model: String(form.get("model")).trim(), customer: String(form.get("customer")).trim(), phone: String(form.get("phone")).trim(), items, laborAmount: normalizedLaborAmount, total });
+      onSaveJob({
+        id: modal.item?.id,
+        date: businessDate,
+        plate: String(form.get("plate")).trim().toLocaleUpperCase("tr"),
+        make: String(form.get("make")).trim(),
+        model: String(form.get("model")).trim(),
+        customer: String(form.get("customer")).trim(),
+        phone: String(form.get("phone")).trim(),
+        items,
+        laborAmount: normalizedLaborAmount,
+        total,
+        status: modal.item ? status : "IN_PROGRESS"
+      });
     } else {
       const invoiceItemsToSave = [...invoiceItems, ...items];
       onSaveInvoice({ invoiceNumber: String(form.get("invoiceNumber")).trim(), supplier: String(form.get("supplier")).trim(), date: businessDate, items: invoiceItemsToSave, total: invoiceItemsToSave.reduce((sum, item) => sum + item.qty * item.cost, 0) });
@@ -1605,7 +2112,8 @@ function Modal({ modal, parts, onClose, onSavePart, onSaveJob, onSaveInvoice, on
   function partLine(line, index, type) {
     const part = parts.find((entry) => entry.id === line.partId);
     const matches = type === "job" && !line.partId ? findPartMatches(line.search, parts).slice(0, 8) : [];
-    return h("div", { className: "modal-item-line", key: index },
+    const isJob = type === "job";
+    return h("div", { className: `modal-item-line ${isJob ? "job-item-line" : ""}`, key: index },
       type === "job" ? line.archived
         ? h("div", { className: "archived-job-line" }, h("strong", null, line.name || line.search), h("small", null, `${line.sku || "Stok kodu yok"} · Arşivli parça; yalnızca miktarı azaltılabilir`))
         : h("label", { className: "part-search-label" }, index === 0 ? "Parça adı veya kodu" : " ", h("div", { className: "part-search-wrap" },
@@ -1614,7 +2122,8 @@ function Modal({ modal, parts, onClose, onSavePart, onSaveJob, onSaveInvoice, on
             line.search && !line.partId ? h("div", { className: "part-search-empty" }, "Eşleşme yok. Kodu, adını veya kodun sonunu deneyin.") : null
         )) : h("label", null, index === 0 ? "Parça" : " ", h("select", { value: line.partId, onChange: (event) => updateLine(index, "partId", event.target.value), required: index === 0 }, h("option", { value: "" }, "Parça seçin"), parts.map((entry) => h("option", { key: entry.id, value: entry.id }, `${entry.name} · ${entry.sku}`)))),
       h("label", null, index === 0 ? "Adet" : " ", h("input", { type: "number", min: 1, max: type === "job" ? line.archived ? line.originalQty : part ? part.stock + (line.originalQty || 0) : undefined : undefined, value: line.qty, onChange: (event) => updateLine(index, "qty", event.target.value), required: true })),
-      type === "job" ? h("button", { className: "button button-small button-danger job-line-remove", type: "button", onClick: () => setLines((current) => current.filter((_, lineIndex) => lineIndex !== index)), "aria-label": `${line.name || part?.name || `Parça ${index + 1}`} satırını kaldır` }, h(Icon, { name: "close", size: 14 })) : null,
+      type === "job" ? h("label", null, index === 0 ? "Birim satış (₺)" : " ", h(CurrencyInput, { value: String(line.price !== undefined && line.price !== null ? line.price : (part?.price ?? "")), onChange: (val) => updateLine(index, "price", val), placeholder: "0,00" })) : null,
+      type === "job" ? h("button", { className: "button button-small button-danger job-line-remove", type: "button", onClick: () => setLines((current) => { const next = current.filter((_, lineIndex) => lineIndex !== index); return next.length ? next : [{ partId: "", qty: 1, search: "" }]; }), "aria-label": `${line.name || part?.name || `Parça ${index + 1}`} satırını kaldır` }, h(Icon, { name: "close", size: 14 })) : null,
       type === "invoice" ? h("label", null, index === 0 ? "Birim alış · KDV hariç (₺)" : " ", h(CurrencyInput, { value: line.cost ?? part?.cost ?? "", onChange: (val) => updateLine(index, "cost", val), required: true })) : null,
       type === "invoice" ? h("label", null, index === 0 ? "Satış fiyatı · KDV hariç (₺)" : " ", h(CurrencyInput, { value: line.price ?? part?.price ?? "", onChange: (val) => updateLine(index, "price", val), required: true })) : null
     );
@@ -1650,7 +2159,16 @@ function Modal({ modal, parts, onClose, onSavePart, onSaveJob, onSaveInvoice, on
           h("label", null, "Müşteri adı", h("input", { name: "customer", defaultValue: modal.item?.customer || "", placeholder: "Ad soyad", required: true })),
           h("label", null, "Marka", h("input", { name: "make", defaultValue: modal.item?.make || "", placeholder: "Örn. Peugeot", required: true })),
           h("label", null, "Model", h("input", { name: "model", defaultValue: modal.item?.model || "", placeholder: "Örn. 3008", required: true })),
-          h("label", null, "Telefon", h("input", { name: "phone", type: "tel", defaultValue: modal.item?.phone || "", placeholder: "05xx xxx xx xx" }))
+          h("label", null, "Telefon", h("input", { name: "phone", type: "tel", defaultValue: modal.item?.phone || "", placeholder: "05xx xxx xx xx" })),
+          modal.item ? h("label", null, "İş emri durumu",
+            h("select", {
+              value: status,
+              onChange: (e) => setStatus(e.target.value)
+            },
+              h("option", { value: "IN_PROGRESS" }, "Devam ediyor"),
+              h("option", { value: "COMPLETED" }, "Tamamlandı")
+            )
+          ) : null
         ),
         h("div", { className: "modal-section-title" }, "Kullanılan parçalar", h("span", null, "Stok farkları kayıtta uygulanır")), h("p", { className: "part-paste-hint" }, "Satış fiyatları KDV hariçtir. Kodun sonundan arayabilir ya da Excel'den birden fazla satırı doğrudan yapıştırabilirsiniz.", pasteMessage ? h("strong", null, ` ${pasteMessage}`) : null), h("div", { className: "modal-lines" }, lines.map((line, index) => partLine(line, index, "job"))), h("button", { className: "add-line-button", type: "button", onClick: addLine }, h(Icon, { name: "plus", size: 15 }), "Parça satırı ekle"),
         h("div", { className: "labor-amount-field" }, h("label", { htmlFor: "work-order-labor" }, "İşçilik tutarı · KDV hariç (₺)"), h(CurrencyInput, { id: "work-order-labor", value: laborAmount, onChange: (val) => { setLaborAmount(val); setError(""); }, "aria-describedby": "work-order-labor-hint" }), h("small", { id: "work-order-labor-hint" }, "Tek işçilik tutarı. Boş bırakılırsa 0 ₺ kaydedilir."))

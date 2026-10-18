@@ -10,7 +10,7 @@ Uygulama demo giriş veya örnek servis verisi kullanmaz. Çalıştırmadan önc
 2. **Authentication → Sign-in method** altında **Email/Password** sağlayıcısını etkinleştirin.
 3. **Authentication → Settings → Authorized domains** bölümüne `localhost` ve Vercel alan adınızı ekleyin.
 4. **Firestore Database** oluşturun.
-5. Firebase Console'daki **Firestore → Rules** bölümüne bu projedeki [`firestore.rules`](./firestore.rules) içeriğini kopyalayıp yayınlayın. Kurallar yalnızca doğrulanmış ve izin verilmiş e-posta adreslerine izin verir; `tektas590@gmail.com` yönetici hesabıdır.
+5. Firebase Console'daki **Firestore → Rules** bölümüne bu projedeki [`firestore.rules`](./firestore.rules) içeriğini kopyalayıp yayınlayın. Kurallar yalnızca doğrulanmış ve izin verilmiş e-posta adreslerine izin verir; `tektas590@gmail.com` yönetici hesabıdır. Araç uyumluluğu kayıtları `fitments` koleksiyonunda tutulur; bu koleksiyon kural listesine eklendiğinden kuralları yeniden yayınlamanız gerekir.
 6. Firebase proje ayarlarında bir Web App ekleyip web yapılandırma değerlerini alın. Proje kökünde `.env.local` oluşturun ve [`.env.example`](./.env.example) içindeki `VITE_FIREBASE_*` alanlarını doldurun.
 7. Vercel projesinin **Settings → Environment Variables** bölümüne aynı `VITE_FIREBASE_*` değerlerini ekleyip yeni bir deployment başlatın. Bu istemci yapılandırma değerleri gizli anahtar değildir; gerçek yetkilendirme Firestore Security Rules tarafından yapılır.
 
@@ -34,7 +34,7 @@ npm run dev
 - Alış faturalarında belge tarihi seçilebilir; tarih, faturaya bağlı stok hareketlerine iş tarihi olarak kaydedilir
 - İş emri parça satırlarında ad, SKU veya kodun sonuyla arama; Excel'den parça kodu satırlarını yapıştırarak toplu eşleştirme
 - Araç Servis Geçmişi sayfasında plakaya göre ziyaret, tarih, müşteri ve kullanılan parçaları görüntüleme
-- Araç Uyumluluğu sayfasında marka, model veya plakayla arama; her araç için iptal edilmemiş geçmiş iş emirlerinde kullanılan parçaları ve kullanım sayılarını görme (katalog uyumluluk garantisi değildir)
+- Araç Uyumluluğu sayfasında marka, model, Dizel/Benzin, motor hacmi ve uyumlu parçaları elle kaydetme; arama ve düzenleme. Ayrıca marka, model veya plakayla iş emirlerinde kullanılan parçaları görme
 - Stok Hareketleri sayfasında fatura girişi, iş emri çıkışı, sipariş teslimi ve stok düzeltmelerini kullanıcı, kaynak belge ve stok bakiyesiyle izleme
 - Dashboard'da son 7 günlük ve 6 aylık ciro grafikleri ile birleşik son hareket akışı
 - Parçayı silmek yerine arşivleme; kısa süreli bildirimden işlemi geri alma
