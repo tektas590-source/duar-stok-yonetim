@@ -330,29 +330,6 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.1)
   75% { transform: translate(-80px, 50px) rotate(-5deg) scale(1.1); }
   100% { transform: translate(0, 0) rotate(0deg) scale(1); }
 }
-.main-area .car-animation {
-  position: fixed;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  pointer-events: none;
-  z-index: 0;
-  opacity: 0.08;
-  animation: car-drive 30s linear infinite;
-}
-.car-animation svg {
-  width: 200px;
-  height: 200px;
-  stroke: var(--accent);
-  stroke-width: 0.5;
-  fill: none;
-}
-@keyframes car-drive {
-  0% { transform: translate(-50%, -50%) translateX(-500px) rotate(-10deg); }
-  50% { transform: translate(-50%, -50%) translateX(500px) rotate(10deg); }
-  100% { transform: translate(-50%, -50%) translateX(-500px) rotate(-10deg); }
-}
-
 /* ─── Topbar ─────────────────────────────────────── */
 .topbar {
   height: 72px;
@@ -2807,4 +2784,41 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.1)
   .sidebar, .topbar, .modal-backdrop, .toast, .button { display: none !important; }
   .main-area { margin-left: 0 !important; }
   .panel { border: 1px solid #000; box-shadow: none; background: #fff !important; color: #000 !important; }
+}
+
+/* ─── Car Service Animation ────────────────────────── */
+.car-animation {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.18;
+  filter: drop-shadow(0 8px 24px rgba(168, 240, 69, 0.15));
+  animation: car-drive 28s linear infinite;
+  mix-blend-mode: screen;
+}
+.car-animation svg {
+  width: 260px;
+  height: 130px;
+  stroke: var(--accent);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  fill: none;
+  filter: drop-shadow(0 4px 12px rgba(0,0,0,0.4));
+}
+.car-wheel {
+  transform-origin: center;
+  animation: wheel-spin 1s linear infinite;
+}
+@keyframes wheel-spin {
+  to { transform: rotate(360deg); }
+}
+@keyframes car-drive {
+  0%   { transform: translate(-600px, -50%) translateX(-600px) rotate(-2deg); opacity: 0; }
+  10%  { opacity: 0.22; }
+  90%  { opacity: 0.22; }
+  100% { transform: translate(600px, -50%) translateX(1800px) rotate(2deg); opacity: 0; }
 }

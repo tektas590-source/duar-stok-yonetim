@@ -492,13 +492,16 @@ function App() {
     ),
     h("main", { className: "main-area" },
       h("div", { className: "car-animation" },
-        h("svg", { viewBox: "0 0 24 24", fill: "none", strokeWidth: 0.8 },
-          h("path", { d: "M5 17h14l1-5-2-5H6l-2 5z" }),
-          h("path", { d: "M5 17v2h2v-2" }),
-          h("path", { d: "M17 17v2h2v-2" }),
-          h("path", { d: "M4 12h16" }),
-          h("circle", { cx: 7, cy: 17, r: 2 }),
-          h("circle", { cx: 17, cy: 17, r: 2 })
+        h("svg", { viewBox: "0 0 200 100" },
+          h("path", { d: "M20 70h160l10-25-10-25H30l-10 25z", stroke: "var(--accent)", strokeWidth: 2.5, strokeLinecap: "round", strokeLinejoin: "round", fill: "none" }),
+          h("path", { d: "M20 70v10h20v-10" }),
+          h("path", { d: "M170 70v10h20v-10" }),
+          h("path", { d: "M10 60h180" }),
+          h("circle", { cx: 40, cy: 75, r: 9, className: "car-wheel", stroke: "var(--accent)", strokeWidth: 2.5 }),
+          h("circle", { cx: 160, cy: 75, r: 9, className: "car-wheel", stroke: "var(--accent)", strokeWidth: 2.5 }),
+          h("path", { d: "M60 50h60v20H60z", stroke: "var(--accent)", strokeWidth: 2, strokeLinecap: "round", fill: "none" }),
+          h("path", { d: "M80 50l-5 15" }),
+          h("path", { d: "M100 50l5 15" })
         )
       ),
       h("header", { className: "topbar" }, h("div", { className: "breadcrumbs" }, "Demir Service", h("span", null, "/"), titles[page][0]), h("div", { className: "topbar-right" }, h("button", { className: "icon-button", onClick: () => setGlobalSearchOpen(true), title: "Global ara (Ctrl+K)" }, h(Icon, { name: "search" })), h(LiveClock, { compact: true }), h("button", { className: "icon-button theme-toggle", onClick: toggleTheme, title: theme === "dark" ? "Açık temaya geç" : "Koyu temaya geç", "aria-label": theme === "dark" ? "Açık temaya geç" : "Koyu temaya geç" }, h(Icon, { name: theme === "dark" ? "sun" : "moon" })), h("button", { className: "icon-button notification", onClick: () => { if (lowStock.length) openCriticalInventory(); else { setQuery(""); setPage("inventory"); } setToast(`${lowStock.length} parçada kritik stok uyarısı var.`); }, title: "Stok uyarıları" }, h(Icon, { name: "bell" }), lowStock.length ? h("i", null) : null), h("div", { className: "top-avatar" }, "ST"))),
