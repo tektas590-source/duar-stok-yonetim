@@ -609,7 +609,8 @@ function App() {
       )
     ) : null,
     modal ? h(Modal, { modal, parts: data.parts, customers: data.customers, personnel: data.personnel, onClose: () => setModal(null), onSavePart: persistPart, onSaveJob: persistJob, onSaveInvoice: persistInvoice, onSaveFitment: persistFitment, onSaveCustomer: persistCustomer, onSavePersonnel: persistPersonnel, onSaveAppointment: persistAppointment, onSaveNotification: persistNotification, saving }) : null,
-    errorMessage ? h("div", { className: "toast toast-error", role: "alert" }, h("span", { className: "toast-check" }, "!"), errorMessage) : toast ? h("div", { className: "toast" }, h("span", { className: "toast-check" }, "✓"), toast, toastAction ? h("button", { className: "toast-action", onClick: () => toastAction.run().catch((error) => { console.error("Geri alma başarısız:", error); setErrorMessage(error.message || "Geri alma tamamlanamadı."); }) }, toastAction.label) : null) : null
+    errorMessage ? h("div", { className: "toast toast-error", role: "alert" }, h("span", { className: "toast-check" }, "!"), errorMessage) : toast ? h("div", { className: "toast" }, h("span", { className: "toast-check" }, "✓"), toast, toastAction ? h("button", { className: "toast-action", onClick: () => toastAction.run().catch((error) => { console.error("Geri alma başarısız:", error); setErrorMessage(error.message || "Geri alma tamamlanamadı."); }) }, toastAction.label) : null) : null,
+    h(AIAssistant, { personnel: data.personnel, customers: data.customers, appointments: data.appointments, parts: data.parts, jobs: data.jobs })
   );
 }
 
@@ -731,8 +732,6 @@ function AccessManagement({ onError, onSuccess }) {
           users.map((entry) => h("div", { className: "access-user-row", key: entry.id }, h("div", null, h("strong", null, entry.email), h("span", null, "E-posta/şifre ile giriş yetkisi")), h("button", { className: "button button-quiet", type: "button", disabled: busy, onClick: () => revoke(entry.email) }, "Erişimi kaldır")))
         )
     )
-    ,
-    h(AIAssistant, { personnel: data.personnel, customers: data.customers, appointments: data.appointments, parts: data.parts, jobs: data.jobs })
   );
 }
 function AIAssistant({ personnel, customers, appointments, parts, jobs }) {
