@@ -487,7 +487,7 @@ function App() {
         page === "invoices" ? h(Invoices, { invoices: data.invoices }) :
         page === "orders" ? h(Orders, { drafts: data.drafts, lowStock, receiveDraft, createDraft }) :
         page === "stockcompare" ? h(StockCompare, { parts: data.parts }) :
-        page === "chat" ? h(ChatPage, { messages: chatMessages, user, sendMessage: async (text) => { await sendChatMessage(user.email, user.displayName, text); }, saving }) :
+        page === "chat" ? h(ChatPage, { messages: chatMessages, user, sendMessage: async (text) => { await sendChatMessage(user.email, user.displayName, text); } }) :
         page === "servicebox" ? h(ServiceBoxPage) :
         page === "access" && isOwner ? h(AccessManagement, {
           onError: (error) => setErrorMessage(error.message || "Kullanıcı erişimi güncellenemedi."),
@@ -1140,6 +1140,8 @@ function ServiceBoxPage() {
 
 function ChatPage({ messages, user, sendMessage, saving }) {
   const [messageText, setMessageText] = useState("");
+  const [chatError, setChatError] = useState("");
+  const [isSending, setIsSending] = useState(false);
   const messagesEndRef = React.useRef(null);
 
   useEffect(() => {
@@ -1148,12 +1150,19 @@ function ChatPage({ messages, user, sendMessage, saving }) {
 
   async function handleSubmit(e) {
     e.preventDefault();
-    if (!messageText.trim() || saving) return;
+    if (!messageText.trim() || isSending || saving) return;
+    
+    setIsSending(true);
+    setChatError("");
+    
     try {
       await sendMessage(messageText);
       setMessageText("");
     } catch (error) {
       console.error("Mesaj gönderilemedi:", error);
+      setChatError(error.message || "Mesaj gönderilemedi. Lütfen tekrar deneyin.");
+    } finally {
+      setIsSending(false);
     }
   }
 
@@ -1187,19 +1196,20 @@ function ChatPage({ messages, user, sendMessage, saving }) {
           )),
       h("div", { ref: messagesEndRef })
     ),
+    chatError ? h("div", { className: "chat-error" }, chatError) : null,
     h("form", { className: "chat-input", onSubmit: handleSubmit },
       h("input", {
         type: "text",
         value: messageText,
         onChange: (e) => setMessageText(e.target.value),
         placeholder: "Mesaj yazın...",
-        disabled: saving
+        disabled: isSending || saving
       }),
       h("button", {
         type: "submit",
         className: "button button-primary",
-        disabled: !messageText.trim() || saving
-      }, h(Icon, { name: "arrow", size: 16 }), saving ? "..." : "Gönder")
+        disabled: !messageText.trim() || isSending || saving
+      }, h(Icon, { name: "arrow", size: 16 }), isSending ? "..." : "Gönder")
     )
   );
 }
