@@ -1252,6 +1252,9 @@ function StockCompare({ parts }) {
     }
   }
 
+  const missingParts = comparisons.filter(c => !c.exists);
+  const mismatchedParts = comparisons.filter(c => c.exists && Math.abs(c.diff) > 0);
+
   return h("section", { className: "stock-compare" },
     h("div", { className: "panel-heading" },
       h("div", null,
@@ -1274,29 +1277,70 @@ function StockCompare({ parts }) {
         )
       )
     ),
-    comparisons.length > 0 ? h("div", { className: "comparison-results" },
+    comparisons.length > 0 ? h(React.Fragment, null,
       h("div", { className: "comparison-summary" },
         h("span", null, `${comparisons.length} parça karşılaştırıldı`),
-        h("span", null, `${comparisons.filter(c => !c.exists).length} sistemde yok`),
-        h("span", null, `${comparisons.filter(c => Math.abs(c.diff) > 0).length} stok farkı var`)
+        h("span", null, `${missingParts.length} sistemde yok`),
+        h("span", null, `${mismatchedParts.length} stok farkı var`)
       ),
-      h("div", { className: "table-scroll" },
-        h("table", null,
-          h("thead", null, h("tr", null, ["SKU", "Parça Adı", "Excel Stok", "Sistem Stok", "Fark", "Durum"].map((label) => h("th", { key: label }, label)))),
-          h("tbody", null, comparisons.map((item, index) => h("tr", { key: index },
-            h("td", null, h("strong", null, item.sku)),
-            h("td", null, item.name),
-            h("td", null, item.excelStock),
-            h("td", null, item.systemStock),
-            h("td", null, h("span", {
-              className: item.diff > 0 ? "diff-positive" : item.diff < 0 ? "diff-negative" : "diff-zero"
-            }, item.diff > 0 ? `+${item.diff}` : item.diff)),
-            h("td", null, h("span", {
-              className: item.exists ? "status-match" : "status-missing"
-            }, item.exists ? "Eşleşiyor" : "Yok"))
-          )))
+      missingParts.length > 0 ? h("section", { className: "panel missing-parts-panel" },
+        h("div", { className: "panel-heading" },
+          h("div", null,
+            h("h2", null, "Sistemde Olmayan Parçalar"),
+            h("p", null, `${missingParts.length} parça Excel'de var ama sistemde kayıtlı değil`)
+          )
+        ),
+        h("div", { className: "table-scroll" },
+          h("table", null,
+            h("thead", null, h("tr", null, ["SKU", "Parça Adı", "Excel Stok"].map((label) => h("th", { key: label }, label)))),
+            h("tbody", null, missingParts.map((item, index) => h("tr", { key: index, className: "missing-row" },
+              h("td", null, h("strong", null, item.sku)),
+              h("td", null, item.name),
+              h("td", null, item.excelStock)
+            )))
+          )
         )
-      )
+      ) : null,
+      mismatchedParts.length > 0 ? h("section", { className: "panel mismatched-parts-panel" },
+        h("div", { className: "panel-heading" },
+          h("div", null,
+            h("h2", null, "Stok Farkı Olan Parçalar"),
+            h("p", null, `${mismatchedParts.length} parçada stok farkı var`)
+          )
+        ),
+        h("div", { className: "table-scroll" },
+          h("table", null,
+            h("thead", null, h("tr", null, ["SKU", "Parça Adı", "Excel Stok", "Sistem Stok", "Fark"].map((label) => h("th", { key: label }, label)))),
+            h("tbody", null, mismatchedParts.map((item, index) => h("tr", { key: index },
+              h("td", null, h("strong", null, item.sku)),
+              h("td", null, item.name),
+              h("td", null, item.excelStock),
+              h("td", null, item.systemStock),
+              h("td", null, h("span", {
+                className: item.diff > 0 ? "diff-positive" : item.diff < 0 ? "diff-negative" : "diff-zero"
+              }, item.diff > 0 ? `+${item.diff}` : item.diff))
+            )))
+          )
+        )
+      ) : null,
+      comparisons.filter(c => c.exists && c.diff === 0).length > 0 ? h("section", { className: "panel matched-parts-panel" },
+        h("div", { className: "panel-heading" },
+          h("div", null,
+            h("h2", null, "Eşleşen Parçalar"),
+            h("p", null, `${comparisons.filter(c => c.exists && c.diff === 0).length} parçada stok eşleşiyor`)
+          )
+        ),
+        h("div", { className: "table-scroll" },
+          h("table", null,
+            h("thead", null, h("tr", null, ["SKU", "Parça Adı", "Stok"].map((label) => h("th", { key: label }, label)))),
+            h("tbody", null, comparisons.filter(c => c.exists && c.diff === 0).map((item, index) => h("tr", { key: index },
+              h("td", null, h("strong", null, item.sku)),
+              h("td", null, item.name),
+              h("td", null, item.systemStock)
+            )))
+          )
+        )
+      ) : null
     ) : uploadedData.length > 0 ? h("div", { className: "empty-state" }, "Karşılaştırma verileri yükleniyor...") : h("div", { className: "empty-state" }, "Excel dosyası yükleyerek stok karşılaştırması yapın.")
   );
 }

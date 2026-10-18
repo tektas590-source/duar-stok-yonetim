@@ -1297,6 +1297,28 @@ tbody tr:last-child td { border-bottom: none; }
   font-size: 11px;
   font-weight: 600;
 }
+.missing-parts-panel,
+.mismatched-parts-panel,
+.matched-parts-panel {
+  margin-top: 24px;
+  border-color: var(--border-bright);
+}
+.missing-parts-panel {
+  border-color: var(--danger);
+  box-shadow: 0 0 0 1px var(--danger-soft);
+}
+.missing-row {
+  background: var(--danger-soft);
+  border-left: 3px solid var(--danger);
+}
+.missing-row td {
+  color: var(--text-main);
+  font-weight: 500;
+}
+.missing-row td:first-child {
+  color: var(--danger);
+  font-weight: 700;
+}
 .service-lead-divider { display: none; }
 
 .service-lead-label {
