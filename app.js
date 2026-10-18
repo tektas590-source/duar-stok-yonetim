@@ -1243,16 +1243,21 @@ function StockCompare({ parts }) {
 
       const comparison = stockData.map(excelItem => {
         const systemPart = parts.find(p => p.sku.toLocaleLowerCase("tr") === excelItem.sku.toLocaleLowerCase("tr"));
+        const excelStockNum = Number(excelItem.stock) || 0;
+        const systemStockNum = Number(systemPart?.stock) || 0;
+        const diff = systemStockNum - excelStockNum;
         return {
           sku: excelItem.sku,
           name: excelItem.name,
-          excelStock: excelItem.stock,
-          systemStock: systemPart?.stock || 0,
-          diff: (systemPart?.stock || 0) - excelItem.stock,
+          excelStock: excelStockNum,
+          systemStock: systemStockNum,
+          diff: diff,
           exists: !!systemPart,
         };
       });
 
+      console.log("Karşılaştırma sonuçları:", comparison);
+      console.log("Stok farkı olan:", comparison.filter(c => c.exists && Math.abs(c.diff) > 0));
       setComparisons(comparison);
     } catch (error) {
       console.error("Excel okuma hatası:", error);
@@ -1263,7 +1268,13 @@ function StockCompare({ parts }) {
   }
 
   const missingParts = comparisons.filter(c => !c.exists);
-  const mismatchedParts = comparisons.filter(c => c.exists && Math.abs(c.diff) > 0);
+  const mismatchedParts = comparisons.filter(c => c.exists && Number.isFinite(c.diff) && c.diff !== 0);
+  const matchedParts = comparisons.filter(c => c.exists && (!Number.isFinite(c.diff) || c.diff === 0));
+
+  console.log("Toplam karşılaştırma:", comparisons.length);
+  console.log("Sistemde olmayan:", missingParts.length);
+  console.log("Stok farkı olan:", mismatchedParts.length);
+  console.log("Eşleşen:", matchedParts.length);
 
   return h("section", { className: "stock-compare" },
     h("div", { className: "panel-heading" },
@@ -1328,22 +1339,22 @@ function StockCompare({ parts }) {
               h("td", null, item.systemStock),
               h("td", null, h("span", {
                 className: item.diff > 0 ? "diff-positive" : item.diff < 0 ? "diff-negative" : "diff-zero"
-              }, item.diff > 0 ? `+${item.diff}` : item.diff))
+              }, item.diff !== 0 ? (item.diff > 0 ? `+${item.diff}` : item.diff) : "0"))
             )))
           )
         )
       ) : null,
-      comparisons.filter(c => c.exists && c.diff === 0).length > 0 ? h("section", { className: "panel matched-parts-panel" },
+      matchedParts.length > 0 ? h("section", { className: "panel matched-parts-panel" },
         h("div", { className: "panel-heading" },
           h("div", null,
             h("h2", null, "Eşleşen Parçalar"),
-            h("p", null, `${comparisons.filter(c => c.exists && c.diff === 0).length} parçada stok eşleşiyor`)
+            h("p", null, `${matchedParts.length} parçada stok eşleşiyor`)
           )
         ),
         h("div", { className: "table-scroll" },
           h("table", null,
             h("thead", null, h("tr", null, ["SKU", "Parça Adı", "Stok"].map((label) => h("th", { key: label }, label)))),
-            h("tbody", null, comparisons.filter(c => c.exists && c.diff === 0).map((item, index) => h("tr", { key: index },
+            h("tbody", null, matchedParts.map((item, index) => h("tr", { key: index },
               h("td", null, h("strong", null, item.sku)),
               h("td", null, item.name),
               h("td", null, item.systemStock)
