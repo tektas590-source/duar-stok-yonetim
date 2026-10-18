@@ -17,7 +17,7 @@ import { calculateWorkOrderNetTotal, normalizeLaborAmount } from "./workOrderPri
 import { db, OWNER_EMAIL } from "./firebase.js";
 
 const COLLECTIONS = ["parts", "jobs", "invoices", "drafts"];
-const OPTIONAL_COLLECTIONS = ["fitments"];
+const OPTIONAL_COLLECTIONS = ["fitments", "chat"];
 
 function requireDatabase() {
   if (!db) throw new Error("Sunucu bağlantısı kurulamadı. Lütfen sayfayı yenileyip tekrar deneyin.");
@@ -665,6 +665,29 @@ export async function createStockDraft() {
   const draft = { id, code: nextCode("SIP"), date: day(), status: "Taslak", items };
   await setDoc(doc(database, "drafts", id), draft);
   return draft;
+}
+
+export async function sendChatMessage(senderEmail, senderName, text) {
+  const database = requireDatabase();
+  if (!text.trim()) throw new Error("Mesaj boş olamaz.");
+  const messageId = makeId();
+  const message = {
+    id: messageId,
+    senderEmail,
+    senderName: senderName || senderEmail.split("@")[0],
+    text: text.trim(),
+    timestamp: new Date().toISOString(),
+  };
+  await setDoc(doc(database, "chat", messageId), message);
+  return message;
+}
+
+export function subscribeToChat(onMessage, onError) {
+  const database = requireDatabase();
+  return onSnapshot(collection(database, "chat"), (snapshot) => {
+    const messages = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })).sort((a, b) => (a.timestamp || "").localeCompare(b.timestamp || ""));
+    onMessage(messages);
+  }, onError);
 }
 
 export async function receiveStockDraft(draftId, actor) {

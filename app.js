@@ -1,7 +1,7 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState, useRef } from "react";
 import { createRoot } from "react-dom/client";
 import "./style.css";
-import { cancelWorkOrder, completeWorkOrder, createPurchaseInvoice, createStockDraft, createWorkOrder, deleteFitment, deletePart, fetchServiceData, grantUserAccess, listAuthorizedUsers, receiveStockDraft, restorePart, revokeUserAccess, saveFitment, savePart, subscribeToServiceData, togglePartFavorite, updateWorkOrder } from "./data.js";
+import { cancelWorkOrder, completeWorkOrder, createPurchaseInvoice, createStockDraft, createWorkOrder, deleteFitment, deletePart, fetchServiceData, grantUserAccess, listAuthorizedUsers, receiveStockDraft, restorePart, revokeUserAccess, saveFitment, savePart, sendChatMessage, subscribeToChat, subscribeToServiceData, togglePartFavorite, updateWorkOrder } from "./data.js";
 import { getOpenWorkOrders, getRevenueEligibleWorkOrders, getWorkOrderStatusClass, WORK_ORDER_STATUS } from "./workOrderLifecycle.js";
 import { formatFitmentSpec, formatFitmentVehicle, FUEL_TYPES, searchFitments, searchVehiclePartUsage } from "./vehicleCompatibility.js";
 import { parseInvoicePaste } from "./invoiceImport.js";
@@ -179,6 +179,7 @@ function App() {
   const [user, setUser] = useState(null);
   const [authReady, setAuthReady] = useState(false);
   const [data, setData] = useState({ parts: [], jobs: [], invoices: [], drafts: [], fitments: [], movements: [] });
+  const [chatMessages, setChatMessages] = useState([]);
   const [dataLoading, setDataLoading] = useState(false);
   const [authBusy, setAuthBusy] = useState(false);
   const [authNotice, setAuthNotice] = useState("");
@@ -256,6 +257,7 @@ function App() {
   useEffect(() => {
     if (!user) {
       setData({ parts: [], jobs: [], invoices: [], drafts: [], fitments: [], movements: [] });
+      setChatMessages([]);
       setDataLoading(false);
       return undefined;
     }
@@ -286,7 +288,12 @@ function App() {
       console.error("Bulut veri aboneliği başarısız:", error);
       if (active) setErrorMessage(error.message || "Canlı veri bağlantısı kurulamadı.");
     });
-    return () => { active = false; window.clearTimeout(timer); unsubscribe(); };
+    const chatUnsubscribe = subscribeToChat((messages) => {
+      if (active) setChatMessages(messages);
+    }, (error) => {
+      console.error("Sohbet aboneliği başarısız:", error);
+    });
+    return () => { active = false; window.clearTimeout(timer); unsubscribe(); chatUnsubscribe(); };
   }, [user, reloadData]);
 
   const lowStock = data.parts.filter((part) => part.stock <= part.minimum);
@@ -304,11 +311,12 @@ function App() {
     { id: "invoices", label: "Alış Faturaları", icon: "receipt" },
     { id: "orders", label: "Taslak Siparişler", icon: "cart", badge: data.drafts.length || null },
     { id: "reports", label: "Raporlar", icon: "chart" },
+    { id: "chat", label: "Sohbet", icon: "bell", badge: chatMessages.length || null },
     { id: "servicebox", label: "ServiceBox", icon: "search", external: true },
   ];
   const isOwner = user?.email?.toLowerCase() === OWNER_EMAIL;
   if (isOwner) nav.push({ id: "access", label: "Yetkili Kullanıcılar", icon: "grid" });
-  const titles = { dashboard: ["Genel Bakış", "Servisinizin bugünkü durumuna göz atın."], inventory: ["Parça Envanteri", "Stoklarınızı ve parça fiyatlarınızı yönetin."], workorders: ["İş Emirleri", "Araç servis geçmişini ve devam eden işleri takip edin."], vehicles: ["Araç Servis Geçmişi", "Plakaya göre servis ziyaretlerini ve kullanılan parçaları bulun."], compatibility: ["Araç Uyumluluğu", "Marka, model, yakıt ve motor için uyumlu parçaları kaydedin; iş emri kullanımını da görün."], movements: ["Stok Hareketleri", "Giriş, çıkış ve düzeltmeleri kaynak ve kullanıcıyla izleyin."], invoices: ["Alış Faturaları", "Faturaları kaydedin, stok girişlerini anında işleyin."], orders: ["Taslak Siparişler", "Azalan parçalar için oluşturduğunuz sipariş önerileri."], reports: ["Raporlar", "Satış performansı ve iş emri cironuz."], access: ["Yetkili Kullanıcılar", "Hesap ekleyin veya servis erişimini kaldırın."], servicebox: ["Peugeot ServiceBox", "Parça tespiti için Peugeot ServiceBox'a gidin."] };
+  const titles = { dashboard: ["Genel Bakış", "Servisinizin bugünkü durumuna göz atın."], inventory: ["Parça Envanteri", "Stoklarınızı ve parça fiyatlarınızı yönetin."], workorders: ["İş Emirleri", "Araç servis geçmişini ve devam eden işleri takip edin."], vehicles: ["Araç Servis Geçmişi", "Plakaya göre servis ziyaretlerini ve kullanılan parçaları bulun."], compatibility: ["Araç Uyumluluğu", "Marka, model, yakıt ve motor için uyumlu parçaları kaydedin; iş emri kullanımını da görün."], movements: ["Stok Hareketleri", "Giriş, çıkış ve düzeltmeleri kaynak ve kullanıcıyla izleyin."], invoices: ["Alış Faturaları", "Faturaları kaydedin, stok girişlerini anında işleyin."], orders: ["Taslak Siparişler", "Azalan parçalar için oluşturduğunuz sipariş önerileri."], reports: ["Raporlar", "Satış performansı ve iş emri cironuz."], access: ["Yetkili Kullanıcılar", "Hesap ekleyin veya servis erişimini kaldırın."], chat: ["Sohbet", "Ekibinizle iletişim kurun."], servicebox: ["Peugeot ServiceBox", "Parça tespiti için Peugeot ServiceBox'a gidin."] };
   const openModal = (type, item = null) => setModal({ type, item });
   const openCriticalInventory = () => {
     setQuery("");
@@ -476,6 +484,7 @@ function App() {
         page === "movements" ? h(StockMovements, { movements: data.movements }) :
         page === "invoices" ? h(Invoices, { invoices: data.invoices }) :
         page === "orders" ? h(Orders, { drafts: data.drafts, lowStock, receiveDraft, createDraft }) :
+        page === "chat" ? h(ChatPage, { messages: chatMessages, user, sendMessage: async (text) => { await sendChatMessage(user.email, user.displayName, text); }, saving }) :
         page === "servicebox" ? h(ServiceBoxPage) :
         page === "access" && isOwner ? h(AccessManagement, {
           onError: (error) => setErrorMessage(error.message || "Kullanıcı erişimi güncellenemedi."),
@@ -1074,32 +1083,120 @@ function WorkOrderPriceSummary({ values }) {
 
 function ServiceBoxPage() {
   const serviceboxUrl = "https://idfed.mpsa.com/as/authorization.oauth2?response_type=code&client_id=CIDHBJGJWDTBSTEPFPFESQQNEIOJKOUQ&redirect_uri=https%3A%2F%2Fservicebox.mpsa.com%2Fdo%2Foauth2Callback&scope=openid+prd%3Ajbn+profile&state=T_uiRpnctUziudhxhzOiQs3FnICKHQLg5r4UKy9F8ZHLfk_8YUirCf4cB6z9sPjeoUoT4aL1_rf1OHVHLsUgExJBPXNRHqNP&code_challenge=bpZaD0Od0siQfVjM9C0NRHF0n-jSaAWzINuDL8W97BU&code_challenge_method=S256";
+  const b2bUrl = "https://www.b2bdemirotomotiv.com.tr/";
 
   return h("section", { className: "panel servicebox-panel" },
     h("div", { className: "panel-heading" },
       h("div", null,
-        h("h2", null, "Peugeot ServiceBox"),
-        h("p", null, "Resmi Peugeot parça kataloğu ve teknik bilgiler")
+        h("h2", null, "Parça Tedarikçileri"),
+        h("p", null, "Parça tespiti ve sipariş için kullanılan portallar")
       )
     ),
-    h("div", { className: "servicebox-content" },
-      h("div", { className: "servicebox-info" },
-        h("div", { className: "servicebox-icon" }, h(Icon, { name: "car", size: 48 })),
-        h("h3", null, "Parça Tespiti"),
-        h("p", null, "Peugeot ServiceBox ile araç bazlı parça tespiti yapabilir, orijinal parça numaralarını ve teknik bilgileri öğrenebilirsiniz."),
-        h("ul", null,
-          h("li", null, "Araç bazlı parça kataloğu"),
-          h("li", null, "Orijinal parça numaraları"),
-          h("li", null, "Teknik çizimler ve şemalar"),
-          h("li", null, "Montaj talimatları")
+    h("div", { className: "servicebox-links-grid" },
+      h("div", { className: "servicebox-link-card" },
+        h("div", { className: "servicebox-info" },
+          h("div", { className: "servicebox-icon" }, h(Icon, { name: "car", size: 48 })),
+          h("h3", null, "Peugeot ServiceBox"),
+          h("p", null, "Resmi Peugeot parça kataloğu ve teknik bilgiler"),
+          h("ul", null,
+            h("li", null, "Araç bazlı parça kataloğu"),
+            h("li", null, "Orijinal parça numaraları"),
+            h("li", null, "Teknik çizimler ve şemalar"),
+            h("li", null, "Montaj talimatları")
+          )
+        ),
+        h("div", { className: "servicebox-action" },
+          h("button", {
+            className: "button button-primary",
+            onClick: () => window.open(serviceboxUrl, "_blank")
+          }, h(Icon, { name: "arrow", size: 16 }), "ServiceBox'a Git")
         )
       ),
-      h("div", { className: "servicebox-action" },
-        h("button", {
-          className: "button button-primary",
-          onClick: () => window.open(serviceboxUrl, "_blank")
-        }, h(Icon, { name: "arrow", size: 16 }), "ServiceBox'a Git")
+      h("div", { className: "servicebox-link-card" },
+        h("div", { className: "servicebox-info" },
+          h("div", { className: "servicebox-icon b2b-icon" }, h(Icon, { name: "box", size: 48 })),
+          h("h3", null, "B2B Demir Otomotiv"),
+          h("p", null, "Orijinal yedek parça sipariş portalı"),
+          h("ul", null,
+            h("li", null, "Peugeot yedek parça kataloğu"),
+            h("li", null, "Çevrimiçi sipariş"),
+            h("li", null, "Stok ve fiyat bilgisi"),
+            h("li", null, "Hızlı teslimat")
+          )
+        ),
+        h("div", { className: "servicebox-action" },
+          h("button", {
+            className: "button button-primary",
+            onClick: () => window.open(b2bUrl, "_blank")
+          }, h(Icon, { name: "arrow", size: 16 }), "B2B'ye Git")
+        )
       )
+    )
+  );
+}
+
+function ChatPage({ messages, user, sendMessage, saving }) {
+  const [messageText, setMessageText] = useState("");
+  const messagesEndRef = React.useRef(null);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    if (!messageText.trim() || saving) return;
+    try {
+      await sendMessage(messageText);
+      setMessageText("");
+    } catch (error) {
+      console.error("Mesaj gönderilemedi:", error);
+    }
+  }
+
+  function formatTime(timestamp) {
+    const date = new Date(timestamp);
+    const now = new Date();
+    const isToday = date.toDateString() === now.toDateString();
+    if (isToday) {
+      return date.toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" });
+    }
+    return date.toLocaleDateString("tr-TR", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
+  }
+
+  return h("section", { className: "chat-container" },
+    h("div", { className: "chat-messages" },
+      messages.length === 0
+        ? h("div", { className: "chat-empty" },
+            h("div", { className: "chat-empty-icon" }, h(Icon, { name: "bell", size: 48 })),
+            h("h3", null, "Henüz mesaj yok"),
+            h("p", null, "Ekibinizle iletişim kurmak için ilk mesajı gönderin.")
+          )
+        : messages.map((msg) => h("div", {
+            key: msg.id,
+            className: `chat-message ${msg.senderEmail === user.email ? "chat-message-own" : "chat-message-other"}`
+          },
+            h("div", { className: "chat-message-header" },
+              h("strong", null, msg.senderName),
+              h("small", null, formatTime(msg.timestamp))
+            ),
+            h("div", { className: "chat-message-content" }, msg.text)
+          )),
+      h("div", { ref: messagesEndRef })
+    ),
+    h("form", { className: "chat-input", onSubmit: handleSubmit },
+      h("input", {
+        type: "text",
+        value: messageText,
+        onChange: (e) => setMessageText(e.target.value),
+        placeholder: "Mesaj yazın...",
+        disabled: saving
+      }),
+      h("button", {
+        type: "submit",
+        className: "button button-primary",
+        disabled: !messageText.trim() || saving
+      }, h(Icon, { name: "arrow", size: 16 }), saving ? "..." : "Gönder")
     )
   );
 }
