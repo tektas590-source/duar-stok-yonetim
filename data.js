@@ -791,7 +791,7 @@ export async function deletePersonnel(personnelId) {
   await deleteDoc(doc(requireDatabase(), "personnel", personnelId));
 }
 
-export async function getPersonnelPerformance(jobs, personnelList) {
+export function getPersonnelPerformance(jobs, personnelList) {
   const byPerson = new Map();
   personnelList.forEach((p) => byPerson.set(p.id, { ...p, jobs: 0, revenue: 0, commission: 0 }));
   jobs.forEach((job) => {

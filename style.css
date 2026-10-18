@@ -356,7 +356,7 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.1)
 /* ─── Topbar ─────────────────────────────────────── */
 .topbar {
   height: 72px;
-  padding: 0 40px;
+  padding: 0 24px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -390,11 +390,12 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.1)
 
 /* ─── Page Content ───────────────────────────────── */
 .page-content {
-  padding: 36px 40px 56px;
-  max-width: 1560px;
+  padding: 36px 24px 56px;
+  max-width: 100%;
   width: 100%;
   position: relative;
   z-index: 1;
+  overflow-x: hidden;
 }
 
 .page-heading {
@@ -2635,7 +2636,7 @@ html[data-theme="light"] {
 }
 
 /* ─── Table Polish ─────────────────────────────────── */
-.table-scroll { border: 1px solid var(--glass-border); background: var(--surface); }
+.table-scroll { border: 1px solid var(--glass-border); background: var(--surface); overflow-x: auto; }
 table { border-collapse: separate; border-spacing: 0; }
 th { background: var(--surface-raised); border-bottom: 1px solid var(--glass-border); font-size: 10px; letter-spacing: 0.12em; }
 td { border-bottom: 1px solid var(--glass-border); background: var(--surface); }

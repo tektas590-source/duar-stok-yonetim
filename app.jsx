@@ -2351,7 +2351,7 @@ function PersonnelPage({ personnel, jobs, openModal, saving }) {
   return h(React.Fragment, null,
     h("div", { className: "list-toolbar" },
       h("div", { className: "search-wrap" }, h(Icon, { name: "search", size: 17 }), h("input", { value: query, onChange: (e) => setQuery(e.target.value), placeholder: "Ad veya pozisyon ara..." })),
-      h("button", { className: "button button-primary", type: "button", disabled: saving, onClick: () => openPersonnelModal() }, h(Icon, { name: "plus", size: 15 }), "Personel ekle"),
+      h("button", { className: "button button-primary", type: "button", disabled: saving, onClick: () => openPersonnelModal() }, h(Icon, { name: "plus", size: 15 }), "Personel ekle")
     ),
     h("section", { className: "panel report-panel" },
       h("div", { className: "metric-grid report-metrics" },
@@ -2359,19 +2359,24 @@ function PersonnelPage({ personnel, jobs, openModal, saving }) {
         h(ReportMetric, { label: "Toplam iş emri", value: String(jobs.length), caption: "Kayıtlı iş emirleri", icon: "wrench", color: "green" }),
         h(ReportMetric, { label: "Toplam ciro", value: money(jobs.reduce((s, j) => s + Number(j.total || 0), 0)), caption: "KDV dahil · tüm iş emirleri", icon: "chart", color: "purple" })
       ),
-      h("div", { className: "table-scroll" },
-        h("table", null,
-          h("thead", null, h("tr", null, ["PERSONEL", "POZİSYON", "İŞ EMRI", "CİRO · KDV DAHİL", "KOMİSYON", "İŞLEM"].map((label) => h("th", { key: label }, label)))),
-          h("tbody", null, filtered.map((p) => h("tr", { key: p.id },
-            h("td", null, h("strong", null, p.name)),
-            h("td", { className: "muted-cell" }, p.role),
-            h("td", null, String(p.jobs).padStart(2, "0")),
-            h("td", { className: "price-cell" }, money(p.revenue)),
-            h("td", { className: "price-cell" }, money(p.commission)),
-            h("td", { className: "action-cell", onClick: (e) => e.stopPropagation() },
-              h("button", { className: "button button-small button-outline", type: "button", disabled: saving, onClick: () => openPersonnelModal(p) }, "Düzenle"))
-          ))))
-      )));
+      filtered.length
+        ? h("div", { className: "table-scroll" },
+          h("table", null,
+            h("thead", null, h("tr", null, ["PERSONEL", "POZİSYON", "İŞ EMRI", "CİRO · KDV DAHİL", "KOMİSYON", "İŞLEM"].map((label) => h("th", { key: label }, label)))),
+            h("tbody", null, filtered.map((p) => h("tr", { key: p.id },
+              h("td", null, h("strong", null, p.name)),
+              h("td", { className: "muted-cell" }, p.role),
+              h("td", null, String(p.jobs).padStart(2, "0")),
+              h("td", { className: "price-cell" }, money(p.revenue)),
+              h("td", { className: "price-cell" }, money(p.commission)),
+              h("td", { className: "action-cell", onClick: (e) => e.stopPropagation() },
+                h("button", { className: "button button-small button-outline", type: "button", disabled: saving, onClick: () => openPersonnelModal(p) }, "Düzenle"))
+            )))
+          )
+        )
+        : h("div", { className: "empty-state" }, "Henüz personel kaydı yok.")
+    )
+  );
 }
 
 /* ─── Randevu Sayfası ──────────────────────────────────────────────────────── */
