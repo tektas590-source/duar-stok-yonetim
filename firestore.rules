@@ -22,7 +22,7 @@ service cloud.firestore {
     }
 
     match /{collection}/{document=**} {
-      allow read, write: if collection in ['parts', 'jobs', 'invoices', 'drafts'] && isAuthorized();
+      allow read, write: if collection in ['parts', 'jobs', 'invoices', 'drafts', 'fitments', 'chat'] && isAuthorized();
     }
   }
 }
