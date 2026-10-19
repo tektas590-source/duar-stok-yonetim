@@ -663,6 +663,8 @@ html[data-theme="light"] .panel:hover { border-color: rgba(82, 130, 14, 0.3); }
   flex: 1;
   min-width: 220px;
   box-shadow: var(--shadow-sm);
+  position: relative;
+  z-index: 10;
 }
 .search-wrap:focus-within {
   border-color: var(--accent);
@@ -677,6 +679,8 @@ html[data-theme="light"] .panel:hover { border-color: rgba(82, 130, 14, 0.3); }
   font-size: 14px;
   width: 100%;
   outline: none;
+  position: relative;
+  z-index: 11;
 }
 .search-wrap input::placeholder { color: var(--text-muted); opacity: 0.7; }
 
