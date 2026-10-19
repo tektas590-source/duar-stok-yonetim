@@ -1382,19 +1382,27 @@ function StockMovements({ movements }) {
   );
 }
 function Invoices({ invoices }) {
-  return h("section", { className: "panel table-panel" }, invoices.length ? h("div", { className: "table-scroll" },
-    h("table", null,
-      h("thead", null, h("tr", null, ["FATURA NO", "TEDARİKÇİ", "TARİH", "KALEM", "TOPLAM · KDV DAHİL", "DURUM"].map((label) => h("th", { key: label }, label)))),
-      h("tbody", null, invoices.map((invoice) => h("tr", { key: invoice.id },
-        h("td", null, h("strong", { className: "job-id" }, invoice.code || invoice.id)),
-        h("td", { className: "muted-cell" }, invoice.supplier),
-        h("td", { className: "muted-cell" }, dateLabel(invoice.date)),
-        h("td", null, `${invoice.lines} parça`),
-        h("td", { className: "price-cell" }, money(vatIncludedAmount(invoice.total))),
-        h("td", null, h("span", { className: "job-status status-done" }, h("i", null), invoice.status))
-      )))
-    )
-  ) : h("div", { className: "empty-state" }, "Henüz alış faturası eklenmedi."));
+  const [query, setQuery] = useState("");
+  const filtered = invoices.filter((invoice) => `${invoice.code || invoice.id} ${invoice.supplier || ""} ${invoice.date || ""}`.toLocaleLowerCase("tr").includes(query.trim().toLocaleLowerCase("tr")));
+  return h("section", { className: "panel table-panel" }, [
+    h("div", { className: "list-toolbar" }, [
+      h("div", { className: "search-wrap" }, h(Icon, { name: "search", size: 17 }), h("input", { value: query, onChange: (event) => setQuery(event.target.value), placeholder: "Fatura no, tedarikçi veya tarih ara..." })),
+      h("span", { className: "result-count" }, `${filtered.length} fatura`)
+    ]),
+    filtered.length ? h("div", { className: "table-scroll" },
+      h("table", null,
+        h("thead", null, h("tr", null, ["FATURA NO", "TEDARİKÇİ", "TARİH", "KALEM", "TOPLAM · KDV DAHİL", "DURUM"].map((label) => h("th", { key: label }, label)))),
+        h("tbody", null, filtered.map((invoice) => h("tr", { key: invoice.id }, [
+          h("td", null, h("strong", { className: "job-id" }, invoice.code || invoice.id)),
+          h("td", { className: "muted-cell" }, invoice.supplier),
+          h("td", { className: "muted-cell" }, dateLabel(invoice.date)),
+          h("td", null, `${invoice.lines} parça`),
+          h("td", { className: "price-cell" }, money(vatIncludedAmount(invoice.total))),
+          h("td", null, h("span", { className: "job-status status-done" }, h("i", null), invoice.status))
+        ])))
+      )
+    ) : h("div", { className: "empty-state" }, "Aramanızla eşleşen fatura bulunamadı.")
+  ]);
 }
 function Orders({ drafts, lowStock, receiveDraft, createDraft }) {
   const draftCards = drafts.map((draft) => h("section", { className: "panel draft-card", key: draft.id },
