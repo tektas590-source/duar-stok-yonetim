@@ -11,6 +11,10 @@ import { changeInitialPassword, firebaseConfigured, OWNER_EMAIL, registerWithPas
 import { calculateVat, VAT_RATE, vatIncludedAmount } from "./vat.js";
 import { calculateWorkOrderNetTotal, calculateWorkOrderPriceBreakdown, normalizeLaborAmount } from "./workOrderPricing.js";
 
+const JOB_STATUS_IN_PROGRESS = "Devam ediyor";
+const JOB_STATUS_COMPLETED = "Tamamlandı";
+const JOB_STATUS_CANCELLED = "İptal edildi";
+
 const h = React.createElement;
 
 // ── Para birimi yardımcıları ─────────────────────────────────────────────────
@@ -2081,7 +2085,7 @@ function Modal({ modal, parts, customers, personnel, onClose, onSavePart, onSave
     : modal.type === "fitment" && modal.item
       ? (modal.item.parts || []).map((item) => ({ partId: item.partId || "", search: `${item.name || ""}${item.sku ? ` · ${item.sku}` : ""}`, name: item.name || "", sku: item.sku || "" }))
     : [{ partId: "", qty: 1, search: "" }]);
-  const [status, setStatus] = useState(() => modal.item?.status || "IN_PROGRESS");
+  const [status, setStatus] = useState(() => modal.item?.status || JOB_STATUS_IN_PROGRESS);
   const [businessDate, setBusinessDate] = useState(() => modal.item?.date || dateKey(new Date()));
   const [laborAmount, setLaborAmount] = useState(() => String(modal.item?.laborAmount ?? 0));
   const [error, setError] = useState("");
@@ -2393,7 +2397,7 @@ function Modal({ modal, parts, customers, personnel, onClose, onSavePart, onSave
         items,
         laborAmount: normalizedLaborAmount,
         total,
-        status: modal.item ? status : "IN_PROGRESS"
+        status: modal.item ? status : JOB_STATUS_IN_PROGRESS
       });
     } else {
       const invoiceItemsToSave = [...invoiceItems, ...items];
@@ -2453,11 +2457,12 @@ function Modal({ modal, parts, customers, personnel, onClose, onSavePart, onSave
           h("label", null, "Telefon", h("input", { name: "phone", type: "tel", defaultValue: modal.item?.phone || "", placeholder: "05xx xxx xx xx" })),
           modal.item ? h("label", null, "İş emri durumu",
             h("select", {
+              name: "status",
               value: status,
               onChange: (e) => setStatus(e.target.value)
             },
-              h("option", { value: "IN_PROGRESS" }, "Devam ediyor"),
-              h("option", { value: "COMPLETED" }, "Tamamlandı")
+              h("option", { value: JOB_STATUS_IN_PROGRESS }, "Devam ediyor"),
+              h("option", { value: JOB_STATUS_COMPLETED }, "Tamamlandı")
             )
           ) : null
         ),
