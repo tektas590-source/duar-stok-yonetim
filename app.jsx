@@ -13,7 +13,7 @@ import { calculateVat, VAT_RATE, vatIncludedAmount } from "./vat.js";
 import { calculateWorkOrderNetTotal, calculateWorkOrderPriceBreakdown, normalizeLaborAmount } from "./workOrderPricing.js";
 
 // PDF.js worker config
-pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
+pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.js`;
 
 const h = React.createElement;
 
@@ -2121,8 +2121,13 @@ function Modal({ modal, parts, customers, personnel, onClose, onSavePart, onSave
     setError("");
 
     try {
+      console.log("PDF dosyası yükleniyor:", file.name, file.size, file.type);
       const arrayBuffer = await file.arrayBuffer();
+      console.log("ArrayBuffer oluşturuldu, boyut:", arrayBuffer.byteLength);
+
       const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+      console.log("PDF yüklendi, sayfa sayısı:", pdf.numPages);
+
       let fullText = "";
 
       for (let i = 1; i <= pdf.numPages; i++) {
@@ -2132,13 +2137,16 @@ function Modal({ modal, parts, customers, personnel, onClose, onSavePart, onSave
         fullText += pageText + "\n";
       }
 
+      console.log("PDF metni çıkarıldı, uzunluk:", fullText.length);
       setPdfText(fullText);
       setPastedText(fullText);
       setInvoiceMode("paste");
       setPasteMessage("PDF metni başarıyla çıkarıldı. Lütfen satırları kontrol edin.");
     } catch (err) {
-      console.error("PDF okuma hatası:", err);
-      setError("PDF dosyası okunamadı. Lütfen dosyayı kontrol edin veya metin modunu kullanın.");
+      console.error("PDF okuma hatası detayı:", err);
+      console.error("Hata mesajı:", err.message);
+      console.error("Hata stack:", err.stack);
+      setError(`PDF okuma hatası: ${err.message || "Bilinmeyen hata"}. Lütfen dosyayı kontrol edin veya metin modunu kullanın.`);
     } finally {
       setPdfLoading(false);
     }
