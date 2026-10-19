@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import "./style.css";
 import { cancelWorkOrder, completeWorkOrder, createPurchaseInvoice, createStockDraft, createWorkOrder, deleteFitment, deletePart, deletePersonnel, deleteCustomer, deleteAppointment, deleteNotification, fetchServiceData, getPersonnelPerformance, grantUserAccess, listAppointments, listAuthorizedUsers, listCustomers, listNotifications, listPersonnel, markNotificationRead, receiveStockDraft, restorePart, revokeUserAccess, saveAppointment, saveCustomer, saveFitment, savePart, savePersonnel, sendChatMessage, subscribeToChat, subscribeToServiceData, togglePartFavorite, updateAppointmentStatus, updateWorkOrder, adjustStock } from "./data.js";
 import * as XLSX from "xlsx";
+import * as pdfjsLib from "pdfjs-dist";
 import { getOpenWorkOrders, getRevenueEligibleWorkOrders, getWorkOrderStatusClass, WORK_ORDER_STATUS } from "./workOrderLifecycle.js";
 import { formatFitmentSpec, formatFitmentVehicle, FUEL_TYPES, searchFitments, searchVehiclePartUsage } from "./vehicleCompatibility.js";
 import { parseInvoicePaste } from "./invoiceImport.js";
@@ -10,6 +11,9 @@ import { findPartMatches, parsePastedPartQueries } from "./partSearch.js";
 import { changeInitialPassword, firebaseConfigured, OWNER_EMAIL, registerWithPassword, requestPasswordReset, signInWithPassword, signOutUser, subscribeToAuth } from "./firebase.js";
 import { calculateVat, VAT_RATE, vatIncludedAmount } from "./vat.js";
 import { calculateWorkOrderNetTotal, calculateWorkOrderPriceBreakdown, normalizeLaborAmount } from "./workOrderPricing.js";
+
+// PDF.js worker config
+pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
 
 const h = React.createElement;
 
@@ -2088,6 +2092,8 @@ function Modal({ modal, parts, customers, personnel, onClose, onSavePart, onSave
   const [pasteMessage, setPasteMessage] = useState("");
   const [invoiceMode, setInvoiceMode] = useState("code");
   const [pastedText, setPastedText] = useState("");
+  const [pdfText, setPdfText] = useState("");
+  const [pdfLoading, setPdfLoading] = useState(false);
   const [invoiceItems, setInvoiceItems] = useState(() => modal.type === "invoice" && modal.item
     ? (modal.item.items || []).map((item) => ({
         partId: item.partId || "",
@@ -2105,6 +2111,38 @@ function Modal({ modal, parts, customers, personnel, onClose, onSavePart, onSave
   const updateLine = (index, key, value) => setLines((current) => current.map((line, i) => i === index ? { ...line, [key]: value } : line));
   const addLine = () => setLines((current) => [...current, { partId: "", qty: 1, search: "" }]);
   const updateNewInvoicePart = (key, value) => setNewInvoicePart((current) => ({ ...current, [key]: value }));
+
+  // PDF text extraction
+  const handlePdfUpload = async (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    setPdfLoading(true);
+    setError("");
+
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+      let fullText = "";
+
+      for (let i = 1; i <= pdf.numPages; i++) {
+        const page = await pdf.getPage(i);
+        const textContent = await page.getTextContent();
+        const pageText = textContent.items.map((item) => item.str).join(" ");
+        fullText += pageText + "\n";
+      }
+
+      setPdfText(fullText);
+      setPastedText(fullText);
+      setInvoiceMode("paste");
+      setPasteMessage("PDF metni başarıyla çıkarıldı. Lütfen satırları kontrol edin.");
+    } catch (err) {
+      console.error("PDF okuma hatası:", err);
+      setError("PDF dosyası okunamadı. Lütfen dosyayı kontrol edin veya metin modunu kullanın.");
+    } finally {
+      setPdfLoading(false);
+    }
+  };
   function addInvoicePart() {
     const sku = newInvoicePart.sku.trim();
     const existing = parts.find((part) => part.sku.toLocaleLowerCase("tr") === sku.toLocaleLowerCase("tr"));
@@ -2547,8 +2585,15 @@ function Modal({ modal, parts, customers, personnel, onClose, onSavePart, onSave
             h("button", { className: "button button-primary invoice-add-part", type: "button", onClick: addInvoicePart }, h(Icon, { name: "plus", size: 15 }), "Faturaya ekle")
           )
         ) : h("div", { className: "invoice-paste-panel" },
+          h("div", { className: "paste-actions" },
+            h("label", { className: "file-upload-label" },
+              h("input", { type: "file", accept: ".pdf", onChange: handlePdfUpload, disabled: pdfLoading, style: { display: "none" } }),
+              h("button", { type: "button", className: "button button-small button-quiet", disabled: pdfLoading }, pdfLoading ? "PDF okunuyor..." : h(React.Fragment, null, h(Icon, { name: "plus", size: 14 }), " PDF yükle"))
+            ),
+            h("span", { className: "paste-divider" }, "veya")
+          ),
           h("label", null, "Fatura satırları", h("textarea", { value: pastedText, onChange: (event) => { setPastedText(event.target.value); setError(""); }, placeholder: "SKU\tParça Adı\tAdet\tAlış Fiyatı\tSatış Fiyatı\nOE-9812\tYağ filtresi\t4\t310\t450\nNEW-301\tHava filtresi\t2\t220\t390", rows: 7 })),
-          h("p", { className: "paste-hint" }, "Fiyatları KDV hariç girin. Excel'den kopyalayıp buraya yapıştırın. Desteklenen sütun başlıkları: SKU/Stok Kodu, Parça Adı, Adet, Alış Fiyatı, Satış Fiyatı, Kategori, Marka. TSV, CSV ve noktalı virgül formatları desteklenir."),
+          h("p", { className: "paste-hint" }, "Fiyatları KDV hariç girin. Excel'den kopyalayıp buraya yapıştırın veya PDF faturasını yükleyin. Desteklenen sütun başlıkları: SKU/Stok Kodu, Parça Adı, Adet, Alış Fiyatı, Satış Fiyatı, Kategori, Marka. TSV, CSV ve noktalı virgül formatları desteklenir."),
           pastedInvoice.rows ? h("div", { className: `paste-result ${pastedInvoice.errors.length ? "paste-result-error" : ""}` },
             h("strong", null, pastedInvoice.errors.length ? `${pastedInvoice.errors.length} satır kontrol edilmeli` : `${pastedInvoice.items.length} fatura satırı hazır`),
             pastedInvoice.errors.length ? h("ul", null, pastedInvoice.errors.slice(0, 5).map((message) => h("li", { key: message }, message))) : h("p", null, `${pastedInvoice.items.filter((item) => !item.partId).length} yeni stok kartı oluşturulacak; mevcut parçaların stoğu güncellenecek.`)
