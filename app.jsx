@@ -770,67 +770,76 @@ function AIAssistant({ personnel, customers, appointments, parts, jobs }) {
     const pendingAppts = appointments.filter((a) => a.status === "pending").length;
     const activePersonnel = personnel.filter((p) => p.active !== false).length;
     const completedRevenue = jobs.filter((j) => (j.status || "").toLocaleLowerCase("tr") === "tamamlandı").reduce((s, j) => s + Number(j.total || 0), 0);
-    const topCustomer = [...customers].sort((a, b) => {
-      const aJobs = jobs.filter((j) => j.customerId === a.id).length;
-      const bJobs = jobs.filter((j) => j.customerId === b.id).length;
-      return bJobs - aJobs;
-    })[0];
-    const topPart = [...parts].sort((a, b) => Number(b.stock || 0) - Number(a.stock || 0))[0];
-    const recentJob = [...jobs].sort((a, b) => (b.updatedAt || b.date || "").localeCompare(a.updatedAt || a.date || ""))[0];
 
     const summary = `Sistem özetiniz: ${pCount} personel (${activePersonnel} aktif), ${cCount} müşteri, ${aCount} randevu (${pendingAppts} beklemede), ${partCount} parça (${lowStock} kritik), ${jobCount} iş emri (${activeJobs} açık, ${completedJobs} tamamlandı, ${cancelledJobs} iptal), toplam ciro ${money(totalRevenue)} (tamamlananlardan ${money(completedRevenue)}).`;
 
-    if (q.includes("merhaba") || q.includes("selam") || q.includes("nasılsın") || q.includes("günaydın") || q.includes("iyi akşamlar")) {
+    if (q.includes("merhaba") || q.includes("selam") || q.includes("nasılsın") || q.includes("günaydın") || q.includes("iyi akşamlar") || q.includes("selamın aleyküm")) {
       return `Merhaba! Ben Demir Service AI asistanınız. ${summary} Size nasıl yardımcı olabilirim?`;
     }
-    if (q.includes("yardım") || q.includes("ne yapabilir") || q.includes("nasıl kullanılır") || q.includes("özellikler")) {
-      return `Şunlar hakkında soru sorabilirsiniz:\n• Personel: kayıt, maaş, komisyon, performans\n• Müşteri: kayıt, araç, plaka, iletişim\n• Randevu: planlama, durum, müşteri eşleştirme\n• Parça/Stok: envanter, stok seviyesi, minimum stok, kritik uyarı\n• Fatura: alış faturaları, stok girişi, tedarikçi\n• İş Emri: servis işlemleri, ciro, durum takibi\n• Genel: sistem özeti, raporlar, yedekleme\n\n${summary}`;
+    if (q.includes("yardım") || q.includes("ne yapabilir") || q.includes("nasıl kullanılır") || q.includes("özellikler") || q.includes("komutlar")) {
+      return `Şunlar hakkında soru sorabilirsiniz:\n\n• PERSONEL: kayıt, maaş, komisyon, performans, aktif/pasif durum\n• MÜŞTERİ: kayıt, araç, plaka, iletişim, en aktif müşteri\n• RANDEVU: planlama, durum, bekleyenler, müşteri eşleştirme\n• PARÇA/STOK: envanter, stok seviyesi, minimum stok, kritik uyarı, SKU, fiyat\n• FATURA: alış faturaları, stok girişi, tedarikçi\n• İŞ EMRİ: servis işlemleri, ciro, durum takibi, araç geçmişi\n• GENEL: sistem özeti, raporlar, yedekleme, araç servis geçmişi\n\n${summary}`;
     }
-    if (q.includes("özet") || q.includes("durum") || q.includes("rapor") || q.includes("genel") || q.includes("sistem") || q.includes("tüm") || q.includes("hepsi")) {
-      return `${summary}\n\nDetaylı bilgi için belirli bir konu hakkında soru sorabilirsiniz: personel, müşteri, randevu, parça/stok, fatura veya iş emri.`;
+    if (q.includes("özet") || q.includes("durum") || q.includes("rapor") || q.includes("genel") || q.includes("sistem") || q.includes("tüm") || q.includes("hepsi") || q.includes("kapasite") || q.includes("bölge")) {
+      return `${summary}\n\nDetaylı bilgi için belirli bir konu hakkında soru sorabilirsiniz: personel, müşteri, randevu, parça/stok, fatura, iş emri veya araç servis geçmişi.`;
     }
-    if (q.includes("personel") || q.includes("çalışan") || q.includes("eleman") || q.includes("memur") || q.includes("teknisyen")) {
+    if (q.includes("personel") || q.includes("çalışan") || q.includes("eleman") || q.includes("memur") || q.includes("teknisyen") || q.includes("işçi")) {
       if (q.includes("maaş") || q.includes("komisyon") || q.includes("gelir")) {
         const top = [...personnel].sort((a, b) => Number(b.commissionRate || 0) - Number(a.commissionRate || 0))[0];
-        return `${summary}\n\nPersonel detayı: Toplam ${pCount} personel, ${activePersonnel} aktif. En yüksek komisyon: ${top?.name || "yok"} (%${top?.commissionRate || 0}). Personel ekle/düzenlemek için "Personel" sekmesine gidin.`;
+        return `${summary}\n\nPERSONEL DETAYI:\n${personnel.map((p) => `- ${p.name} · ${p.role} · Komisyon: %${Number(p.commissionRate || 0)} · Maaş: ${money(Number(p.baseSalary || 0))} · ${p.active !== false ? "Aktif" : "Pasif"}`).join("\n")}\n\nEn yüksek komisyon: ${top?.name || "yok"} (%${top?.commissionRate || 0}).`;
       }
-      return `${summary}\n\nPersonel detayı: Toplam ${pCount} personel kaydı, ${activePersonnel} tanesi aktif. Tüm çalışan kayıtlarını, rollerini ve performanslarını "Personel" sekmesinden yönetebilirsiniz.`;
+      const perf = getPersonnelPerformance(jobs, personnel);
+      return `${summary}\n\nPERSONEL DETAYI:\n${personnel.map((p) => { const perfItem = perf.find((x) => x.id === p.id) || {}; return `- ${p.name} · ${p.role} · ${perfItem.jobs || 0} iş · ${money(perfItem.revenue || 0)} ciro · ${money(perfItem.commission || 0)} komisyon · ${p.active !== false ? "Aktif" : "Pasif"}`; }).join("\n")}`;
     }
-    if (q.includes("müşteri") || q.includes("arac") || q.includes("plaka") || q.includes("müşteri") || q.includes("araba") || q.includes("otomobil")) {
-      return `${summary}\n\nMüşteri detayı: Toplam ${cCount} müşteri kaydı. Müşteri ve araç kayıtlarını, iletişim bilgilerini "Müşteri Yönetimi" sekmesinden görüntüleyip düzenleyebilirsiniz.${topCustomer ? `\nEn aktif müşteri: ${topCustomer.name} (${jobs.filter((j) => j.customerId === topCustomer.id).length} iş emri).` : ""}`;
+    if (q.includes("müşteri") || q.includes("arac") || q.includes("plaka") || q.includes("araba") || q.includes("otomobil") || q.includes("araç")) {
+      const custDetail = customers.map((c) => { const cJobs = jobs.filter((j) => j.customerId === c.id); return `- ${c.name} · Telefon: ${c.phone || "yok"} · Şehir: ${c.city || "belirtilmemiş"} · ${cJobs.length} iş emri · ${cJobs.reduce((s, j) => s + Number(j.total || 0), 0) > 0 ? money(cJobs.reduce((s, j) => s + Number(j.total || 0), 0)) : "0 TL"} ciro`; }).join("\n");
+      const topCustomer = [...customers].sort((a, b) => { const aJobs = jobs.filter((j) => j.customerId === a.id).length; const bJobs = jobs.filter((j) => j.customerId === b.id).length; return bJobs - aJobs; })[0];
+      return `${summary}\n\nMÜŞTERİ DETAYI (${cCount} kayıt):\n${custDetail}\n\nEn aktif müşteri: ${topCustomer?.name || "yok"} (${jobs.filter((j) => j.customerId === topCustomer?.id).length} iş emri).`;
     }
-    if (q.includes("randevu") || q.includes("takvim") || q.includes("planla") || q.includes("görüşme")) {
-      return `${summary}\n\nRandevu detayı: Toplam ${aCount} randevu, ${pendingAppts} tanesi beklemede. Randevuları planlamak, durumu güncellemek ve personel atamak için "Randevu Takvimi" sekmesini kullanın.`;
+    if (q.includes("randevu") || q.includes("takvim") || q.includes("planla") || q.includes("görüşme") || q.includes("randevular")) {
+      const apptDetail = appointments.map((a) => { const cust = customers.find((c) => c.id === a.customerId); const pers = personnel.find((p) => p.id === a.personnelId); return `- ${a.date || "tarih yok"} ${a.time || ""} · ${cust?.name || "Müşteri yok"} · ${a.vehiclePlate || "Plaka yok"} · ${a.status || "durum yok"} · ${pers?.name || "Personel atanmamış"}`; }).join("\n");
+      return `${summary}\n\nRANDEVU DETAYI (${aCount} kayıt, ${pendingAppts} beklemede):\n${apptDetail}`;
     }
-    if (q.includes("parça") || q.includes("stok") || q.includes("envanter") || q.includes("malzeme") || q.includes("yedek parça")) {
-      return `${summary}\n\nParça/Stok detayı: Toplam ${partCount} parça kaydı, ${lowStock} tanesi kritik stok seviyesinde (stok ≤ minimum). En yüksek stokta: ${topPart?.name || "yok"} (${Number(topPart?.stock || 0)} adet). Parçaları ve stok seviyelerini "Parça Envanteri" sekmesinden takip edebilirsiniz.`;
+    if (q.includes("parça") || q.includes("stok") || q.includes("envanter") || q.includes("malzeme") || q.includes("yedek parça") || q.includes("sku")) {
+      const partDetail = parts.map((p) => { const low = Number(p.stock || 0) <= Number(p.minimum || 0); return `- ${p.name} · ${p.sku || "SKU yok"} · ${p.category || "Genel"} · ${p.brand || "Marka yok"} · Stok: ${p.stock} / Min: ${p.minimum} ${low ? "⚠ KRİTİK" : ""} · Alış: ${money(p.cost)} · Satış: ${money(p.price)}`; }).join("\n");
+      const topPart = [...parts].sort((a, b) => Number(b.stock || 0) - Number(a.stock || 0))[0];
+      return `${summary}\n\nPARÇA/STOK DETAYI (${partCount} kayıt, ${lowStock} kritik):\n${partDetail}\n\nEn yüksek stok: ${topPart?.name || "yok"} (${Number(topPart?.stock || 0)} adet).`;
     }
-    if (q.includes("fatura") || q.includes("alış") || q.includes("satış") || q.includes("tedarikçi") || q.includes("ödeme")) {
-      return `${summary}\n\nFatura detayı: Alış faturalarını "Alış Faturaları" sekmesinden kaydedebilir, stok girişlerini anında işleyebilirsiniz. Yeni fatura eklemek için "Fatura ekle" butonunu kullanın.`;
+    if (q.includes("fatura") || q.includes("alış") || q.includes("satış") || q.includes("tedarikçi") || q.includes("ödeme") || q.includes("faturalar")) {
+      return `${summary}\n\nFATURA DETAYI: Alış faturalarını "Alış Faturaları" sekmesinden kaydedebilir, stok girişlerini anında işleyebilirsiniz. Yeni fatura eklemek için "Fatura ekle" butonunu kullanın. Fatura kayıtlarıyla birlikte stok hareketleri de otomatik oluşturulur.`;
     }
-    if (q.includes("iş emri") || q.includes("servis") || q.includes("çiro") || q.includes("işlem") || q.includes("arız") || q.includes("bakım")) {
-      return `${summary}\n\nİş Emri detayı: Toplam ${jobCount} iş emri, ${activeJobs} tanesi devam etmekte, ${completedJobs} tamamlandı, ${cancelledJobs} iptal. Toplam ciro: ${money(totalRevenue)}. İş emirlerini "İş Emirleri" sekmesinden takip edebilir, yeni iş emri açabilirsiniz.`;
+    if (q.includes("iş emri") || q.includes("servis") || q.includes("çiro") || q.includes("işlem") || q.includes("arız") || q.includes("bakım") || q.includes("iş emirleri")) {
+      const jobDetail = jobs.map((j) => { const cust = customers.find((c) => c.id === j.customerId); return `- ${j.code || j.id} · ${j.plate || "Plaka yok"} · ${cust?.name || "Müşteri yok"} · ${j.make || ""} ${j.model || ""} · ${money(Number(j.total || 0))} · ${j.status || "durum yok"} · ${dateLabel(j.date)}`; }).join("\n");
+      return `${summary}\n\nİŞ EMRİ DETAYI (${jobCount} kayıt):\n${jobDetail}\n\nToplam ciro: ${money(totalRevenue)}`;
+    }
+    if ((q.includes("araç") && (q.includes("geçmiş") || q.includes("servis geçmişi") || q.includes("plakaya göre") || q.includes("ziyaret"))) || q.includes("arac servis")) {
+      const vehicleMap = new Map();
+      [...jobs].sort((a, b) => (b.date || "").localeCompare(a.date || "")).forEach((job) => { const key = job.plate.trim().toLocaleUpperCase(); const entry = vehicleMap.get(key) || { plate: key, make: job.make, model: job.model, customer: job.customer, jobs: [] }; entry.jobs.push(job); vehicleMap.set(key, entry); });
+      const vehicleDetail = [...vehicleMap.entries()].map(([plate, v]) => { const total = v.jobs.reduce((s, j) => s + Number(j.total || 0), 0); return `- ${plate} · ${v.make || ""} ${v.model || ""} · ${v.customer || "Müşteri yok"} · ${v.jobs.length} ziyaret · ${money(total)} toplam · Son: ${dateLabel(v.jobs[0]?.date || "")}`; }).join("\n");
+      return `${summary}\n\nARAÇ SERVİS GEÇMİŞİ (${vehicleMap.size} farklı araç):\n${vehicleDetail}`;
     }
     if (q.includes("yedek") || q.includes("excel") || q.includes("dışa aktar") || q.includes("indir")) {
-      return `Yedekleme: Tüm verilerinizi (parçalar, iş emirleri, faturalar, müşteriler, personel, randevular, bildirimler) Excel veya metin raporu olarak indirebilirsiniz. "Yedekleme" sekmesine gidin ve "Excel'e Aktar" veya "Rapor İndir" butonlarını kullanın.`;
+      return `YEDEKLEME: Tüm verilerinizi (parçalar, iş emirleri, faturalar, müşteriler, personel, randevular, bildirimler) Excel veya metin raporu olarak indirebilirsiniz. "Yedekleme" sekmesine gidin ve "Excel'e Aktar" veya "Rapor İndir" butonlarını kullanın.`;
     }
-    if (q.includes("bildirim") || q.includes("uyarı") || q.includes("stok düşük") || q.includes("kritik")) {
-      return `Bildirimler: Düşük stok, randevu ve sistem bildirimlerini "Bildirimler" sekmesinden yönetebilirsiniz. Şu anda ${lowStock} parça kritik stok seviyesinde.`;
+    if (q.includes("bildirim") || q.includes("uyarı") || q.includes("stok düşük") || q.includes("kritik") || q.includes("bildirimler")) {
+      const lowParts = parts.filter((p) => Number(p.stock || 0) <= Number(p.minimum || 0));
+      const lowDetail = lowParts.map((p) => `- ${p.name} (${p.stock} / min ${p.minimum})`).join("\n");
+      return `BİLDİRİMLER: Düşük stok, randevu ve sistem bildirimlerini "Bildirimler" sekmesinden yönetebilirsiniz. Şu anda ${lowStock} parça kritik stok seviyesinde:\n${lowDetail || "Kritik stokta parça yok."}`;
     }
     if (q.includes("kayıt et") || q.includes("ekle") || q.includes("yeni") || q.includes("oluştur")) {
-      return `Yeni kayıt oluşturmak için ilgili sekmedeki "+" butonunu kullanın: "Personel ekle", "Müşteri ekle", "Parça ekle", "İş emri oluştur", "Fatura ekle", "Randevu ekle". Hangi konuda kayıt yapmak istiyorsanız o sekmeye gidin.`;
+      return `YENİ KAYIT: İlgili sekmedeki "+" butonunu kullanın: "Personel ekle", "Müşteri ekle", "Parça ekle", "İş emri oluştur", "Fatura ekle", "Randevu ekle". Hangi konuda kayıt yapmak istiyorsanız o sekmeye gidin.`;
     }
     if (q.includes("sil") || q.includes("kaldır") || q.includes("güncelle") || q.includes("düzenle")) {
-      return `Kayıt düzenleme/silme: İlgili listedeki kaydın yanındaki "Düzenle" butonuna tıklayarak değişiklik yapabilirsiniz. Silme işlemi için listedeki silme seçeneğini kullanın.`;
+      return `KAYIT DÜZENLEME: İlgili listedeki kaydın yanındaki "Düzenle" butonuna tıklayarak değişiklik yapabilirsiniz. Silme işlemi için listedeki silme/arşivle seçeneğini kullanın.`;
     }
-    if (q.includes("giriş") || q.includes("çıkış") || q.includes("şifre") || q.includes("hesap") || q.includes("kullanıcı")) {
-      return `Hesap yönetimi: Giriş yapmak için giriş ekranını kullanın. Şifre değiştirmek veya hesap erişimi yönetmek için "Yetkili Kullanıcılar" sekmesine gidin (yalnızca yönetici).`;
+    if (q.includes("giriş") || q.includes("çıkış") || q.includes("şifre") || q.includes("hesap") || q.includes("kullanıcı") || q.includes("yetki")) {
+      return `HESAP YÖNETİMİ: Giriş yapmak için giriş ekranını kullanın. Şifre değiştirmek veya hesap erişimi yönetmek için "Yetkili Kullanıcılar" sekmesine gidin (yalnızca yönetici).`;
     }
-    if (q.includes("teşekkür") || q.includes("sağ ol") || q.includes("güle güle") || q.includes("hoşça kal")) {
+    if (q.includes("teşekkür") || q.includes("sağ ol") || q.includes("güle güle") || q.includes("hoşça kal") || q.includes("bye")) {
       return "Rica ederim! Başka bir sorunuz olduğunda buradayım. İyi çalışmalar dilerim.";
     }
-    return `${summary}\n\nBu konuda doğrudan bilgi yokum, ama sisteminizdeki temel veriler yukarıdaki özetde yer alıyor. "Personel", "Müşteri", "Randevu", "Parça/Stok", "Fatura", "İş Emri", "Yedekleme" veya "Bildirim" hakkında daha spesifik bir soru sorabilirsiniz.`;
+    return `${summary}\n\nBu konuda doğrudan bilgi yokum, ama sisteminizdeki temel veriler yukarıdaki özetde yer alıyor. "Personel", "Müşteri", "Randevu", "Parça/Stok", "Fatura", "İş Emri", "Araç Geçmişi", "Yedekleme" veya "Bildirim" hakkında daha spesifik bir soru sorabilirsiniz.`;
   }
+
 
   async function handleSend(e) {
     e.preventDefault();
