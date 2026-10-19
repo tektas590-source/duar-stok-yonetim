@@ -2094,6 +2094,7 @@ function Modal({ modal, parts, customers, personnel, onClose, onSavePart, onSave
   const [pastedText, setPastedText] = useState("");
   const [pdfText, setPdfText] = useState("");
   const [pdfLoading, setPdfLoading] = useState(false);
+  const pdfInputRef = useRef(null);
   const [invoiceItems, setInvoiceItems] = useState(() => modal.type === "invoice" && modal.item
     ? (modal.item.items || []).map((item) => ({
         partId: item.partId || "",
@@ -2113,8 +2114,7 @@ function Modal({ modal, parts, customers, personnel, onClose, onSavePart, onSave
   const updateNewInvoicePart = (key, value) => setNewInvoicePart((current) => ({ ...current, [key]: value }));
 
   // PDF text extraction
-  const handlePdfUpload = async (event) => {
-    const file = event.target.files[0];
+  const handlePdfUpload = async (file) => {
     if (!file) return;
 
     setPdfLoading(true);
@@ -2141,6 +2141,17 @@ function Modal({ modal, parts, customers, personnel, onClose, onSavePart, onSave
       setError("PDF dosyası okunamadı. Lütfen dosyayı kontrol edin veya metin modunu kullanın.");
     } finally {
       setPdfLoading(false);
+    }
+  };
+
+  const handlePdfButtonClick = () => {
+    pdfInputRef.current?.click();
+  };
+
+  const handlePdfFileChange = (event) => {
+    const file = event.target.files[0];
+    if (file) {
+      handlePdfUpload(file);
     }
   };
   function addInvoicePart() {
@@ -2586,10 +2597,8 @@ function Modal({ modal, parts, customers, personnel, onClose, onSavePart, onSave
           )
         ) : h("div", { className: "invoice-paste-panel" },
           h("div", { className: "paste-actions" },
-            h("label", { className: "file-upload-label" },
-              h("input", { type: "file", accept: ".pdf", onChange: handlePdfUpload, disabled: pdfLoading, style: { display: "none" } }),
-              h("button", { type: "button", className: "button button-small button-quiet", disabled: pdfLoading }, pdfLoading ? "PDF okunuyor..." : h(React.Fragment, null, h(Icon, { name: "plus", size: 14 }), " PDF yükle"))
-            ),
+            h("input", { type: "file", accept: ".pdf", onChange: handlePdfFileChange, disabled: pdfLoading, ref: pdfInputRef, style: { display: "none" } }),
+            h("button", { type: "button", className: "button button-small button-quiet", onClick: handlePdfButtonClick, disabled: pdfLoading }, pdfLoading ? "PDF okunuyor..." : h(React.Fragment, null, h(Icon, { name: "plus", size: 14 }), " PDF yükle")),
             h("span", { className: "paste-divider" }, "veya")
           ),
           h("label", null, "Fatura satırları", h("textarea", { value: pastedText, onChange: (event) => { setPastedText(event.target.value); setError(""); }, placeholder: "SKU\tParça Adı\tAdet\tAlış Fiyatı\tSatış Fiyatı\nOE-9812\tYağ filtresi\t4\t310\t450\nNEW-301\tHava filtresi\t2\t220\t390", rows: 7 })),

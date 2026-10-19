@@ -2243,7 +2243,6 @@ textarea { height: auto; padding: 12px 14px; resize: vertical; line-height: 1.6;
 .invoice-paste-panel > label { font-size: 12px; }
 .paste-actions { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
 .paste-divider { font-size: 12px; color: var(--text-muted); }
-.file-upload-label { display: inline-flex; cursor: pointer; }
 
 .paste-hint { font-size: 11px; color: var(--text-muted); line-height: 1.6; margin: 0; }
 .paste-result {
