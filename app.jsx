@@ -1392,8 +1392,7 @@ function Invoices({ invoices, openModal, saving }) {
   return h("section", { className: "panel table-panel" }, [
     h("div", { className: "list-toolbar" }, [
       h("div", { className: "search-wrap" }, h(Icon, { name: "search", size: 17 }), h("input", { value: query, onChange: (event) => setQuery(event.target.value), placeholder: "Fatura no, tedarikçi veya tarih ara..." })),
-      h("span", { className: "result-count" }, `${filtered.length} fatura`),
-      h("button", { className: "button button-primary", onClick: () => openModal("invoice"), disabled: saving }, h(Icon, { name: "plus", size: 14 }), "Fatura ekle")
+      h("span", { className: "result-count" }, `${filtered.length} fatura`)
     ]),
     filtered.length ? h("div", { className: "table-scroll" },
       h("table", null,
@@ -1411,7 +1410,7 @@ function Invoices({ invoices, openModal, saving }) {
           ))
         ])))
       )
-    ) : h("div", { className: "empty-state" }, q ? "Aramanızla eşleşen fatura bulunamadı." : "Henüz alış faturası eklenmedi.")
+    ) : h("div", { className: "empty-state" }, q ? "Aramanızla eşleşen fatura bulunamadı." : firebaseConfigured ? "Henüz alış faturası eklenmedi." : "Firebase yapılandırılmadığı için fatura yok. .env.local dosyasını düzenleyin ve sayfayı yenileyin.")
   ]);
 }
 function Orders({ drafts, lowStock, receiveDraft, createDraft }) {
