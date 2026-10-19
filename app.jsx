@@ -430,7 +430,8 @@ function App() {
     }, isEditing ? "İş emri güncellendi; stok farkları ve hareket kayıtları işlendi." : "İş emri oluşturuldu, stoklar ve hareket geçmişi güncellendi.");
   };
   const persistInvoice = async (invoice) => {
-    await runAction(async () => { await createPurchaseInvoice(invoice, user.email); await reloadData(); setModal(null); }, "Fatura kaydedildi, stoklar ve hareket geçmişi güncellendi.");
+    const isEditing = Boolean(invoice.id);
+    await runAction(async () => { await createPurchaseInvoice(invoice, user.email, isEditing ? invoice.id : null); await reloadData(); setModal(null); }, isEditing ? "Fatura güncellendi, stok hareketleri düzeltildi." : "Fatura kaydedildi, stoklar ve hareket geçmişi güncellendi.");
   };
   const markJobComplete = async (job) => {
     await runAction(async () => { await completeWorkOrder(job.id, user.email); await reloadData(); }, "İş emri tamamlandı.");
@@ -559,7 +560,7 @@ function App() {
         page === "vehicles" ? h(VehicleHistory, { jobs: data.jobs, queryIntent: vehicleQueryIntent, clearQueryIntent: () => setVehicleQueryIntent(null) }) :
         page === "compatibility" ? h(PartCompatibility, { jobs: data.jobs, fitments: data.fitments || [], openModal, removeFitment, saving }) :
         page === "movements" ? h(StockMovements, { movements: data.movements }) :
-        page === "invoices" ? h(Invoices, { invoices: data.invoices }) :
+        page === "invoices" ? h(Invoices, { invoices: data.invoices, openModal, saving }) :
         page === "orders" ? h(Orders, { drafts: data.drafts, lowStock, receiveDraft, createDraft }) :
         page === "stockcompare" ? h(StockCompare, { parts: data.parts, openModal }) :
         page === "chat" ? h(ChatPage, { messages: chatMessages, user, sendMessage: async (text) => { await sendChatMessage(user.email, user.displayName, text); }, saving, configured: firebaseConfigured }) :
@@ -1381,27 +1382,36 @@ function StockMovements({ movements }) {
     )) : h("div", { className: "empty-state" }, movements.length ? "Filtrelerle eşleşen hareket bulunamadı." : "Bu ekran açıldıktan sonra gerçekleşen stok hareketleri burada kaydedilir."))
   );
 }
-function Invoices({ invoices }) {
+function Invoices({ invoices, openModal, saving }) {
   const [query, setQuery] = useState("");
-  const filtered = invoices.filter((invoice) => `${invoice.code || invoice.id} ${invoice.supplier || ""} ${invoice.date || ""}`.toLocaleLowerCase("tr").includes(query.trim().toLocaleLowerCase("tr")));
+  const q = query.trim().toLocaleLowerCase("tr");
+  const filtered = invoices.filter((invoice) => {
+    const haystack = `${invoice.code || invoice.id} ${invoice.supplier || ""} ${invoice.date || ""} ${invoice.status || ""}`;
+    return haystack.toLocaleLowerCase("tr").includes(q);
+  });
   return h("section", { className: "panel table-panel" }, [
     h("div", { className: "list-toolbar" }, [
       h("div", { className: "search-wrap" }, h(Icon, { name: "search", size: 17 }), h("input", { value: query, onChange: (event) => setQuery(event.target.value), placeholder: "Fatura no, tedarikçi veya tarih ara..." })),
-      h("span", { className: "result-count" }, `${filtered.length} fatura`)
+      h("span", { className: "result-count" }, `${filtered.length} fatura`),
+      h("button", { className: "button button-primary", onClick: () => openModal("invoice"), disabled: saving }, h(Icon, { name: "plus", size: 14 }), "Fatura ekle")
     ]),
     filtered.length ? h("div", { className: "table-scroll" },
       h("table", null,
-        h("thead", null, h("tr", null, ["FATURA NO", "TEDARİKÇİ", "TARİH", "KALEM", "TOPLAM · KDV DAHİL", "DURUM"].map((label) => h("th", { key: label }, label)))),
+        h("thead", null, h("tr", null, ["FATURA NO", "TEDARİKÇİ", "TARİH", "KALEM", "TOPLAM · KDV DAHİL", "DURUM", "İŞLEM"].map((label) => h("th", { key: label }, label)))),
         h("tbody", null, filtered.map((invoice) => h("tr", { key: invoice.id }, [
           h("td", null, h("strong", { className: "job-id" }, invoice.code || invoice.id)),
-          h("td", { className: "muted-cell" }, invoice.supplier),
-          h("td", { className: "muted-cell" }, dateLabel(invoice.date)),
-          h("td", null, `${invoice.lines} parça`),
-          h("td", { className: "price-cell" }, money(vatIncludedAmount(invoice.total))),
-          h("td", null, h("span", { className: "job-status status-done" }, h("i", null), invoice.status))
+          h("td", { className: "muted-cell" }, invoice.supplier || "-"),
+          h("td", { className: "muted-cell" }, dateLabel(invoice.date) || "-"),
+          h("td", null, `${invoice.lines || 0} parça`),
+          h("td", { className: "price-cell" }, money(vatIncludedAmount(invoice.total || 0))),
+          h("td", null, h("span", { className: `job-status ${invoice.status ? "status-done" : ""}` }, h("i", null), invoice.status || "-")),
+          h("td", null, h("div", { className: "row-actions" },
+            h("button", { className: "button button-small", disabled: saving, onClick: () => openModal("invoice", invoice) }, "Düzenle"),
+            h("button", { className: "button button-small button-danger", disabled: saving, onClick: () => { if (window.confirm(`"${invoice.code || invoice.id}" faturasını silmek istiyor musunuz?`)) { openModal(null); setToast(`Fatura ${invoice.code || invoice.id} silinecek.`); } } }, "Sil")
+          ))
         ])))
       )
-    ) : h("div", { className: "empty-state" }, "Aramanızla eşleşen fatura bulunamadı.")
+    ) : h("div", { className: "empty-state" }, q ? "Aramanızla eşleşen fatura bulunamadı." : "Henüz alış faturası eklenmedi.")
   ]);
 }
 function Orders({ drafts, lowStock, receiveDraft, createDraft }) {
@@ -2079,9 +2089,20 @@ function Modal({ modal, parts, customers, personnel, onClose, onSavePart, onSave
   const [pasteMessage, setPasteMessage] = useState("");
   const [invoiceMode, setInvoiceMode] = useState("code");
   const [pastedText, setPastedText] = useState("");
-  const [invoiceItems, setInvoiceItems] = useState([]);
+  const [invoiceItems, setInvoiceItems] = useState(() => modal.type === "invoice" && modal.item
+    ? (modal.item.items || []).map((item) => ({
+        partId: item.partId || "",
+        sku: item.sku || "",
+        name: item.name || "",
+        category: item.category || "Genel",
+        brand: item.brand || "",
+        qty: item.qty,
+        price: item.price,
+        cost: item.cost,
+      }))
+    : []);
   const [newInvoicePart, setNewInvoicePart] = useState({ sku: "", name: "", qty: "1", cost: "", price: "", category: "Genel", brand: "", minimum: "5" });
-  const title = modal.type === "part" ? modal.item ? "Parçayı düzenle" : "Yeni parça ekle" : modal.type === "job" ? modal.item ? "İş emrini düzenle" : "Yeni iş emri" : modal.type === "fitment" ? modal.item ? "Uyumluluğu düzenle" : "Araç uyumluluğu ekle" : modal.type === "customer" ? modal.item ? "Müşteriyi düzenle" : "Yeni müşteri ekle" : modal.type === "personnel" ? modal.item ? "Personeli düzenle" : "Yeni personel ekle" : modal.type === "appointment" ? modal.item ? "Randevuyu düzenle" : "Yeni randevu ekle" : modal.type === "notification" ? modal.item ? "Bildirimi düzenle" : "Yeni bildirim ekle" : "Alış faturası ekle";
+  const title = modal.type === "part" ? modal.item ? "Parçayı düzenle" : "Yeni parça ekle" : modal.type === "job" ? modal.item ? "İş emrini düzenle" : "Yeni iş emri" : modal.type === "fitment" ? modal.item ? "Uyumluluğu düzenle" : "Araç uyumluluğu ekle" : modal.type === "customer" ? modal.item ? "Müşteriyi düzenle" : "Yeni müşteri ekle" : modal.type === "personnel" ? modal.item ? "Personeli düzenle" : "Yeni personel ekle" : modal.type === "appointment" ? modal.item ? "Randevuyu düzenle" : "Yeni randevu ekle" : modal.type === "notification" ? modal.item ? "Bildirimi düzenle" : "Yeni bildirim ekle" : modal.type === "invoice" ? modal.item ? "Faturayı düzenle" : "Alış faturası ekle" : "Alış faturası ekle";
   const updateLine = (index, key, value) => setLines((current) => current.map((line, i) => i === index ? { ...line, [key]: value } : line));
   const addLine = () => setLines((current) => [...current, { partId: "", qty: 1, search: "" }]);
   const updateNewInvoicePart = (key, value) => setNewInvoicePart((current) => ({ ...current, [key]: value }));
@@ -2267,6 +2288,14 @@ function Modal({ modal, parts, customers, personnel, onClose, onSavePart, onSave
         return;
       }
       onSaveInvoice({ invoiceNumber: String(form.get("invoiceNumber")).trim(), supplier: String(form.get("supplier")).trim(), date: businessDate, items: invoiceItems, total: invoiceItems.reduce((sum, item) => sum + item.qty * item.cost, 0) });
+      return;
+    }
+    if (modal.type === "invoice" && modal.item) {
+      if (!invoiceItems.length) {
+        setError("Faturaya eklemek için yan bölümden en az bir stok kodu ekleyin.");
+        return;
+      }
+      onSaveInvoice({ ...modal.item, invoiceNumber: String(form.get("invoiceNumber")).trim(), supplier: String(form.get("supplier")).trim(), date: businessDate, items: invoiceItems, total: invoiceItems.reduce((sum, item) => sum + item.qty * item.cost, 0) });
       return;
     }
     let activeJobLines = lines;
@@ -2478,8 +2507,8 @@ function Modal({ modal, parts, customers, personnel, onClose, onSavePart, onSave
         )
       ) : h(React.Fragment, null,
         h("div", { className: "form-grid invoice-meta-grid" },
-          h("label", null, "Fatura numarası", h("input", { name: "invoiceNumber", placeholder: "Tedarikçi fatura numarası", required: true })),
-          h("label", null, "Tedarikçi", h("input", { name: "supplier", placeholder: "Tedarikçi firma adı", required: true })),
+          h("label", null, "Fatura numarası", h("input", { name: "invoiceNumber", defaultValue: modal.item?.code || "", placeholder: "Tedarikçi fatura numarası", required: true })),
+          h("label", null, "Tedarikçi", h("input", { name: "supplier", defaultValue: modal.item?.supplier || "", placeholder: "Tedarikçi firma adı", required: true })),
           h("label", null, "Fatura tarihi", h("input", { name: "date", type: "date", value: businessDate, onChange: (event) => setBusinessDate(event.target.value), required: true }))
         ),
         h("div", { className: "invoice-input-tabs" },

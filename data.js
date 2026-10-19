@@ -576,8 +576,7 @@ export async function cancelWorkOrder(jobId, actor) {
   });
   return cancelledRecord;
 }
-
-export async function createPurchaseInvoice(invoice, actor) {
+export async function createPurchaseInvoice(invoice, actor, existingInvoiceId = null) {
   const database = requireDatabase();
   const businessDate = resolveBusinessDate(invoice.date);
   const invoiceNumber = String(invoice.invoiceNumber || "").trim();
@@ -609,8 +608,46 @@ export async function createPurchaseInvoice(invoice, actor) {
     }
   }
 
-  const invoiceId = makeId();
+  const invoiceId = existingInvoiceId || makeId();
   const invoiceReference = doc(database, "invoices", invoiceId);
+
+  // When editing, reverse previous stock movements first
+  if (existingInvoiceId) {
+    const oldInvoiceSnap = await getDoc(doc(database, "invoices", existingInvoiceId));
+    if (oldInvoiceSnap.exists()) {
+      const oldInvoice = oldInvoiceSnap.data();
+      const oldItems = oldInvoice.items || [];
+      await runTransaction(database, async (transaction) => {
+        oldItems.forEach((item) => {
+          const partRef = doc(database, "parts", item.partId);
+          const movementRef = doc(database, "parts", item.partId, "movements", makeId());
+          const existingPartSnap = transaction.get(partRef);
+          // We'll handle stock reversal below in the main transaction
+          transaction.set(movementRef, {
+            id: movementRef.id,
+            qty: -Number(item.qty || 0),
+            type: "Fatura düzenleme (stoğu geri al)",
+            reference: "invoice",
+            referenceCode: oldInvoice.code || existingInvoiceId,
+            actor,
+            stockBefore: 0,
+            stockAfter: 0,
+            date: businessDate,
+          });
+        });
+      });
+      // Reverse stock: subtract old quantities
+      for (const item of oldItems) {
+        const partRef = doc(database, "parts", item.partId);
+        const partSnap = await getDoc(partRef);
+        if (partSnap.exists()) {
+          const currentStock = Number(partSnap.data().stock || 0);
+          await setDoc(partRef, { stock: Math.max(0, currentStock - Number(item.qty || 0)) }, { merge: true });
+        }
+      }
+    }
+  }
+
   const skuQueries = items.map((item) => query(
     collection(database, "parts"),
     where("skuNormalized", "==", item.sku.toLocaleLowerCase("tr"))
@@ -627,6 +664,7 @@ export async function createPurchaseInvoice(invoice, actor) {
     return doc(database, "parts", id);
   });
   let record;
+
   await runTransaction(database, async (transaction) => {
     const snapshots = await Promise.all(partReferences.map((reference) => transaction.get(reference)));
     const reads = snapshots.map((snapshot, index) => {
