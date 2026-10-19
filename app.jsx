@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState, useRef } from "react";
 import { createRoot } from "react-dom/client";
 import "./style.css";
-import { cancelWorkOrder, completeWorkOrder, createPurchaseInvoice, createStockDraft, createWorkOrder, deleteFitment, deletePart, deletePersonnel, deleteCustomer, deleteAppointment, deleteNotification, fetchServiceData, getPersonnelPerformance, grantUserAccess, listAppointments, listAuthorizedUsers, listCustomers, listNotifications, listPersonnel, markNotificationRead, receiveStockDraft, restorePart, revokeUserAccess, saveAppointment, saveCustomer, saveFitment, savePart, savePersonnel, sendChatMessage, subscribeToChat, subscribeToServiceData, togglePartFavorite, updateAppointmentStatus, updateWorkOrder } from "./data.js";
+import { cancelWorkOrder, completeWorkOrder, createPurchaseInvoice, createStockDraft, createWorkOrder, deleteFitment, deletePart, deletePersonnel, deleteCustomer, deleteAppointment, deleteNotification, fetchServiceData, getPersonnelPerformance, grantUserAccess, listAppointments, listAuthorizedUsers, listCustomers, listNotifications, listPersonnel, markNotificationRead, receiveStockDraft, restorePart, revokeUserAccess, saveAppointment, saveCustomer, saveFitment, savePart, savePersonnel, sendChatMessage, subscribeToChat, subscribeToServiceData, togglePartFavorite, updateAppointmentStatus, updateWorkOrder, adjustStock } from "./data.js";
 import * as XLSX from "xlsx";
 import { getOpenWorkOrders, getRevenueEligibleWorkOrders, getWorkOrderStatusClass, WORK_ORDER_STATUS } from "./workOrderLifecycle.js";
 import { formatFitmentSpec, formatFitmentVehicle, FUEL_TYPES, searchFitments, searchVehiclePartUsage } from "./vehicleCompatibility.js";
@@ -412,6 +412,14 @@ function App() {
       } });
     });
   };
+  const adjustPartStock = async (part, deltaQty, type = "Düzeltme") => {
+    if (!window.confirm(`${part.name} stoğuna ${deltaQty > 0 ? "+" : ""}${deltaQty} adet eklemek istiyor musunuz?`)) return;
+    await runAction(async () => {
+      await adjustStock(part.id, deltaQty, user.email, type);
+      await reloadData();
+      setToast(`${part.name} stoğu güncellendi.`);
+    });
+  };
   const persistJob = async (job) => {
     const isEditing = Boolean(job.id);
     await runAction(async () => {
@@ -546,7 +554,7 @@ function App() {
           onOpenInvoice: () => setPage("invoices"),
           onOpenMovement: () => setPage("movements"),
         }) :
-        page === "inventory" ? h(Inventory, { parts: data.parts, query, setQuery, openModal, removePart, saving, filterIntent: inventoryFilterIntent, clearFilterIntent: () => setInventoryFilterIntent(null), toggleFavorite }) :
+        page === "inventory" ? h(Inventory, { parts: data.parts, query, setQuery, openModal, removePart, saving, filterIntent: inventoryFilterIntent, clearFilterIntent: () => setInventoryFilterIntent(null), toggleFavorite, adjustPartStock }) :
         page === "workorders" ? h(WorkOrders, { jobs: data.jobs, query, setQuery, openModal, markJobComplete, cancelJob, saving, selectionIntent: workOrderSelectionIntent, clearSelectionIntent: () => setWorkOrderSelectionIntent(null), statusFilterIntent: workOrderStatusFilterIntent, clearStatusFilterIntent: () => setWorkOrderStatusFilterIntent(null) }) :
         page === "vehicles" ? h(VehicleHistory, { jobs: data.jobs, queryIntent: vehicleQueryIntent, clearQueryIntent: () => setVehicleQueryIntent(null) }) :
         page === "compatibility" ? h(PartCompatibility, { jobs: data.jobs, fitments: data.fitments || [], openModal, removeFitment, saving }) :
@@ -757,37 +765,71 @@ function AIAssistant({ personnel, customers, appointments, parts, jobs }) {
     const activeJobs = jobs.filter((j) => (j.status || "").toLocaleLowerCase("tr") !== "tamamlandı" && (j.status || "").toLocaleLowerCase("tr") !== "iptal").length;
     const totalRevenue = jobs.reduce((s, j) => s + Number(j.total || 0), 0);
     const lowStock = parts.filter((p) => Number(p.stock || 0) <= Number(p.minimum || 0)).length;
+    const completedJobs = jobs.filter((j) => (j.status || "").toLocaleLowerCase("tr") === "tamamlandı").length;
+    const cancelledJobs = jobs.filter((j) => (j.status || "").toLocaleLowerCase("tr") === "iptal").length;
+    const pendingAppts = appointments.filter((a) => a.status === "pending").length;
+    const activePersonnel = personnel.filter((p) => p.active !== false).length;
+    const completedRevenue = jobs.filter((j) => (j.status || "").toLocaleLowerCase("tr") === "tamamlandı").reduce((s, j) => s + Number(j.total || 0), 0);
+    const topCustomer = [...customers].sort((a, b) => {
+      const aJobs = jobs.filter((j) => j.customerId === a.id).length;
+      const bJobs = jobs.filter((j) => j.customerId === b.id).length;
+      return bJobs - aJobs;
+    })[0];
+    const topPart = [...parts].sort((a, b) => Number(b.stock || 0) - Number(a.stock || 0))[0];
+    const recentJob = [...jobs].sort((a, b) => (b.updatedAt || b.date || "").localeCompare(a.updatedAt || a.date || ""))[0];
 
-    if (q.includes("personel") || q.includes("çalışan")) {
-      if (q.includes("maaş") || q.includes("komisyon")) {
+    const summary = `Sistem özetiniz: ${pCount} personel (${activePersonnel} aktif), ${cCount} müşteri, ${aCount} randevu (${pendingAppts} beklemede), ${partCount} parça (${lowStock} kritik), ${jobCount} iş emri (${activeJobs} açık, ${completedJobs} tamamlandı, ${cancelledJobs} iptal), toplam ciro ${money(totalRevenue)} (tamamlananlardan ${money(completedRevenue)}).`;
+
+    if (q.includes("merhaba") || q.includes("selam") || q.includes("nasılsın") || q.includes("günaydın") || q.includes("iyi akşamlar")) {
+      return `Merhaba! Ben Demir Service AI asistanınız. ${summary} Size nasıl yardımcı olabilirim?`;
+    }
+    if (q.includes("yardım") || q.includes("ne yapabilir") || q.includes("nasıl kullanılır") || q.includes("özellikler")) {
+      return `Şunlar hakkında soru sorabilirsiniz:\n• Personel: kayıt, maaş, komisyon, performans\n• Müşteri: kayıt, araç, plaka, iletişim\n• Randevu: planlama, durum, müşteri eşleştirme\n• Parça/Stok: envanter, stok seviyesi, minimum stok, kritik uyarı\n• Fatura: alış faturaları, stok girişi, tedarikçi\n• İş Emri: servis işlemleri, ciro, durum takibi\n• Genel: sistem özeti, raporlar, yedekleme\n\n${summary}`;
+    }
+    if (q.includes("özet") || q.includes("durum") || q.includes("rapor") || q.includes("genel") || q.includes("sistem") || q.includes("tüm") || q.includes("hepsi")) {
+      return `${summary}\n\nDetaylı bilgi için belirli bir konu hakkında soru sorabilirsiniz: personel, müşteri, randevu, parça/stok, fatura veya iş emri.`;
+    }
+    if (q.includes("personel") || q.includes("çalışan") || q.includes("eleman") || q.includes("memur") || q.includes("teknisyen")) {
+      if (q.includes("maaş") || q.includes("komisyon") || q.includes("gelir")) {
         const top = [...personnel].sort((a, b) => Number(b.commissionRate || 0) - Number(a.commissionRate || 0))[0];
-        return `Toplam ${pCount} personel kaydı var. En yüksek komisyon oranına sahip personel: ${top?.name || "yok"} (%${top?.commissionRate || 0}). Tüm personeli "Personel" sekmesinden görüntüleyebilirsiniz.`;
+        return `${summary}\n\nPersonel detayı: Toplam ${pCount} personel, ${activePersonnel} aktif. En yüksek komisyon: ${top?.name || "yok"} (%${top?.commissionRate || 0}). Personel ekle/düzenlemek için "Personel" sekmesine gidin.`;
       }
-      return `Sisteminizde toplam ${pCount} personel kaydı bulunuyor. Personel eklemek için "Personel" sekmesine gidin ve "Personel ekle" butonuna tıklayın.`;
+      return `${summary}\n\nPersonel detayı: Toplam ${pCount} personel kaydı, ${activePersonnel} tanesi aktif. Tüm çalışan kayıtlarını, rollerini ve performanslarını "Personel" sekmesinden yönetebilirsiniz.`;
     }
-    if (q.includes("müşteri") || q.includes("arac") || q.includes("plaka")) {
-      return `Toplam ${cCount} müşteri kaydı var. Müşteri ve araç kayıtlarını "Müşteri Yönetimi" sekmesinden yönetebilirsiniz.`;
+    if (q.includes("müşteri") || q.includes("arac") || q.includes("plaka") || q.includes("müşteri") || q.includes("araba") || q.includes("otomobil")) {
+      return `${summary}\n\nMüşteri detayı: Toplam ${cCount} müşteri kaydı. Müşteri ve araç kayıtlarını, iletişim bilgilerini "Müşteri Yönetimi" sekmesinden görüntüleyip düzenleyebilirsiniz.${topCustomer ? `\nEn aktif müşteri: ${topCustomer.name} (${jobs.filter((j) => j.customerId === topCustomer.id).length} iş emri).` : ""}`;
     }
-    if (q.includes("randevu")) {
-      const pending = appointments.filter((a) => a.status === "pending").length;
-      return `Toplam ${aCount} randevu var, ${pending} tanesi beklemede. Randevuları "Randevu Takvimi" sekmesinden planlayabilirsiniz.`;
+    if (q.includes("randevu") || q.includes("takvim") || q.includes("planla") || q.includes("görüşme")) {
+      return `${summary}\n\nRandevu detayı: Toplam ${aCount} randevu, ${pendingAppts} tanesi beklemede. Randevuları planlamak, durumu güncellemek ve personel atamak için "Randevu Takvimi" sekmesini kullanın.`;
     }
-    if (q.includes("parça") || q.includes("stok") || q.includes("envanter")) {
-      return `Toplam ${partCount} parça kaydı var, ${lowStock} tanesi Kritik stok seviyesinde (stok ≤ minimum). Parçaları "Parça Envanteri" sekmesinden görüntüleyebilirsiniz.`;
+    if (q.includes("parça") || q.includes("stok") || q.includes("envanter") || q.includes("malzeme") || q.includes("yedek parça")) {
+      return `${summary}\n\nParça/Stok detayı: Toplam ${partCount} parça kaydı, ${lowStock} tanesi kritik stok seviyesinde (stok ≤ minimum). En yüksek stokta: ${topPart?.name || "yok"} (${Number(topPart?.stock || 0)} adet). Parçaları ve stok seviyelerini "Parça Envanteri" sekmesinden takip edebilirsiniz.`;
     }
-    if (q.includes("fatura") || q.includes("alış") || q.includes("satış")) {
-      return `Fatura kayıtlarını "Alış Faturaları" sekmesinden yönetebilirsiniz. Yeni fatura eklemek için "Fatura ekle" butonunu kullanın.`;
+    if (q.includes("fatura") || q.includes("alış") || q.includes("satış") || q.includes("tedarikçi") || q.includes("ödeme")) {
+      return `${summary}\n\nFatura detayı: Alış faturalarını "Alış Faturaları" sekmesinden kaydedebilir, stok girişlerini anında işleyebilirsiniz. Yeni fatura eklemek için "Fatura ekle" butonunu kullanın.`;
     }
-    if (q.includes("iş emri") || q.includes("servis") || q.includes("çiro")) {
-      return `Toplam ${jobCount} iş emri var, ${activeJobs} tanesi devam etmekte. Toplam ciro: ${money(totalRevenue)}. İş emirlerini "İş Emirleri" sekmesinden takip edebilirsiniz.`;
+    if (q.includes("iş emri") || q.includes("servis") || q.includes("çiro") || q.includes("işlem") || q.includes("arız") || q.includes("bakım")) {
+      return `${summary}\n\nİş Emri detayı: Toplam ${jobCount} iş emri, ${activeJobs} tanesi devam etmekte, ${completedJobs} tamamlandı, ${cancelledJobs} iptal. Toplam ciro: ${money(totalRevenue)}. İş emirlerini "İş Emirleri" sekmesinden takip edebilir, yeni iş emri açabilirsiniz.`;
     }
-    if (q.includes("merhaba") || q.includes("selam") || q.includes("nasılsın")) {
-      return "Merhaba! Demir Service AI asistanınız olarak size yardımcı olmaya hazırım. Personel, müşteri, randevu, stok, fatura veya iş emirleri hakkında sorunuzu sorabilirsiniz.";
+    if (q.includes("yedek") || q.includes("excel") || q.includes("dışa aktar") || q.includes("indir")) {
+      return `Yedekleme: Tüm verilerinizi (parçalar, iş emirleri, faturalar, müşteriler, personel, randevular, bildirimler) Excel veya metin raporu olarak indirebilirsiniz. "Yedekleme" sekmesine gidin ve "Excel'e Aktar" veya "Rapor İndir" butonlarını kullanın.`;
     }
-    if (q.includes("yardım") || q.includes("ne yapabilir")) {
-      return "Şunlar hakkında bilgi verebilirim: personel yönetimi, müşteri kayıtları, randevu planlama, parça stoku, fatura takibi ve iş emri ciro raporları. Sorunuzu yazın!";
+    if (q.includes("bildirim") || q.includes("uyarı") || q.includes("stok düşük") || q.includes("kritik")) {
+      return `Bildirimler: Düşük stok, randevu ve sistem bildirimlerini "Bildirimler" sekmesinden yönetebilirsiniz. Şu anda ${lowStock} parça kritik stok seviyesinde.`;
     }
-    return `Üzgünüm, bu konuda bilgi yokum. "Personel", "Müşteri", "Randevu", "Parça/Stok", "Fatura" veya "İş Emri" hakkında soru sorabilirsiniz. Toplam: ${pCount} personel, ${cCount} müşteri, ${aCount} randevu, ${partCount} parça, ${jobCount} iş emri.`;
+    if (q.includes("kayıt et") || q.includes("ekle") || q.includes("yeni") || q.includes("oluştur")) {
+      return `Yeni kayıt oluşturmak için ilgili sekmedeki "+" butonunu kullanın: "Personel ekle", "Müşteri ekle", "Parça ekle", "İş emri oluştur", "Fatura ekle", "Randevu ekle". Hangi konuda kayıt yapmak istiyorsanız o sekmeye gidin.`;
+    }
+    if (q.includes("sil") || q.includes("kaldır") || q.includes("güncelle") || q.includes("düzenle")) {
+      return `Kayıt düzenleme/silme: İlgili listedeki kaydın yanındaki "Düzenle" butonuna tıklayarak değişiklik yapabilirsiniz. Silme işlemi için listedeki silme seçeneğini kullanın.`;
+    }
+    if (q.includes("giriş") || q.includes("çıkış") || q.includes("şifre") || q.includes("hesap") || q.includes("kullanıcı")) {
+      return `Hesap yönetimi: Giriş yapmak için giriş ekranını kullanın. Şifre değiştirmek veya hesap erişimi yönetmek için "Yetkili Kullanıcılar" sekmesine gidin (yalnızca yönetici).`;
+    }
+    if (q.includes("teşekkür") || q.includes("sağ ol") || q.includes("güle güle") || q.includes("hoşça kal")) {
+      return "Rica ederim! Başka bir sorunuz olduğunda buradayım. İyi çalışmalar dilerim.";
+    }
+    return `${summary}\n\nBu konuda doğrudan bilgi yokum, ama sisteminizdeki temel veriler yukarıdaki özetde yer alıyor. "Personel", "Müşteri", "Randevu", "Parça/Stok", "Fatura", "İş Emri", "Yedekleme" veya "Bildirim" hakkında daha spesifik bir soru sorabilirsiniz.`;
   }
 
   async function handleSend(e) {
@@ -1051,37 +1093,72 @@ function LiveClock({ compact }) {
   }, []);
   return h("span", { className: compact ? "today-label" : "hero-time" }, now.toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" }), compact ? " · " : null, compact ? new Intl.DateTimeFormat("tr-TR", { day: "2-digit", month: "short", year: "numeric" }).format(now) : null);
 }
-function Inventory({ parts, query, setQuery, openModal, removePart, saving, filterIntent, clearFilterIntent, toggleFavorite }) {
+function Inventory({ parts, query, setQuery, openModal, removePart, saving, filterIntent, clearFilterIntent, toggleFavorite, adjustPartStock }) {
   const [stockFilter, setStockFilter] = useState(() => filterIntent || "all");
+  const [showArchived, setShowArchived] = useState(false);
   useEffect(() => {
     if (!filterIntent) return;
     setStockFilter(filterIntent);
     clearFilterIntent();
   }, [filterIntent, clearFilterIntent]);
-  const filtered = parts.filter((part) => `${part.name} ${part.sku} ${part.category} ${part.brand}`.toLocaleLowerCase("tr").includes(query.toLocaleLowerCase("tr")) && (stockFilter === "all" || (stockFilter === "low" ? part.stock <= part.minimum : stockFilter === "good" ? part.stock > part.minimum : stockFilter === "favorite" ? part.favorite : true)));
-  return h(React.Fragment, null,
-    h("div", { className: "list-toolbar" },
-      h("div", { className: "search-wrap" }, h(Icon, { name: "search", size: 17 }), h("input", { value: query, onChange: (event) => setQuery(event.target.value), placeholder: "Parça adı, SKU veya kategori ara..." })),
-      h("select", { className: "filter-select", value: stockFilter, onChange: (event) => setStockFilter(event.target.value), "aria-label": "Stok durumu filtresi" }, h("option", { value: "all" }, "Tüm stoklar"), h("option", { value: "low" }, "Kritik stok"), h("option", { value: "good" }, "Stok yeterli"), h("option", { value: "favorite" }, "Favoriler")),
-      h("span", { className: "result-count" }, `${filtered.length} parça gösteriliyor`)
-    ),
-    h("section", { className: "panel table-panel" }, filtered.length ? h("div", { className: "table-scroll" },
-      h("table", null,
-        h("thead", null, h("tr", null, ["", "PARÇA", "KATEGORİ", "STOK DURUMU", "ALIŞ FİYATI · KDV HARİÇ", "SATIŞ FİYATI · KDV HARİÇ", ""].map((label) => h("th", { key: label }, label)))),
-        h("tbody", null, filtered.map((part) => h("tr", { key: part.id },
+  const allParts = showArchived ? parts : parts.filter((p) => p.archived !== true);
+  const filtered = allParts.filter((part) => `${part.name} ${part.sku} ${part.category} ${part.brand}`.toLocaleLowerCase("tr").includes(query.toLocaleLowerCase("tr")) && (stockFilter === "all" || (stockFilter === "low" ? part.stock <= part.minimum : stockFilter === "good" ? part.stock > part.minimum : stockFilter === "favorite" ? part.favorite : true)));
+  const exportExcel = () => {
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.json_to_sheet(filtered.map((p) => ({
+      SKU: p.sku,
+      "Parça Adı": p.name,
+      Kategori: p.category,
+      Marka: p.brand,
+      Stok: p.stock,
+      "Minimum": p.minimum,
+      "Alış Fiyatı": p.cost,
+      "Satış Fiyatı": p.price,
+      Durum: p.stock <= p.minimum ? "Kritik" : "Yeterli",
+      Favorisi: p.favorite ? "Evet" : "Hayır",
+      Arşivli: p.archived ? "Evet" : "Hayır",
+    })));
+    XLSX.utils.book_append_sheet(wb, ws, "Parçalar");
+    XLSX.writeFile(wb, `demir-parca-envanteri-${new Date().toISOString().slice(0, 10)}.xlsx`);
+  };
+  const tableContent = filtered.length ? h("div", { className: "table-scroll" },
+    h("table", null,
+      h("thead", null, h("tr", null, ["", "PARÇA", "KATEGORİ", "STOK", "ALIŞ FİYATI · KDV HARİÇ", "SATIŞ FİYATI · KDV HARİÇ", "DURUM", "İŞLEM"].map((label) => h("th", { key: label }, label)))),
+      h("tbody", null, filtered.map((part) => {
+        const low = part.stock <= part.minimum;
+        return h("tr", { key: part.id },
           h("td", null, h("button", { className: "icon-button favorite-button", type: "button", onClick: () => toggleFavorite(part.id), disabled: saving, title: part.favorite ? "Favoriden kaldır" : "Favorilere ekle" }, h(Icon, { name: part.favorite ? "bell" : "car", size: 14, className: part.favorite ? "favorite-active" : "" }))),
           h("td", null, h("div", { className: "table-part" }, h("span", { className: "part-avatar" }, part.name.slice(0, 1)), h("span", null, h("strong", null, part.name), h("small", null, part.sku)))),
           h("td", null, h("span", { className: "category-tag" }, part.category)),
-          h("td", null, h(StockStatus, { part })),
+          h("td", null, h("div", { className: "stock-control" },
+            h("button", { className: "button button-small button-outline stock-minus", type: "button", disabled: saving || part.stock <= 0, onClick: () => adjustPartStock(part, -1, "Çıkış"), title: "Stoktan 1 adet düşür" }, "-"),
+            h("span", { className: `stock-value ${low ? "stock-low" : "stock-good"}` }, part.stock),
+            h("button", { className: "button button-small button-outline stock-plus", type: "button", disabled: saving, onClick: () => adjustPartStock(part, 1, "Giriş"), title: "Stoğa 1 adet ekle" }, "+")))
+          ,
           h("td", { className: "muted-cell" }, money(part.cost)),
           h("td", { className: "price-cell" }, money(part.price)),
+          h("td", null, h(StockStatus, { part })),
           h("td", null, h("div", { className: "row-actions" },
             h("button", { className: "button button-small", disabled: saving, onClick: () => openModal("part", part) }, "Düzenle"),
-            h("button", { className: "button button-small button-danger", disabled: saving, onClick: () => removePart(part), "aria-label": `${part.name} parçasını sil` }, "Arşivle")
-          ))
-        )))
+            h("button", { className: "button button-small button-danger", disabled: saving, onClick: () => removePart(part), "aria-label": `${part.name} parçasını sil` }, part.archived ? "Geri Yükle" : "Arşivle")
+            ))
+          );
+        }
+      )))
       )
-    ) : h("div", { className: "empty-state" }, "Aramanızla eşleşen parça bulunamadı."))
+    : h("div", { className: "empty-state" }, showArchived ? "Arşivli parça bulunamadı." : "Aramanızla eşleşen parça bulunamadı.");
+  return h("div", null,
+    h("div", { className: "list-toolbar" }, [
+      h("div", { className: "search-wrap" }, h(Icon, { name: "search", size: 17 }), h("input", { value: query, onChange: (event) => setQuery(event.target.value), placeholder: "Parça adı, SKU veya kategori ara..." })),
+      h("select", { className: "filter-select", value: stockFilter, onChange: (event) => setStockFilter(event.target.value), "aria-label": "Stok durumu filtresi" }, h("option", { value: "all" }, "Tüm stoklar"), h("option", { value: "low" }, "Kritik stok"), h("option", { value: "good" }, "Stok yeterli"), h("option", { value: "favorite" }, "Favoriler")),
+      h("label", { style: { display: "flex", alignItems: "center", gap: "6px", cursor: "pointer" } }, h("input", { type: "checkbox", checked: showArchived, onChange: () => setShowArchived(!showArchived) }), showArchived ? "Arşivli parçaları gizle" : "Arşivli parçaları göster"),
+      h("span", { className: "result-count" }, `${filtered.length} parça gösteriliyor`),
+      h("div", { className: "heading-actions" }, [
+        h("button", { className: "button button-quiet", onClick: exportExcel, disabled: saving || !filtered.length }, h(Icon, { name: "box", size: 14 }), "Excel'e Aktar"),
+        h("button", { className: "button button-primary", onClick: () => openModal("part"), disabled: saving }, h(Icon, { name: "plus", size: 14 }), "Parça ekle")
+      ])
+    ]),
+    h("section", { className: "panel table-panel" }, tableContent)
   );
 }
 function StockStatus({ part }) {

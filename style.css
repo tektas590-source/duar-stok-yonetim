@@ -2895,3 +2895,35 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.1)
 @media (max-width: 480px) {
   .ai-panel { width: calc(100vw - 32px); right: 16px; bottom: 72px; }
 }
+
+/* ─── Stok Kontrol ──────────────────────────────────────────────────────── */
+.stock-control {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+.stock-value {
+  min-width: 28px;
+  text-align: center;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+}
+.stock-value.stock-low { color: var(--danger); border-color: rgba(255,107,107,0.3); }
+.stock-value.stock-good { color: var(--accent); border-color: rgba(168,240,69,0.2); }
+.stock-minus, .stock-plus {
+  width: 28px; height: 28px;
+  padding: 0;
+  display: grid; place-items: center;
+  font-size: 14px;
+  font-weight: 700;
+}
+.stock-minus:disabled, .stock-plus:disabled { opacity: 0.4; cursor: not-allowed; }
+.row-actions { display: flex; gap: 6px; }
+
+/* ─── Inventory Toolbar ─────────────────────────────────────────────────── */
+.list-toolbar .heading-actions { display: flex; gap: 8px; align-items: center; }
+.list-toolbar .heading-actions .button-quiet, .list-toolbar .heading-actions .button-primary { font-size: 12px; padding: 6px 12px; }

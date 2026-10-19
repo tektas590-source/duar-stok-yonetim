@@ -188,6 +188,32 @@ export async function restorePart(partId) {
   await setDoc(doc(requireDatabase(), "parts", partId), { archived: false }, { merge: true });
 }
 
+export async function adjustStock(partId, deltaQty, actor, type = "Düzeltme") {
+  const database = requireDatabase();
+  const reference = doc(database, "parts", partId);
+  const snapshot = await getDoc(reference);
+  if (!snapshot.exists()) throw new Error("Parça bulunamadı.");
+  const part = snapshot.data();
+  const previousStock = Number(part.stock || 0);
+  const newStock = Math.max(0, previousStock + Number(deltaQty));
+  const movementReference = doc(database, "parts", partId, "movements", makeId());
+  await runTransaction(database, async (transaction) => {
+    transaction.set(reference, { ...part, stock: newStock, updatedAt: new Date().toISOString() }, { merge: true });
+    const movement = movementRecord(part, {
+      qty: Number(deltaQty),
+      type,
+      reference: "part",
+      referenceCode: part.sku,
+      actor,
+      stockBefore: previousStock,
+      stockAfter: newStock,
+    });
+    movement.id = movementReference.id;
+    transaction.set(movementReference, movement);
+  });
+  return { ...part, stock: newStock };
+}
+
 function normalizeFitmentRecord(fitment, id, timestamps = {}) {
   return {
     id,
