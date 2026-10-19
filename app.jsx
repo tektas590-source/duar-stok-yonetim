@@ -1384,10 +1384,10 @@ function StockMovements({ movements }) {
 }
 function Invoices({ invoices, openModal, saving }) {
   const [query, setQuery] = useState("");
-  const q = query.trim().toLocaleLowerCase("tr");
+  const q = query.trim().toLocaleLowerCase("tr").replace(/ı/g, "i");
   const filtered = invoices.filter((invoice) => {
-    const haystack = `${invoice.code || invoice.id} ${invoice.supplier || ""} ${invoice.date || ""} ${invoice.status || ""}`;
-    return haystack.toLocaleLowerCase("tr").includes(q);
+    const haystack = `${invoice.code || invoice.id} ${invoice.supplier || ""} ${invoice.date || ""} ${dateLabel(invoice.date) || ""} ${invoice.status || ""}`;
+    return haystack.toLocaleLowerCase("tr").replace(/ı/g, "i").includes(q);
   });
   return h("section", { className: "panel table-panel" }, [
     h("div", { className: "list-toolbar" }, [
