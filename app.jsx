@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState, useRef } from "react";
 import { createRoot } from "react-dom/client";
 import "./style.css";
-import { cancelWorkOrder, completeWorkOrder, createPurchaseInvoice, createStockDraft, createWorkOrder, deleteFitment, deletePart, deletePersonnel, deleteCustomer, deleteAppointment, deleteNotification, fetchServiceData, getPersonnelPerformance, grantUserAccess, listAppointments, listAuthorizedUsers, listCustomers, listNotifications, listPersonnel, markNotificationRead, receiveStockDraft, restorePart, revokeUserAccess, saveAppointment, saveCustomer, saveFitment, savePart, savePersonnel, sendChatMessage, subscribeToChat, subscribeToServiceData, togglePartFavorite, updateAppointmentStatus, updateWorkOrder, adjustStock } from "./data.js";
+import { cancelWorkOrder, completeWorkOrder, createPurchaseInvoice, createStockDraft, createWorkOrder, deleteFitment, deletePart, deletePersonnel, deleteCustomer, deleteAppointment, deleteNotification, deleteReturnItem, fetchServiceData, getPersonnelPerformance, grantUserAccess, listAppointments, listAuthorizedUsers, listCustomers, listNotifications, listPersonnel, listReturns, markNotificationRead, receiveStockDraft, restorePart, revokeUserAccess, saveAppointment, saveCustomer, saveFitment, savePart, savePersonnel, saveReturnItem, sendChatMessage, subscribeToChat, subscribeToServiceData, togglePartFavorite, updateAppointmentStatus, updateReturnStatus, updateWorkOrder, adjustStock } from "./data.js";
 import * as XLSX from "xlsx";
 import { getOpenWorkOrders, getRevenueEligibleWorkOrders, getWorkOrderStatusClass, WORK_ORDER_STATUS } from "./workOrderLifecycle.js";
 import { formatFitmentSpec, formatFitmentVehicle, FUEL_TYPES, searchFitments, searchVehiclePartUsage } from "./vehicleCompatibility.js";
@@ -184,7 +184,7 @@ function App() {
   const [theme, setTheme] = useState(() => localStorage.getItem("demir-service-theme") === "light" ? "light" : "dark");
   const [user, setUser] = useState(null);
   const [authReady, setAuthReady] = useState(false);
-  const [data, setData] = useState({ parts: [], jobs: [], invoices: [], drafts: [], fitments: [], movements: [], customers: [], personnel: [], appointments: [], notifications: [] });
+  const [data, setData] = useState({ parts: [], jobs: [], invoices: [], drafts: [], fitments: [], movements: [], customers: [], personnel: [], appointments: [], notifications: [], returns: [] });
   const [chatMessages, setChatMessages] = useState([]);
   const [dataLoading, setDataLoading] = useState(false);
   const [authBusy, setAuthBusy] = useState(false);
@@ -320,6 +320,7 @@ function App() {
     { id: "orders", label: "Taslak Siparişler", icon: "cart", badge: data.drafts.length || null },
     { id: "reports", label: "Raporlar", icon: "chart" },
     { id: "stockcompare", label: "Stok Karşılaştır", icon: "chart" },
+    { id: "returns", label: "İade Parçalar", icon: "receipt", badge: data.returns?.filter((r) => r.status === "pending").length || null },
     { id: "chat", label: "Sohbet", icon: "bell", badge: chatMessages.length || null },
     { id: "servicebox", label: "ServiceBox", icon: "search", external: true, url: "https://idfed.mpsa.com/as/authorization.oauth2?response_type=code&client_id=CIDHBJGJWDTBSTEPFPFESQQNEIOJKOUQ&redirect_uri=https%3A%2F%2Fservicebox.mpsa.com%2Fdo%2Foauth2Callback&scope=openid+prd%3Ajbn+profile&state=T_uiRpnctUziudhxhzOiQs3FnICKHQLg5r4UKy9F8ZHLfk_8YUirCf4cB6z9sPjeoUoT4aL1_rf1OHVHLsUgExJBPXNRHqNP&code_challenge=bpZaD0Od0siQfVjM9C0NRHF0n-jSaAWzINuDL8W97BU&code_challenge_method=S256" },
     { id: "b2b", label: "B2B Demir", icon: "box", external: true, url: "https://www.b2bdemirotomotiv.com.tr/" },
@@ -331,7 +332,7 @@ function App() {
   ];
   const isOwner = user?.email?.toLowerCase() === OWNER_EMAIL;
   if (isOwner) nav.push({ id: "access", label: "Yetkili Kullanıcılar", icon: "grid" });
-  const titles = { dashboard: ["Genel Bakış", "Servisinizin bugünkü durumuna göz atın."], inventory: ["Parça Envanteri", "Stoklarınızı ve parça fiyatlarınızı yönetin."], workorders: ["İş Emirleri", "Araç servis geçmişini ve devam eden işleri takip edin."], vehicles: ["Araç Servis Geçmişi", "Plakaya göre servis ziyaretlerini ve kullanılan parçaları bulun."], compatibility: ["Araç Uyumluluğu", "Marka, model, yakıt ve motor için uyumlu parçaları kaydedin; iş emri kullanımını da görün."], movements: ["Stok Hareketleri", "Giriş, çıkış ve düzeltmeleri kaynak ve kullanıcıyla izleyin."], invoices: ["Alış Faturaları", "Faturaları kaydedin, stok girişlerini anında işleyin."], orders: ["Taslak Siparişler", "Azalan parçalar için oluşturduğunuz sipariş önerileri."], reports: ["Raporlar", "Satış performansı ve iş emri cironuz."], stockcompare: ["Stok Karşılaştır", "Excel ile stok karşılaştırma yapın."], access: ["Yetkili Kullanıcılar", "Hesap ekleyin veya servis erişimini kaldırın."], chat: ["Sohbet", "Ekibinizle iletişim kurun."], servicebox: ["Peugeot ServiceBox", "Parça tespiti için Peugeot ServiceBox'a gidin."], customers: ["Müşteri Yönetimi", "Müşteri kayıtlarını, araçlarını ve iletişim bilgilerini yönetin."], personnel: ["Personel Yönetimi", "Çalışan kayıtlarını, rollerini ve performanslarını takip edin."], appointments: ["Randevu Takvimi", "Müşteri randevularını planlayın ve servis tarihlerini yönetin."], notifications: ["Bildirimler", "Düşük stok, randevu ve sistem bildirimlerini yönetin."], backup: ["Yedekleme", "Verilerinizi Excel/PDF olarak dışa aktarın ve yedekleyin."] };
+  const titles = { dashboard: ["Genel Bakış", "Servisinizin bugünkü durumuna göz atın."], inventory: ["Parça Envanteri", "Stoklarınızı ve parça fiyatlarınızı yönetin."], workorders: ["İş Emirleri", "Araç servis geçmişini ve devam eden işleri takip edin."], vehicles: ["Araç Servis Geçmişi", "Plakaya göre servis ziyaretlerini ve kullanılan parçaları bulun."], compatibility: ["Araç Uyumluluğu", "Marka, model, yakıt ve motor için uyumlu parçaları kaydedin; iş emri kullanımını da görün."], movements: ["Stok Hareketleri", "Giriş, çıkış ve düzeltmeleri kaynak ve kullanıcıyla izleyin."], invoices: ["Alış Faturaları", "Faturaları kaydedin, stok girişlerini anında işleyin."], orders: ["Taslak Siparişler", "Azalan parçalar için oluşturduğunuz sipariş önerileri."], reports: ["Raporlar", "Satış performansı ve iş emri cironuz."], stockcompare: ["Stok Karşılaştır", "Excel ile stok karşılaştırma yapın."], returns: ["İade Parçalar", "İade edilecek parçaları takip edin ve yönetin."], access: ["Yetkili Kullanıcılar", "Hesap ekleyin veya servis erişimini kaldırın."], chat: ["Sohbet", "Ekibinizle iletişim kurun."], servicebox: ["Peugeot ServiceBox", "Parça tespiti için Peugeot ServiceBox'a gidin."], customers: ["Müşteri Yönetimi", "Müşteri kayıtlarını, araçlarını ve iletişim bilgilerini yönetin."], personnel: ["Personel Yönetimi", "Çalışan kayıtlarını, rollerini ve performanslarını takip edin."], appointments: ["Randevu Takvimi", "Müşteri randevularını planlayın ve servis tarihlerini yönetin."], notifications: ["Bildirimler", "Düşük stok, randevu ve sistem bildirimlerini yönetin."], backup: ["Yedekleme", "Verilerinizi Excel/PDF olarak dışa aktarın ve yedekleyin."] };
   const openModal = (type, item = null) => setModal({ type, item });
   const openCriticalInventory = () => {
     setQuery("");
@@ -393,6 +394,9 @@ function App() {
   };
   const persistNotification = async (notification) => {
     await runAction(async () => { await createNotification(notification, user.email); await reloadData(); setModal(null); }, "Bildirim oluşturuldu.");
+  };
+  const persistReturnItem = async (returnItem) => {
+    await runAction(async () => { await saveReturnItem(returnItem, user.email); await reloadData(); setModal(null); }, "İade parça kaydedildi.");
   };
   const toggleFavorite = async (partId) => {
     await runAction(async () => { await togglePartFavorite(partId); await reloadData(); }, "Favori durumu güncellendi.");
@@ -539,7 +543,8 @@ function App() {
           page === "workorders" ? h("button", { className: "button button-primary", onClick: () => openModal("job"), disabled: saving }, h(Icon, { name: "plus", size: 16 }), "İş emri oluştur") :
           page === "invoices" ? h("button", { className: "button button-primary", onClick: () => openModal("invoice"), disabled: saving }, h(Icon, { name: "plus", size: 16 }), "Fatura ekle") :
           page === "orders" ? h("button", { className: "button button-primary", onClick: createDraft, disabled: saving }, h(Icon, { name: "plus", size: 16 }), "Sipariş taslağı oluştur") :
-          page === "compatibility" ? h("button", { className: "button button-primary", onClick: () => openModal("fitment"), disabled: saving }, h(Icon, { name: "plus", size: 16 }), "Uyumluluk ekle") : null)),
+          page === "compatibility" ? h("button", { className: "button button-primary", onClick: () => openModal("fitment"), disabled: saving }, h(Icon, { name: "plus", size: 16 }), "Uyumluluk ekle") :
+          page === "returns" ? h("button", { className: "button button-primary", onClick: () => openModal("return"), disabled: saving }, h(Icon, { name: "plus", size: 16 }), "İade parça ekle") : null)),
         page === "dashboard" ? h(Dashboard, {
           data,
           lowStock,
@@ -567,6 +572,7 @@ function App() {
         page === "invoices" ? h(Invoices, { invoices: data.invoices, openModal, saving }) :
         page === "orders" ? h(Orders, { drafts: data.drafts, lowStock, receiveDraft, createDraft }) :
         page === "stockcompare" ? h(StockCompare, { parts: data.parts, openModal }) :
+        page === "returns" ? h(ReturnsPage, { returns: data.returns, openModal, saving }) :
         page === "chat" ? h(ChatPage, { messages: chatMessages, user, sendMessage: async (text) => { await sendChatMessage(user.email, user.displayName, text); }, saving, configured: firebaseConfigured }) :
         page === "servicebox" ? h(ServiceBoxPage) :
         page === "access" && isOwner ? h(AccessManagement, {
@@ -621,7 +627,7 @@ function App() {
         ) : globalSearchQuery ? h("div", { className: "global-search-empty" }, "Sonuç bulunamadı") : h("div", { className: "global-search-hint" }, "Ctrl+K ile hızlı arama")
       )
     ) : null,
-    modal ? h(Modal, { modal, parts: data.parts, customers: data.customers, personnel: data.personnel, onClose: () => setModal(null), onSavePart: persistPart, onSaveJob: persistJob, onSaveInvoice: persistInvoice, onSaveFitment: persistFitment, onSaveCustomer: persistCustomer, onSavePersonnel: persistPersonnel, onSaveAppointment: persistAppointment, onSaveNotification: persistNotification, saving }) : null,
+    modal ? h(Modal, { modal, parts: data.parts, customers: data.customers, personnel: data.personnel, onClose: () => setModal(null), onSavePart: persistPart, onSaveJob: persistJob, onSaveInvoice: persistInvoice, onSaveFitment: persistFitment, onSaveCustomer: persistCustomer, onSavePersonnel: persistPersonnel, onSaveAppointment: persistAppointment, onSaveNotification: persistNotification, onSaveReturnItem: persistReturnItem, saving }) : null,
     errorMessage ? h("div", { className: "toast toast-error", role: "alert" }, h("span", { className: "toast-check" }, "!"), errorMessage) : toast ? h("div", { className: "toast" }, h("span", { className: "toast-check" }, "✓"), toast, toastAction ? h("button", { className: "toast-action", onClick: () => toastAction.run().catch((error) => { console.error("Geri alma başarısız:", error); setErrorMessage(error.message || "Geri alma tamamlanamadı."); }) }, toastAction.label) : null) : null,
     h(AIAssistant, { personnel: data.personnel, customers: data.customers, appointments: data.appointments, parts: data.parts, jobs: data.jobs })
   );
@@ -2088,6 +2094,7 @@ function Modal({ modal, parts, customers, personnel, onClose, onSavePart, onSave
   const [status, setStatus] = useState(() => modal.item?.status || JOB_STATUS_IN_PROGRESS);
   const [businessDate, setBusinessDate] = useState(() => modal.item?.date || dateKey(new Date()));
   const [laborAmount, setLaborAmount] = useState(() => String(modal.item?.laborAmount ?? 0));
+  const [externalLabor, setExternalLabor] = useState(() => modal.type === "job" && modal.item?.externalLabor ? modal.item.externalLabor : []);
   const [error, setError] = useState("");
   const [pasteMessage, setPasteMessage] = useState("");
   const [invoiceMode, setInvoiceMode] = useState("code");
@@ -2105,10 +2112,13 @@ function Modal({ modal, parts, customers, personnel, onClose, onSavePart, onSave
       }))
     : []);
   const [newInvoicePart, setNewInvoicePart] = useState({ sku: "", name: "", qty: "1", cost: "", price: "", category: "Genel", brand: "", minimum: "5" });
-  const title = modal.type === "part" ? modal.item ? "Parçayı düzenle" : "Yeni parça ekle" : modal.type === "job" ? modal.item ? "İş emrini düzenle" : "Yeni iş emri" : modal.type === "fitment" ? modal.item ? "Uyumluluğu düzenle" : "Araç uyumluluğu ekle" : modal.type === "customer" ? modal.item ? "Müşteriyi düzenle" : "Yeni müşteri ekle" : modal.type === "personnel" ? modal.item ? "Personeli düzenle" : "Yeni personel ekle" : modal.type === "appointment" ? modal.item ? "Randevuyu düzenle" : "Yeni randevu ekle" : modal.type === "notification" ? modal.item ? "Bildirimi düzenle" : "Yeni bildirim ekle" : modal.type === "invoice" ? modal.item ? "Faturayı düzenle" : "Alış faturası ekle" : "Alış faturası ekle";
+  const title = modal.type === "part" ? modal.item ? "Parçayı düzenle" : "Yeni parça ekle" : modal.type === "job" ? modal.item ? "İş emrini düzenle" : "Yeni iş emri" : modal.type === "fitment" ? modal.item ? "Uyumluluğu düzenle" : "Araç uyumluluğu ekle" : modal.type === "customer" ? modal.item ? "Müşteriyi düzenle" : "Yeni müşteri ekle" : modal.type === "personnel" ? modal.item ? "Personeli düzenle" : "Yeni personel ekle" : modal.type === "appointment" ? modal.item ? "Randevuyu düzenle" : "Yeni randevu ekle" : modal.type === "notification" ? modal.item ? "Bildirimi düzenle" : "Yeni bildirim ekle" : modal.type === "invoice" ? modal.item ? "Faturayı düzenle" : "Alış faturası ekle" : modal.type === "return" ? modal.item ? "İade parçayı düzenle" : "İade parça ekle" : "Alış faturası ekle";
   const updateLine = (index, key, value) => setLines((current) => current.map((line, i) => i === index ? { ...line, [key]: value } : line));
   const addLine = () => setLines((current) => [...current, { partId: "", qty: 1, search: "" }]);
   const updateNewInvoicePart = (key, value) => setNewInvoicePart((current) => ({ ...current, [key]: value }));
+  const updateExternalLabor = (index, key, value) => setExternalLabor((current) => current.map((item, i) => i === index ? { ...item, [key]: value } : item));
+  const addExternalLabor = () => setExternalLabor((current) => [...current, { description: "", cost: "", price: "" }]);
+  const removeExternalLabor = (index) => setExternalLabor((current) => current.filter((_, i) => i !== index));
   function addInvoicePart() {
     const sku = newInvoicePart.sku.trim();
     const existing = parts.find((part) => part.sku.toLocaleLowerCase("tr") === sku.toLocaleLowerCase("tr"));
@@ -2285,6 +2295,11 @@ function Modal({ modal, parts, customers, personnel, onClose, onSavePart, onSave
       if (!notification.title || !notification.message) { setError("Başlık ve mesaj zorunludur."); return; }
       onSaveNotification(notification); return;
     }
+    if (modal.type === "return") {
+      const returnItem = { ...(modal.item || {}), name: String(form.get("name")).trim(), sku: String(form.get("sku")).trim(), quantity: Number(form.get("quantity") || 1), reason: String(form.get("reason")).trim(), supplier: String(form.get("supplier")).trim(), returnDate: String(form.get("returnDate")).trim(), status: String(form.get("status") || "pending" };
+      if (!returnItem.name) { setError("Parça adı zorunludur."); return; }
+      onSaveReturnItem(returnItem); return;
+    }
     if (modal.type === "invoice" && invoiceMode === "code") {
       if (!invoiceItems.length) {
         setError("Faturaya eklemek için yan bölümden en az bir stok kodu ekleyin.");
@@ -2366,13 +2381,15 @@ function Modal({ modal, parts, customers, personnel, onClose, onSavePart, onSave
       let total;
       try {
         normalizedLaborAmount = normalizeLaborAmount(parseCurrencyInput(laborAmount));
-        total = calculateWorkOrderNetTotal(items, normalizedLaborAmount);
+        const externalLaborCost = externalLabor.reduce((sum, el) => sum + (parseCurrencyInput(el.cost) || 0), 0);
+        const externalLaborPrice = externalLabor.reduce((sum, el) => sum + (parseCurrencyInput(el.price) || 0), 0);
+        total = calculateWorkOrderNetTotal(items, normalizedLaborAmount, externalLabor.map(el => ({ cost: parseCurrencyInput(el.cost) || 0, price: parseCurrencyInput(el.price) || 0 })));
       } catch (pricingError) {
         setError(pricingError.message || "İş emri tutarlarını kontrol edin.");
         return;
       }
-      if (!items.length && normalizedLaborAmount <= 0) {
-        setError("İş emri için en az bir parça veya işçilik tutarı girmelisiniz.");
+      if (!items.length && normalizedLaborAmount <= 0 && externalLabor.length === 0) {
+        setError("İş emri için en az bir parça, işçilik veya harici işçilik girmelisiniz.");
         return;
       }
       const previousByPart = new Map();
@@ -2396,6 +2413,11 @@ function Modal({ modal, parts, customers, personnel, onClose, onSavePart, onSave
         phone: String(form.get("phone")).trim(),
         items,
         laborAmount: normalizedLaborAmount,
+        externalLabor: externalLabor.map(el => ({
+          description: el.description,
+          cost: parseCurrencyInput(el.cost) || 0,
+          price: parseCurrencyInput(el.price) || 0
+        })),
         total,
         status: modal.item ? status : JOB_STATUS_IN_PROGRESS
       });
@@ -2467,7 +2489,15 @@ function Modal({ modal, parts, customers, personnel, onClose, onSavePart, onSave
           ) : null
         ),
         h("div", { className: "modal-section-title" }, "Kullanılan parçalar", h("span", null, "Stok farkları kayıtta uygulanır")), h("p", { className: "part-paste-hint" }, "Satış fiyatları KDV hariçtir. Kodun sonundan arayabilir ya da Excel'den birden fazla satırı doğrudan yapıştırabilirsiniz.", pasteMessage ? h("strong", null, ` ${pasteMessage}`) : null), h("div", { className: "modal-lines" }, lines.map((line, index) => partLine(line, index, "job"))), h("button", { className: "add-line-button", type: "button", onClick: addLine }, h(Icon, { name: "plus", size: 15 }), "Parça satırı ekle"),
-        h("div", { className: "labor-amount-field" }, h("label", { htmlFor: "work-order-labor" }, "İşçilik tutarı · KDV hariç (₺)"), h(CurrencyInput, { id: "work-order-labor", value: laborAmount, onChange: (val) => { setLaborAmount(val); setError(""); }, "aria-describedby": "work-order-labor-hint" }), h("small", { id: "work-order-labor-hint" }, "Tek işçilik tutarı. Boş bırakılırsa 0 ₺ kaydedilir."))
+        h("div", { className: "labor-amount-field" }, h("label", { htmlFor: "work-order-labor" }, "İşçilik tutarı · KDV hariç (₺)"), h(CurrencyInput, { id: "work-order-labor", value: laborAmount, onChange: (val) => { setLaborAmount(val); setError(""); }, "aria-describedby": "work-order-labor-hint" }), h("small", { id: "work-order-labor-hint" }, "Tek işçilik tutarı. Boş bırakılırsa 0 ₺ kaydedilir.")),
+        h("div", { className: "modal-section-title" }, "Harici İşçilik", h("span", null, "Dışarıdan yaptırılan işlerin maliyeti ve satış fiyatı")),
+        externalLabor.length ? h("div", { className: "modal-lines" }, externalLabor.map((el, index) => h("div", { className: "modal-item-line external-labor-line", key: index },
+          h("label", null, index === 0 ? "İş açıklaması" : " ", h("input", { value: el.description, onChange: (e) => updateExternalLabor(index, "description", e.target.value), placeholder: "Örn. Kaporta boyası" })),
+          h("label", null, index === 0 ? "Maliyet · KDV hariç (₺)" : " ", h(CurrencyInput, { value: el.cost, onChange: (val) => updateExternalLabor(index, "cost", val), placeholder: "0,00" })),
+          h("label", null, index === 0 ? "Satış fiyatı · KDV hariç (₺)" : " ", h(CurrencyInput, { value: el.price, onChange: (val) => updateExternalLabor(index, "price", val), placeholder: "0,00" })),
+          h("button", { className: "button button-small button-danger job-line-remove", type: "button", onClick: () => removeExternalLabor(index) }, h(Icon, { name: "close", size: 14 }))
+        ))) : null,
+        h("button", { className: "add-line-button", type: "button", onClick: addExternalLabor }, h(Icon, { name: "plus", size: 15 }), "Harici işçilik ekle")
       ) : modal.type === "customer" ? h(React.Fragment, null,
         h("div", { className: "form-grid" },
           h("label", null, "Müşteri adı", h("input", { name: "name", defaultValue: modal.item?.name || "", placeholder: "Ahmet Yılmaz", required: true })),
@@ -2508,6 +2538,16 @@ function Modal({ modal, parts, customers, personnel, onClose, onSavePart, onSave
           h("label", null, "Tür", h("select", { name: "type", defaultValue: modal.item?.type || "info" }, h("option", { value: "info" }, "Bilgi"), h("option", { value: "warning" }, "Uyarı"), h("option", { value: "error" }, "Hata"), h("option", { value: "success" }, "Başarılı"))),
           h("label", null, "Alıcı E-posta", h("input", { name: "recipientEmail", defaultValue: modal.item?.recipientEmail || "", placeholder: "yönetici@gmail.com" })),
           h("label", null, "Link", h("input", { name: "link", defaultValue: modal.item?.link || "", placeholder: "/inventory" }))
+        )
+      ) : modal.type === "return" ? h(React.Fragment, null,
+        h("div", { className: "form-grid" },
+          h("label", null, "Parça adı", h("input", { name: "name", defaultValue: modal.item?.name || "", placeholder: "Örn. Yağ filtresi", required: true })),
+          h("label", null, "Stok kodu / SKU", h("input", { name: "sku", defaultValue: modal.item?.sku || "", placeholder: "Örn. OE-9812" })),
+          h("label", null, "Adet", h("input", { name: "quantity", type: "number", min: 1, defaultValue: modal.item?.quantity || 1, required: true })),
+          h("label", null, "İade nedeni", h("input", { name: "reason", defaultValue: modal.item?.reason || "", placeholder: "Örn. Arızalı parça" })),
+          h("label", null, "Tedarikçi", h("input", { name: "supplier", defaultValue: modal.item?.supplier || "", placeholder: "Tedarikçi firma adı" })),
+          h("label", null, "İade tarihi", h("input", { name: "returnDate", type: "date", defaultValue: modal.item?.returnDate || "", required: true })),
+          h("label", null, "Durum", h("select", { name: "status", defaultValue: modal.item?.status || "pending" }, h("option", { value: "pending" }, "Beklemede"), h("option", { value: "completed" }, "Tamamlandı"), h("option", { value: "cancelled" }, "İptal")))
         )
       ) : h(React.Fragment, null,
         h("div", { className: "form-grid invoice-meta-grid" },
@@ -2563,7 +2603,7 @@ function Modal({ modal, parts, customers, personnel, onClose, onSavePart, onSave
       modal.type === "invoice" && invoicePreviewItems.length ? h(VatSummary, { values: invoiceVat, title: "Fatura toplamı · KDV dahil" }) :
         modal.type === "job" && jobPricing ? h(WorkOrderPriceSummary, { values: jobPricing }) : null,
       error ? h("p", { className: "form-error", role: "alert" }, error) : null,
-      h("div", { className: "modal-footer" }, h("button", { className: "button button-quiet", onClick: onClose, type: "button", disabled: saving }, "Vazgeç"), h("button", { className: "button button-primary", type: "submit", disabled: saving }, saving ? "Kaydediliyor..." : modal.type === "part" ? "Kaydet" : modal.type === "job" ? modal.item ? "İş emrini güncelle" : "İş emrini oluştur" : modal.type === "fitment" ? "Uyumluluğu kaydet" : modal.type === "customer" ? "Müşteriyi kaydet" : modal.type === "personnel" ? "Personeli kaydet" : modal.type === "appointment" ? "Randevuyu kaydet" : modal.type === "notification" ? "Bildirimi oluştur" : "Faturayı kaydet", saving ? null : h(Icon, { name: "arrow", size: 15 })))
+      h("div", { className: "modal-footer" }, h("button", { className: "button button-quiet", onClick: onClose, type: "button", disabled: saving }, "Vazgeç"), h("button", { className: "button button-primary", type: "submit", disabled: saving }, saving ? "Kaydediliyor..." : modal.type === "part" ? "Kaydet" : modal.type === "job" ? modal.item ? "İş emrini güncelle" : "İş emrini oluştur" : modal.type === "fitment" ? "Uyumluluğu kaydet" : modal.type === "customer" ? "Müşteriyi kaydet" : modal.type === "personnel" ? "Personeli kaydet" : modal.type === "appointment" ? "Randevuyu kaydet" : modal.type === "notification" ? "Bildirimi oluştur" : modal.type === "return" ? "İade parçayı kaydet" : "Faturayı kaydet", saving ? null : h(Icon, { name: "arrow", size: 15 })))
     )
   ));
 }
@@ -2685,6 +2725,34 @@ function NotificationsPage({ notifications, openModal, saving }) {
         ))
       ))
     ) : h("div", { className: "empty-state" }, "Henüz bildirim yok.")));
+}
+
+/* ─── İade Parçalar Sayfası ───────────────────────────────────────────────────── */
+function ReturnsPage({ returns, openModal, saving }) {
+  const [query, setQuery] = useState("");
+  const filtered = returns.filter((r) => `${r.name} ${r.sku} ${r.supplier} ${r.reason}`.toLocaleLowerCase("tr").includes(query.trim().toLocaleLowerCase("tr")));
+  const pendingCount = returns.filter((r) => r.status === "pending").length;
+  return h(React.Fragment, null,
+    h("div", { className: "list-toolbar" },
+      h("div", { className: "search-wrap" }, h(Icon, { name: "search", size: 17 }), h("input", { value: query, onChange: (e) => setQuery(e.target.value), placeholder: "Parça adı, SKU veya tedarikçi ara..." })),
+      h("button", { className: "button button-primary", type: "button", disabled: saving, onClick: () => openModal("return") }, h(Icon, { name: "plus", size: 15 }), "İade parça ekle")),
+    h("section", { className: "panel table-panel" }, filtered.length ? h("div", { className: "table-scroll" },
+      h("table", null,
+        h("thead", null, h("tr", null, ["PARÇA ADI", "SKU", "ADET", "İADE NEDENİ", "TEDARİKÇİ", "İADE TARİHİ", "DURUM", "İŞLEM"].map((label) => h("th", { key: label }, label)))),
+        h("tbody", null, filtered.map((r) => h("tr", { key: r.id },
+          h("td", null, h("strong", null, r.name)),
+          h("td", { className: "muted-cell" }, r.sku || "-"),
+          h("td", null, r.quantity),
+          h("td", { className: "muted-cell" }, r.reason || "-"),
+          h("td", { className: "muted-cell" }, r.supplier || "-"),
+          h("td", { className: "muted-cell" }, dateLabel(r.returnDate) || "-"),
+          h("td", null, h("span", { className: `job-status ${r.status === "completed" ? "status-done" : r.status === "cancelled" ? "status-cancelled" : "status-progress" } }, h("i", null), r.status === "pending" ? "Beklemede" : r.status === "completed" ? "Tamamlandı" : "İptal")),
+          h("td", { className: "action-cell", onClick: (e) => e.stopPropagation() },
+            h("button", { className: "button button-small button-outline", type: "button", disabled: saving, onClick: () => openModal("return", r) }, "Düzenle")
+          )
+        ))
+      ))
+    ) : h("div", { className: "empty-state" }, query ? "Aramanızla eşleşen iade parça bulunamadı." : `Henüz iade parça kaydı yok. ${pendingCount > 0 ? `${pendingCount} bekleyen iade var.` : ""}`)));
 }
 
 /* ─── Yedekleme Sayfası ────────────────────────────────────────────────────── */

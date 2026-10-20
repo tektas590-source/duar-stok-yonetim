@@ -29,17 +29,34 @@ export function calculateWorkOrderPartsSubtotal(items) {
   return roundCurrency(subtotal);
 }
 
-export function calculateWorkOrderNetTotal(items, laborAmount = 0) {
-  return roundCurrency(calculateWorkOrderPartsSubtotal(items) + normalizeLaborAmount(laborAmount));
-}
-
-export function calculateWorkOrderPriceBreakdown(items, laborAmount = 0) {
+export function calculateWorkOrderNetTotal(items, laborAmount = 0, externalLabor = []) {
   const partsSubtotal = calculateWorkOrderPartsSubtotal(items);
   const normalizedLaborAmount = normalizeLaborAmount(laborAmount);
-  const totals = calculateVat(roundCurrency(partsSubtotal + normalizedLaborAmount));
+  const externalLaborSubtotal = externalLabor.reduce((sum, el) => {
+    const price = Number(el?.price) || 0;
+    return sum + price;
+  }, 0);
+  return roundCurrency(partsSubtotal + normalizedLaborAmount + externalLaborSubtotal);
+}
+
+export function calculateWorkOrderPriceBreakdown(items, laborAmount = 0, externalLabor = []) {
+  const partsSubtotal = calculateWorkOrderPartsSubtotal(items);
+  const normalizedLaborAmount = normalizeLaborAmount(laborAmount);
+  const externalLaborSubtotal = externalLabor.reduce((sum, el) => {
+    const price = Number(el?.price) || 0;
+    return sum + price;
+  }, 0);
+  const externalLaborCost = externalLabor.reduce((sum, el) => {
+    const cost = Number(el?.cost) || 0;
+    return sum + cost;
+  }, 0);
+  const totals = calculateVat(roundCurrency(partsSubtotal + normalizedLaborAmount + externalLaborSubtotal));
   return {
     partsSubtotal,
     laborAmount: normalizedLaborAmount,
+    externalLaborSubtotal,
+    externalLaborCost,
+    externalLaborProfit: roundCurrency(externalLaborSubtotal - externalLaborCost),
     subtotal: totals.subtotal,
     vat: totals.vat,
     total: totals.total,

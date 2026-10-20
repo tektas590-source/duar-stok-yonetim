@@ -17,7 +17,7 @@ import { calculateWorkOrderNetTotal, normalizeLaborAmount } from "./workOrderPri
 import { db, OWNER_EMAIL } from "./firebase.js";
 
 const COLLECTIONS = ["parts", "jobs", "invoices", "drafts"];
-const OPTIONAL_COLLECTIONS = ["fitments", "chat", "customers", "personnel", "appointments", "notifications"];
+const OPTIONAL_COLLECTIONS = ["fitments", "chat", "customers", "personnel", "appointments", "notifications", "returns"];
 
 function requireDatabase() {
   if (!db) throw new Error("Sunucu bağlantısı kurulamadı. Lütfen sayfayı yenileyip tekrar deneyin.");
@@ -976,4 +976,42 @@ export async function markNotificationRead(notificationId) {
 
 export async function deleteNotification(notificationId) {
   await deleteDoc(doc(requireDatabase(), "notifications", notificationId));
+}
+
+// ── İade Parça Yönetimi ───────────────────────────────────────────────────────
+export async function saveReturnItem(returnItem, actor) {
+  const database = requireDatabase();
+  const id = returnItem.id || makeId();
+  const now = new Date().toISOString();
+  const record = {
+    id,
+    name: String(returnItem.name || "").trim(),
+    sku: String(returnItem.sku || "").trim(),
+    quantity: Number(returnItem.quantity) || 1,
+    reason: String(returnItem.reason || "").trim(),
+    supplier: String(returnItem.supplier || "").trim(),
+    returnDate: String(returnItem.returnDate || "").trim(),
+    status: returnItem.status || "pending",
+    createdAt: returnItem.createdAt || now,
+    updatedAt: now,
+    actor: actor || "",
+  };
+  if (!record.name) throw new Error("Parça adı zorunludur.");
+  await setDoc(doc(database, "returns", id), record);
+  return record;
+}
+
+export async function listReturns() {
+  const database = requireDatabase();
+  const snapshot = await getDocs(collection(database, "returns"));
+  return readCollection(snapshot).sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
+}
+
+export async function deleteReturnItem(returnId) {
+  await deleteDoc(doc(requireDatabase(), "returns", returnId));
+}
+
+export async function updateReturnStatus(returnId, status, actor) {
+  const database = requireDatabase();
+  await setDoc(doc(database, "returns", returnId), { status, updatedAt: new Date().toISOString() }, { merge: true });
 }
