@@ -110,7 +110,7 @@ a { color: inherit; text-decoration: none; }
 html[data-theme="light"] ::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.1); }
 
 /* ─── App Shell ──────────────────────────────────── */
-.app-shell { display: flex; min-height: 100vh; }
+.app-shell { display: flex; min-height: var(--app-vh, 100vh); }
 
 /* ─── Sidebar ────────────────────────────────────── */
 .sidebar {
@@ -289,7 +289,7 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.1)
 .main-area {
   flex: 1;
   margin-left: 268px;
-  min-height: 100vh;
+  min-height: var(--app-vh, 100vh);
   display: flex;
   flex-direction: column;
   background:
@@ -1107,7 +1107,7 @@ tbody tr:last-child td { border-bottom: none; }
 .chat-container {
   display: flex;
   flex-direction: column;
-  height: calc(100vh - 200px);
+  height: calc(var(--app-vh, 100vh) - 200px);
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-xl);
@@ -1897,7 +1897,7 @@ tbody tr:last-child td { border-bottom: none; }
 
 /* ─── Login Screen ───────────────────────────────── */
 .login-screen {
-  min-height: 100vh;
+  min-height: var(--app-vh, 100vh);
   display: grid;
   place-items: center;
   background: radial-gradient(ellipse 80% 60% at 50% 40%, var(--surface-raised), var(--bg) 60%);

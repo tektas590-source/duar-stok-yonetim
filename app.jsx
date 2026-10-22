@@ -5,6 +5,7 @@ import { cancelWorkOrder, completeWorkOrder, createPurchaseInvoice, deletePurcha
 import * as XLSX from "xlsx";
 import { CinematicCar } from "./carScene.jsx";
 import { GearScene } from "./gearScene.jsx";
+import { installFitScreen } from "./fitScreen.js";
 import { getOpenWorkOrders, getRevenueEligibleWorkOrders, getWorkOrderStatusClass, WORK_ORDER_STATUS } from "./workOrderLifecycle.js";
 import { formatFitmentSpec, formatFitmentVehicle, FUEL_TYPES, searchFitments, searchVehiclePartUsage } from "./vehicleCompatibility.js";
 import { parseInvoicePaste } from "./invoiceImport.js";
@@ -2616,6 +2617,7 @@ function Modal({ modal, parts, customers, personnel, onClose, onSavePart, onSave
   ));
 }
 
+installFitScreen();
 createRoot(document.getElementById("root")).render(h(React.StrictMode, null, h(App)));
 
 /* ─── Müşteri Sayfası ──────────────────────────────────────────────────────── */
