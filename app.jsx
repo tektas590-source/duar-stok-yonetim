@@ -6,6 +6,7 @@ import * as XLSX from "xlsx";
 import { CinematicCar } from "./carScene.jsx";
 import { GearScene } from "./gearScene.jsx";
 import { LoginStory } from "./loginStory.jsx";
+import { StockCinema, AccentPicker } from "./stockCinema.jsx";
 import { installFitScreen } from "./fitScreen.js";
 import { getOpenWorkOrders, getRevenueEligibleWorkOrders, getWorkOrderStatusClass, WORK_ORDER_STATUS } from "./workOrderLifecycle.js";
 import { formatFitmentSpec, formatFitmentVehicle, FUEL_TYPES, searchFitments, searchVehiclePartUsage } from "./vehicleCompatibility.js";
@@ -206,6 +207,9 @@ function App() {
   const [errorMessage, setErrorMessage] = useState("");
   const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
   const [globalSearchQuery, setGlobalSearchQuery] = useState("");
+  const [accent, setAccentState] = useState(() => { try { const saved = localStorage.getItem("demir-service-accent"); return ["green", "ember", "ice"].includes(saved) ? saved : "green"; } catch { return "green"; } });
+  const setAccent = (value) => { setAccentState(value); try { localStorage.setItem("demir-service-accent", value); } catch { /* tercih saklanamadı */ } };
+  useEffect(() => { document.documentElement.dataset.accent = accent; }, [accent]);
   const toggleTheme = () => setTheme((current) => current === "dark" ? "light" : "dark");
 
   // Global arama
@@ -566,7 +570,7 @@ function App() {
           h("path", { d: "M100 50l5 15" })
         )
       ),
-      h("header", { className: "topbar" }, h("div", { className: "breadcrumbs" }, "Demir Service", h("span", null, "/"), titles[page][0]), h("div", { className: "topbar-right" }, h("button", { className: "icon-button", onClick: () => setGlobalSearchOpen(true), title: "Global ara (Ctrl+K)" }, h(Icon, { name: "search" })), h(LiveClock, { compact: true }), h("button", { className: "icon-button theme-toggle", onClick: toggleTheme, title: theme === "dark" ? "Açık temaya geç" : "Koyu temaya geç", "aria-label": theme === "dark" ? "Açık temaya geç" : "Koyu temaya geç" }, h(Icon, { name: theme === "dark" ? "sun" : "moon" })), h("button", { className: "icon-button notification", onClick: () => { if (lowStock.length) openCriticalInventory(); else { setQuery(""); setPage("inventory"); } setToast(`${lowStock.length} parçada kritik stok uyarısı var.`); }, title: "Stok uyarıları" }, h(Icon, { name: "bell" }), lowStock.length ? h("i", null) : null), h("button", { className: "button button-quiet topbar-download", onClick: downloadStockExcel, title: "Mevcut stoğu Excel olarak indir" }, h(Icon, { name: "box", size: 14 }), "Stok Excel"), h("div", { className: "top-avatar" }, "ST"), h("button", { className: "icon-button logout", onClick: logout, title: "Oturumu kapat", "aria-label": "Oturumu kapat" }, h(Icon, { name: "logout" })))),
+      h("header", { className: "topbar" }, h("div", { className: "breadcrumbs" }, "Demir Service", h("span", null, "/"), titles[page][0]), h("div", { className: "topbar-right" }, h("button", { className: "icon-button", onClick: () => setGlobalSearchOpen(true), title: "Global ara (Ctrl+K)" }, h(Icon, { name: "search" })), h(LiveClock, { compact: true }), h(AccentPicker, { accent, setAccent }), h("button", { className: "icon-button theme-toggle", onClick: toggleTheme, title: theme === "dark" ? "Açık temaya geç" : "Koyu temaya geç", "aria-label": theme === "dark" ? "Açık temaya geç" : "Koyu temaya geç" }, h(Icon, { name: theme === "dark" ? "sun" : "moon" })), h("button", { className: "icon-button notification", onClick: () => { if (lowStock.length) openCriticalInventory(); else { setQuery(""); setPage("inventory"); } setToast(`${lowStock.length} parçada kritik stok uyarısı var.`); }, title: "Stok uyarıları" }, h(Icon, { name: "bell" }), lowStock.length ? h("i", null) : null), h("button", { className: "button button-quiet topbar-download", onClick: downloadStockExcel, title: "Mevcut stoğu Excel olarak indir" }, h(Icon, { name: "box", size: 14 }), "Stok Excel"), h("div", { className: "top-avatar" }, "ST"), h("button", { className: "icon-button logout", onClick: logout, title: "Oturumu kapat", "aria-label": "Oturumu kapat" }, h(Icon, { name: "logout" })))),
       h("section", { className: "page-content", key: page },
         h("div", { className: "page-heading" }, h("div", null, h("p", { className: "eyebrow" }, "DEMİR EUROREPAR CAR SERVICE"), h("h1", null, titles[page][0]), h("p", { className: "page-subtitle" }, titles[page][1])), h("div", { className: "heading-actions" },
           page === "dashboard" ? h("button", { className: "button button-primary", onClick: () => openModal("job"), disabled: saving }, h(Icon, { name: "plus", size: 16 }), "Yeni iş emri") :
@@ -1200,6 +1204,7 @@ function Inventory({ parts, query, setQuery, openModal, removePart, saving, filt
       )
     : h("div", { className: "empty-state" }, showArchived ? "Arşivli parça bulunamadı." : "Aramanızla eşleşen parça bulunamadı.");
   return h("div", null,
+    h(StockCinema, { parts }),
     h("div", { className: "list-toolbar" }, [
       h("div", { className: "search-wrap" }, h(Icon, { name: "search", size: 17 }), h("input", { value: query, onChange: (event) => setQuery(event.target.value), placeholder: "Parça adı, SKU veya kategori ara..." })),
       h("select", { className: "filter-select", value: stockFilter, onChange: (event) => setStockFilter(event.target.value), "aria-label": "Stok durumu filtresi" }, h("option", { value: "all" }, "Tüm stoklar"), h("option", { value: "low" }, "Kritik stok"), h("option", { value: "good" }, "Stok yeterli"), h("option", { value: "favorite" }, "Favoriler")),
@@ -1215,7 +1220,7 @@ function Inventory({ parts, query, setQuery, openModal, removePart, saving, filt
 }
 function StockStatus({ part }) {
   const low = part.stock <= part.minimum;
-  return h("span", { className: `stock-status ${low ? "stock-low" : "stock-good"}` }, h("i", null), `${part.stock} adet`, h("small", null, ` / min. ${part.minimum}`));
+  return h("span", { className: `stock-status ${low ? "stock-low" : "stock-good"}` }, h("i", null), `${part.stock} adet`, h("small", null, ` / min. ${part.minimum}`), h("b", { className: "stock-meter", "aria-hidden": "true" }, h("u", { style: { width: `${Math.max(4, Math.min(100, (part.stock / Math.max(1, part.minimum * 2)) * 100))}%` } })));
 }
 function JobTable({ jobs, compact }) {
   return h("div", { className: `table-scroll ${compact ? "compact-table" : ""}` },
