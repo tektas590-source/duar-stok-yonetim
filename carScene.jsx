@@ -4,7 +4,7 @@ import React, { useEffect, useRef, useState } from "react";
 // Yüklenemezse (çevrimdışı vb.) sahne sessizce CSS arka planına düşer ve uygulama etkilenmez.
 const THREE_URL = "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js";
 let threePromise = null;
-function loadThree() {
+export function loadThree() {
   if (!threePromise) threePromise = import(/* @vite-ignore */ THREE_URL).catch((error) => { threePromise = null; throw error; });
   return threePromise;
 }
