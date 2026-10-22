@@ -2751,7 +2751,7 @@ function ReturnsPage({ returns, openModal, saving }) {
           h("td", { className: "muted-cell" }, r.reason || "-"),
           h("td", { className: "muted-cell" }, r.supplier || "-"),
           h("td", { className: "muted-cell" }, dateLabel(r.returnDate) || "-"),
-          h("td", null, h("span", { className: `job-status ${r.status === "completed" ? "status-done" : r.status === "cancelled" ? "status-cancelled" : "status-progress" } }, h("i", null), r.status === "pending" ? "Beklemede" : r.status === "completed" ? "Tamamlandı" : "İptal")),
+          h("td", null, h("span", { className: `job-status ${r.status === "completed" ? "status-done" : r.status === "cancelled" ? "status-cancelled" : "status-progress"}` }, h("i", null), r.status === "pending" ? "Beklemede" : r.status === "completed" ? "Tamamlandı" : "İptal")),
           h("td", { className: "action-cell", onClick: (e) => e.stopPropagation() },
             h("button", { className: "button button-small button-outline", type: "button", disabled: saving, onClick: () => openModal("return", r) }, "Düzenle")
           )
