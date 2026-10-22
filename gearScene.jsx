@@ -102,9 +102,6 @@ export function GearScene({ variant = "login", children, className = "" }) {
         renderer.setSize(width, height, false);
         camera.aspect = width / height;
         camera.fov = width < 700 ? 46 : 32;
-        // Giriş kartı sağda durduğundan sahne geniş ekranda sola, dar ekranda yukarı kayar.
-        const wide = width >= 900;
-        camera.setViewOffset(width, height, wide ? width * 0.2 : 0, wide ? 0 : height * 0.2, width, height);
         camera.updateProjectionMatrix();
       };
       resize();
@@ -115,26 +112,52 @@ export function GearScene({ variant = "login", children, className = "" }) {
       const intersection = new IntersectionObserver(([entry]) => { visible = entry.isIntersecting; }, { threshold: 0 });
       intersection.observe(container);
       const clock = new THREE.Clock();
-      const look = new THREE.Vector3(-0.5, 0.2, 0);
-      let mx = 0, my = 0;
+      const shots = [
+        { p: [1.5, 1.2, 15], t: [-0.5, 0.2, 0], ex: 0 },
+        { p: [-6, 3, 12], t: [-1, 0, 0], ex: 0.55 },
+        { p: [9, 4.5, 8], t: [3.2, 1.6, -1], ex: 0.25 },
+        { p: [0.5, -1, 17], t: [-0.8, 0.8, 0], ex: 0 },
+      ];
+      const lerp = (a, b, t) => a + (b - a) * t;
+      const ease = (t) => t * t * (3 - 2 * t);
+      const look = new THREE.Vector3();
+      let mx = 0, my = 0, target = 0, smooth = 0, theta = 0, lastTime = 0;
       const onMove = (e) => { mx = e.clientX / window.innerWidth - 0.5; my = e.clientY / window.innerHeight - 0.5; };
+      const onScroll = () => {
+        const max = document.documentElement.scrollHeight - window.innerHeight;
+        target = max > 0 ? Math.min(1, Math.max(0, window.scrollY / max)) : 0;
+      };
       window.addEventListener("pointermove", onMove);
+      window.addEventListener("scroll", onScroll, { passive: true });
+      onScroll();
       const render = () => {
         const time = reduced ? 2 : clock.getElapsedTime();
-        const theta = time * 0.55;
+        const dt = Math.min(0.05, time - lastTime); lastTime = time;
+        smooth += (target - smooth) * Math.min(1, dt * 4);
+        if (!reduced) theta += dt * 0.55 + (target - smooth) * 3;
+        const f = smooth * (shots.length - 1), idx = Math.min(shots.length - 2, Math.floor(f)), t = ease(f - idx);
+        const a = shots[idx], b = shots[idx + 1], ex = lerp(a.ex, b.ex, t);
+        camera.position.set(lerp(a.p[0], b.p[0], t) + Math.sin(time * 0.2) * 0.6 + mx * 0.8, lerp(a.p[1], b.p[1], t) + Math.sin(time * 0.27) * 0.3 - my * 0.6, lerp(a.p[2], b.p[2], t));
+        look.set(lerp(a.t[0], b.t[0], t), lerp(a.t[1], b.t[1], t), lerp(a.t[2], b.t[2], t));
+        camera.lookAt(look);
+        // Kaydırdıkça parçalar birbirinden ayrılır.
+        gA.position.set(0, 0, 1.6 * ex);
+        gB.position.set(3.2 + 1.2 * ex * 0.35, 0.6 * ex, 3.2 * ex);
+        gC.position.set(-5 - 2.2 * ex * 0.35, -0.4 * ex, 0.4 * ex);
+        shaft.position.set(0, 0, -1.2 * ex);
         gA.rotation.z = theta;
         gB.rotation.z = 11 * Math.PI / 12 - theta * 20 / 12;
         gC.rotation.z = -Math.PI / 30 - theta * 20 / 30;
-        const px = 3.2 + Math.cos(gB.rotation.z) * CR, py = Math.sin(gB.rotation.z) * CR;
-        pin.position.set(px, py, crankZ);
-        const dx = px - 3.2, top = py + Math.sqrt(Math.max(0.01, RL * RL - dx * dx));
-        piston.position.set(3.2, top + 0.45, crankZ);
-        rod.position.set((px + 3.2) / 2, (py + top) / 2, crankZ);
+        const bx = gB.position.x, by = gB.position.y, bz = crankZ - 2.2 * ex;
+        const px = bx + Math.cos(gB.rotation.z) * CR, py = by + Math.sin(gB.rotation.z) * CR;
+        pin.position.set(px, py, bz);
+        const dx = px - bx, top = py + Math.sqrt(Math.max(0.01, RL * RL - dx * dx));
+        piston.position.set(bx, top + 0.45, bz);
+        rod.position.set((px + bx) / 2, (py + top) / 2, bz);
         rod.scale.y = RL; rod.rotation.z = -Math.atan2(dx, top - py);
-        // Tanıtım sayfasındaki açılış planı: hafif süzülme ve fare paralaksı.
-        camera.position.set(1.5 + Math.sin(time * 0.2) * 1.4 + mx * 0.8, 1.2 + Math.sin(time * 0.27) * 0.5 - my * 0.6, 15 + Math.sin(time * 0.3) * 0.8);
+        sleeve.position.set(bx, by + 3.7, bz);
+        crank.position.set(bx, by, bz);
         rimLime.intensity = 230 + Math.sin(time * 2) * 50;
-        camera.lookAt(look);
         renderer.render(scene, camera);
       };
       const loop = () => { frame = requestAnimationFrame(loop); if (visible && !document.hidden) render(); };
@@ -142,7 +165,7 @@ export function GearScene({ variant = "login", children, className = "" }) {
       if (!reduced) loop();
 
       cleanup = () => {
-        cancelAnimationFrame(frame); window.removeEventListener("pointermove", onMove); resizeObserver.disconnect(); intersection.disconnect();
+        cancelAnimationFrame(frame); window.removeEventListener("pointermove", onMove); window.removeEventListener("scroll", onScroll); resizeObserver.disconnect(); intersection.disconnect();
         scene.traverse((object) => {
           object.geometry?.dispose?.();
           (Array.isArray(object.material) ? object.material : object.material ? [object.material] : []).forEach((material) => material.dispose());

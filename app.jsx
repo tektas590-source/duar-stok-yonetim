@@ -5,6 +5,7 @@ import { cancelWorkOrder, completeWorkOrder, createPurchaseInvoice, deletePurcha
 import * as XLSX from "xlsx";
 import { CinematicCar } from "./carScene.jsx";
 import { GearScene } from "./gearScene.jsx";
+import { LoginStory } from "./loginStory.jsx";
 import { installFitScreen } from "./fitScreen.js";
 import { getOpenWorkOrders, getRevenueEligibleWorkOrders, getWorkOrderStatusClass, WORK_ORDER_STATUS } from "./workOrderLifecycle.js";
 import { formatFitmentSpec, formatFitmentVehicle, FUEL_TYPES, searchFitments, searchVehiclePartUsage } from "./vehicleCompatibility.js";
@@ -652,7 +653,7 @@ function Login({ onSubmit, busy, error, notice, theme, toggleTheme, configured }
   const [mode, setMode] = useState("login");
   const registering = mode === "register";
   const resetting = mode === "reset";
-  return h("main", { className: "login-screen" }, h(GearScene, { variant: "login" }), h("div", { className: "login-decoration decoration-one" }), h("div", { className: "login-decoration decoration-two" }), h(ThemeToggle, { theme, toggleTheme, className: "standalone-theme-toggle" }), h("section", { className: "login-card" },
+  return h("main", { className: "login-screen login-story-screen" }, h(GearScene, { variant: "login" }), h("div", { className: "login-decoration decoration-one" }), h("div", { className: "login-decoration decoration-two" }), h(ThemeToggle, { theme, toggleTheme, className: "standalone-theme-toggle" }), h("section", { className: "login-card" },
     h("div", { className: "login-brand" }, h("div", { className: "brand-mark large" }, "D"), h("div", null, h("strong", null, "DEMİR"), h("span", null, "EUROREPAR CAR SERVICE"))),
     h("div", { className: "login-copy" }, h("div", { className: "login-chip" }, h("span", { className: "status-dot" }), "DEMİR SERVICE YÖNETİMİ"), h("h1", null, registering ? "Hesap oluşturun." : resetting ? "Şifrenizi yenileyin." : "Güvenli giriş"), h("p", null, registering ? "E-posta doğrulamasından sonra servis yöneticiniz erişim izni verebilir." : resetting ? "Kullanıcı adınızı veya hesabınızın e-posta adresini yazın." : "Yalnızca servis yöneticisinin yetkilendirdiği hesaplar giriş yapabilir.")),
     h("form", { className: "login-form", onSubmit },
@@ -669,7 +670,7 @@ function Login({ onSubmit, busy, error, notice, theme, toggleTheme, configured }
       resetting ? h("button", { className: "auth-mode-button", type: "button", disabled: busy, onClick: () => setMode("login") }, "Giriş ekranına dön") : null
     ),
     h("div", { className: "login-foot" }, h("span", null, "E-posta doğrulama · yönetici onayı"), h("span", null, "Demir Eurorepar"))
-  ));
+  ), h(LoginStory, null));
 }
 function PasswordChange({ onSubmit, busy, error, theme, toggleTheme }) {
   function submit(event) {

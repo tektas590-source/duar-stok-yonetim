@@ -2962,3 +2962,37 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.1)
 
 /* Giriş ekranı dişli sahnesi: tanıtım sayfasındaki sıcak çelik/kor tonu */
 .gear-stage.car-stage-login { background: radial-gradient(ellipse at 70% 40%, #2a2118 0%, transparent 55%), radial-gradient(ellipse at 20% 90%, #121821 0%, transparent 60%), #0b0d10; }
+
+/* ─── Giriş ekranı: kaydırmalı sinematik anlatım ─────────────────────────── */
+.login-story-screen { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: auto; align-items: center; place-items: unset; overflow: visible; padding: 0 clamp(16px, 4vw, 56px); column-gap: clamp(24px, 5vw, 80px); }
+.login-story-screen > .car-stage-login { position: fixed; inset: 0; z-index: 0; }
+.login-story-screen > .login-decoration { position: fixed; z-index: 0; }
+.login-story-screen > .login-card { grid-column: 2; grid-row: 1; align-self: center; margin: 12vh 0 8vh; z-index: 3; background: color-mix(in srgb, var(--surface) 88%, transparent); backdrop-filter: blur(10px); }
+.story-top { position: fixed; z-index: 4; left: clamp(16px, 4vw, 56px); right: clamp(16px, 4vw, 56px); top: calc(7% + 8px); display: flex; justify-content: space-between; align-items: center; gap: 12px; font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 12px; letter-spacing: 0.14em; text-transform: uppercase; color: #8d97a3; pointer-events: none; }
+.story-top b { color: #eceae4; font-weight: 500; }
+.story-progress { width: min(160px, 30vw); height: 2px; background: rgba(255, 255, 255, 0.12); }
+.story-progress i { display: block; height: 100%; background: #ff7a1a; }
+.story-hero { grid-column: 1; grid-row: 1; position: relative; z-index: 3; max-width: 36rem; min-width: 0; padding: 14vh 0 8vh; }
+.story-tag { font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 12px; letter-spacing: 0.2em; text-transform: uppercase; color: #ff7a1a; margin: 0 0 14px; }
+.story-title { font-family: "Big Shoulders Display", "Arial Narrow", Impact, sans-serif; font-weight: 900; text-transform: uppercase; line-height: 0.9; margin: 0 0 22px; font-size: clamp(2.6rem, 6vw, 4.8rem); text-wrap: balance; color: #eceae4; }
+.story-title-xl { font-size: clamp(3.2rem, 8vw, 6.6rem); }
+.story-title em { font-style: normal; color: #ff7a1a; }
+.story-hero p:not(.story-tag), .story-copy p:not(.story-tag) { color: #c9ccd0; max-width: 32rem; margin: 0 0 14px; line-height: 1.6; font-size: 15px; }
+.story-scroll { margin-top: 26px; font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 12px; letter-spacing: 0.2em; text-transform: uppercase; color: #8d97a3; display: flex; align-items: center; gap: 12px; }
+.story-scroll::after { content: ""; width: 48px; height: 1px; background: #ff7a1a; }
+.story-section { grid-column: 1 / -1; position: relative; z-index: 3; min-height: var(--app-vh, 100vh); display: flex; flex-direction: column; justify-content: center; padding: 14vh 0 8vh; }
+.story-section.story-right { align-items: flex-end; }
+.story-copy { max-width: 34rem; min-width: 0; }
+.story-spec { display: grid; grid-template-columns: auto 1fr; gap: 6px 18px; font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 13px; margin: 22px 0 0; padding-top: 16px; border-top: 1px solid rgba(255, 255, 255, 0.15); max-width: 26rem; }
+.story-spec dt { color: #8d97a3; } .story-spec dd { margin: 0; color: #eceae4; }
+.story-list { list-style: none; padding: 0; margin: 20px 0 0; max-width: 28rem; }
+.story-list li { display: flex; justify-content: space-between; gap: 16px; padding: 12px 0; border-bottom: 1px solid rgba(255, 255, 255, 0.12); font-family: "Big Shoulders Display", "Arial Narrow", Impact, sans-serif; font-weight: 700; font-size: 1.6rem; text-transform: uppercase; color: #eceae4; }
+.story-list li span { font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 12px; font-weight: 400; color: #8d97a3; align-self: center; letter-spacing: 0.1em; }
+.story-footer { grid-column: 1 / -1; position: relative; z-index: 3; text-align: center; padding: 40px 0 12vh; font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 12px; letter-spacing: 0.14em; text-transform: uppercase; color: #8d97a3; }
+@media (max-width: 900px) {
+  .login-story-screen { grid-template-columns: minmax(0, 1fr); }
+  .story-hero { grid-column: 1; grid-row: 1; padding-bottom: 2vh; }
+  .login-story-screen > .login-card { grid-column: 1; grid-row: 2; margin: 0 auto 8vh; }
+  .story-section.story-right { align-items: flex-start; }
+  .story-copy { background: linear-gradient(90deg, rgba(11, 13, 16, 0.8), rgba(11, 13, 16, 0.4)); }
+}
