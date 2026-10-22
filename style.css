@@ -2959,3 +2959,6 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.1)
 .car-hero-copy strong { display: block; font-size: clamp(20px, 3.2vw, 34px); letter-spacing: 0.04em; line-height: 1.1; }
 .car-stage.car-failed .car-canvas { display: none; }
 @media (prefers-reduced-motion: reduce) { .car-canvas { transition: none; } }
+
+/* Giriş ekranı dişli sahnesi: tanıtım sayfasındaki sıcak çelik/kor tonu */
+.gear-stage.car-stage-login { background: radial-gradient(ellipse at 70% 40%, #2a2118 0%, transparent 55%), radial-gradient(ellipse at 20% 90%, #121821 0%, transparent 60%), #0b0d10; }

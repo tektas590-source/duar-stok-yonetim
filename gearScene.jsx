@@ -37,7 +37,7 @@ function buildEnvironment(THREE, renderer) {
   };
   strip(18, 1.2, 0, 14, 4, 0xffffff, 0);
   strip(1.2, 16, -14, 2, 2, 0xcfe0ff, Math.PI / 2);
-  strip(1.5, 12, 14, 0, -4, 0xa8f045, Math.PI / 2);
+  strip(1.5, 12, 14, 0, -4, 0xff8a3a, Math.PI / 2);
   strip(14, 1, 0, -12, 6, 0x7a8696, 0);
   const pmrem = new THREE.PMREMGenerator(renderer);
   const texture = pmrem.fromScene(env, 0.02).texture;
@@ -68,13 +68,12 @@ export function GearScene({ variant = "login", children, className = "" }) {
       container.appendChild(renderer.domElement);
 
       const scene = new THREE.Scene();
-      scene.fog = new THREE.FogExp2(0x040605, 0.03);
       scene.environment = buildEnvironment(THREE, renderer);
       const camera = new THREE.PerspectiveCamera(32, 1, 0.1, 80);
 
       const steel = new THREE.MeshStandardMaterial({ color: 0xb4bcc6, metalness: 1, roughness: 0.28 });
       const dark = new THREE.MeshStandardMaterial({ color: 0x4a525c, metalness: 1, roughness: 0.4 });
-      const accent = new THREE.MeshStandardMaterial({ color: 0xa8f045, metalness: 0.6, roughness: 0.35, emissive: 0x253a08, emissiveIntensity: 0.8 });
+      const accent = new THREE.MeshStandardMaterial({ color: 0xff7a1a, metalness: 0.6, roughness: 0.35, emissive: 0x5a1c00, emissiveIntensity: 0.8 });
 
       const rig = new THREE.Group(); scene.add(rig);
       const gA = gearMesh(THREE, 20, 0.5, 0.28, steel, true); gA.position.set(0, 0, 0);
@@ -91,18 +90,18 @@ export function GearScene({ variant = "login", children, className = "" }) {
       crank.position.set(3.2, 0, crankZ);
       sleeve.position.set(3.2, 3.7, crankZ);
       rig.add(gA, gB, gC, shaft, pin, rod, piston, sleeve, crank);
-      rig.position.set(-0.6, -0.4, 0);
+      
 
-      scene.add(new THREE.AmbientLight(0x404858, 0.6));
-      const key = new THREE.DirectionalLight(0xfff1e0, 2.2); key.position.set(6, 8, 10); scene.add(key);
-      const rimLime = new THREE.PointLight(0xa8f045, 90, 30); rimLime.position.set(-6, -2, -4); scene.add(rimLime);
-      const rimCyan = new THREE.PointLight(0x00e5ff, 50, 30); rimCyan.position.set(7, 3, 5); scene.add(rimCyan);
+      scene.add(new THREE.AmbientLight(0x404858, 0.5 * Math.PI));
+      const key = new THREE.DirectionalLight(0xfff1e0, 2.2 * Math.PI); key.position.set(6, 8, 10); scene.add(key);
+      const rimLime = new THREE.PointLight(0xff7a1a, 260, 40); rimLime.position.set(-6, -2, -4); scene.add(rimLime);
+      const rimCool = new THREE.PointLight(0x9fc4ff, 60, 40); rimCool.position.set(8, 4, 6); scene.add(rimCool);
 
       const resize = () => {
         const width = Math.max(container.clientWidth, 1), height = Math.max(container.clientHeight, 1);
         renderer.setSize(width, height, false);
         camera.aspect = width / height;
-        camera.fov = width < 700 ? 46 : 34;
+        camera.fov = width < 700 ? 46 : 32;
         // Giriş kartı sağda durduğundan sahne geniş ekranda sola, dar ekranda yukarı kayar.
         const wide = width >= 900;
         camera.setViewOffset(width, height, wide ? width * 0.2 : 0, wide ? 0 : height * 0.2, width, height);
@@ -116,7 +115,10 @@ export function GearScene({ variant = "login", children, className = "" }) {
       const intersection = new IntersectionObserver(([entry]) => { visible = entry.isIntersecting; }, { threshold: 0 });
       intersection.observe(container);
       const clock = new THREE.Clock();
-      const look = new THREE.Vector3(-0.8, 0.9, 0);
+      const look = new THREE.Vector3(-0.5, 0.2, 0);
+      let mx = 0, my = 0;
+      const onMove = (e) => { mx = e.clientX / window.innerWidth - 0.5; my = e.clientY / window.innerHeight - 0.5; };
+      window.addEventListener("pointermove", onMove);
       const render = () => {
         const time = reduced ? 2 : clock.getElapsedTime();
         const theta = time * 0.55;
@@ -129,10 +131,9 @@ export function GearScene({ variant = "login", children, className = "" }) {
         piston.position.set(3.2, top + 0.45, crankZ);
         rod.position.set((px + 3.2) / 2, (py + top) / 2, crankZ);
         rod.scale.y = RL; rod.rotation.z = -Math.atan2(dx, top - py);
-        // Sinematik yörünge: yavaş sağa sola salınan kamera.
-        const angle = Math.sin(time * 0.18) * 0.55 - 0.2;
-        const radius = 15 + Math.sin(time * 0.3) * 1.2;
-        camera.position.set(Math.sin(angle) * radius, 2.2 + Math.sin(time * 0.25) * 0.8, Math.cos(angle) * radius);
+        // Tanıtım sayfasındaki açılış planı: hafif süzülme ve fare paralaksı.
+        camera.position.set(1.5 + Math.sin(time * 0.2) * 1.4 + mx * 0.8, 1.2 + Math.sin(time * 0.27) * 0.5 - my * 0.6, 15 + Math.sin(time * 0.3) * 0.8);
+        rimLime.intensity = 230 + Math.sin(time * 2) * 50;
         camera.lookAt(look);
         renderer.render(scene, camera);
       };
@@ -141,7 +142,7 @@ export function GearScene({ variant = "login", children, className = "" }) {
       if (!reduced) loop();
 
       cleanup = () => {
-        cancelAnimationFrame(frame); resizeObserver.disconnect(); intersection.disconnect();
+        cancelAnimationFrame(frame); window.removeEventListener("pointermove", onMove); resizeObserver.disconnect(); intersection.disconnect();
         scene.traverse((object) => {
           object.geometry?.dispose?.();
           (Array.isArray(object.material) ? object.material : object.material ? [object.material] : []).forEach((material) => material.dispose());
@@ -154,7 +155,7 @@ export function GearScene({ variant = "login", children, className = "" }) {
     return () => { disposed = true; cancelAnimationFrame(frame); cleanup(); };
   }, [variant]);
 
-  return React.createElement("div", { className: `car-stage car-stage-${variant} ${ready ? "car-ready" : ""} ${failed ? "car-failed" : ""} ${className}`.trim(), ref: containerRef },
+  return React.createElement("div", { className: `car-stage gear-stage car-stage-${variant} ${ready ? "car-ready" : ""} ${failed ? "car-failed" : ""} ${className}`.trim(), ref: containerRef },
     React.createElement("div", { className: "car-vignette", "aria-hidden": "true" }),
     React.createElement("div", { className: "car-letterbox car-letterbox-top", "aria-hidden": "true" }),
     React.createElement("div", { className: "car-letterbox car-letterbox-bottom", "aria-hidden": "true" }),
