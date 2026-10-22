@@ -164,7 +164,7 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.1)
 
 .side-label { font-size: 9px; font-weight: 700; letter-spacing: 0.15em; color: var(--text-muted); text-transform: uppercase; padding: 0 12px; margin-bottom: 8px; opacity: 0.6; }
 
-.navigation { display: flex; flex-direction: column; gap: 3px; flex: 1; }
+.navigation { display: flex; flex-direction: column; gap: 3px; flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
 
 .nav-item {
   height: 46px;
@@ -2996,3 +2996,7 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.1)
   .story-section.story-right { align-items: flex-start; }
   .story-copy { background: linear-gradient(90deg, rgba(11, 13, 16, 0.8), rgba(11, 13, 16, 0.4)); }
 }
+
+/* Kısa pencerelerde menü kendi içinde kayar; profil ve çıkış her zaman görünür kalır. */
+.sidebar-bottom { flex: none; }
+@media (max-height: 820px) { .sidebar-help { display: none; } .brand { margin-bottom: 20px; } }
