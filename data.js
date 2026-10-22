@@ -733,6 +733,45 @@ export async function createPurchaseInvoice(invoice, actor, existingInvoiceId = 
   return record;
 }
 
+export async function deletePurchaseInvoice(invoiceId, actor) {
+  const database = requireDatabase();
+  const invoiceReference = doc(database, "invoices", invoiceId);
+  await runTransaction(database, async (transaction) => {
+    const invoiceSnap = await transaction.get(invoiceReference);
+    if (!invoiceSnap.exists()) throw new Error("Fatura bulunamadı; zaten silinmiş olabilir.");
+    const invoice = invoiceSnap.data();
+    const items = invoice.items || [];
+    const partReferences = items.map((item) => doc(database, "parts", item.partId));
+    const partSnaps = await Promise.all(partReferences.map((reference) => transaction.get(reference)));
+    const today = resolveBusinessDate();
+    const reversals = items.map((item, index) => {
+      const snapshot = partSnaps[index];
+      const qty = Number(item.qty || 0);
+      if (!snapshot.exists()) return null;
+      const part = snapshot.data();
+      const stockBefore = Number(part.stock || 0);
+      if (stockBefore < qty) {
+        throw new Error(`${part.name || item.sku} için stok (${stockBefore}) fatura adedinden (${qty}) az; parçalar kullanılmış olduğu için fatura silinemez.`);
+      }
+      return { id: snapshot.id, name: part.name, sku: part.sku, qty, stockBefore, stockAfter: stockBefore - qty };
+    }).filter(Boolean);
+    reversals.forEach((entry) => {
+      transaction.update(doc(database, "parts", entry.id), { stock: entry.stockAfter });
+      writeMovement(transaction, database, { id: entry.id, name: entry.name, sku: entry.sku }, {
+        qty: -entry.qty,
+        type: "Fatura silindi (stoğu geri al)",
+        reference: "invoice",
+        referenceCode: invoice.code || invoiceId,
+        actor,
+        stockBefore: entry.stockBefore,
+        stockAfter: entry.stockAfter,
+        date: today,
+      });
+    });
+    transaction.delete(invoiceReference);
+  });
+}
+
 export async function createStockDraft() {
   const database = requireDatabase();
   const parts = readCollection(await getDocs(collection(database, "parts")));

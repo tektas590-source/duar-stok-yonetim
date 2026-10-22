@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState, useRef } from "react";
 import { createRoot } from "react-dom/client";
 import "./style.css";
-import { cancelWorkOrder, completeWorkOrder, createPurchaseInvoice, createStockDraft, createWorkOrder, deleteFitment, deletePart, deletePersonnel, deleteCustomer, deleteAppointment, deleteNotification, deleteReturnItem, fetchServiceData, getPersonnelPerformance, grantUserAccess, listAppointments, listAuthorizedUsers, listCustomers, listNotifications, listPersonnel, listReturns, markNotificationRead, receiveStockDraft, restorePart, revokeUserAccess, saveAppointment, saveCustomer, saveFitment, savePart, savePersonnel, saveReturnItem, sendChatMessage, subscribeToChat, subscribeToServiceData, togglePartFavorite, updateAppointmentStatus, updateReturnStatus, updateWorkOrder, adjustStock } from "./data.js";
+import { cancelWorkOrder, completeWorkOrder, createPurchaseInvoice, deletePurchaseInvoice, createStockDraft, createWorkOrder, deleteFitment, deletePart, deletePersonnel, deleteCustomer, deleteAppointment, deleteNotification, deleteReturnItem, fetchServiceData, getPersonnelPerformance, grantUserAccess, listAppointments, listAuthorizedUsers, listCustomers, listNotifications, listPersonnel, listReturns, markNotificationRead, receiveStockDraft, restorePart, revokeUserAccess, saveAppointment, saveCustomer, saveFitment, savePart, savePersonnel, saveReturnItem, sendChatMessage, subscribeToChat, subscribeToServiceData, togglePartFavorite, updateAppointmentStatus, updateReturnStatus, updateWorkOrder, adjustStock } from "./data.js";
 import * as XLSX from "xlsx";
 import { getOpenWorkOrders, getRevenueEligibleWorkOrders, getWorkOrderStatusClass, WORK_ORDER_STATUS } from "./workOrderLifecycle.js";
 import { formatFitmentSpec, formatFitmentVehicle, FUEL_TYPES, searchFitments, searchVehiclePartUsage } from "./vehicleCompatibility.js";
@@ -441,6 +441,11 @@ function App() {
     const isEditing = Boolean(invoice.id);
     await runAction(async () => { await createPurchaseInvoice(invoice, user.email, isEditing ? invoice.id : null); await reloadData(); setModal(null); }, isEditing ? "Fatura güncellendi, stok hareketleri düzeltildi." : "Fatura kaydedildi, stoklar ve hareket geçmişi güncellendi.");
   };
+  const removeInvoice = async (invoice) => {
+    const confirmed = window.confirm(`"${invoice.code || invoice.id}" faturasını silmek istiyor musunuz? Faturadaki parça adetleri stoktan düşülür.`);
+    if (!confirmed) return;
+    await runAction(async () => { await deletePurchaseInvoice(invoice.id, user.email); await reloadData(); }, "Fatura silindi; stoklar geri alındı.");
+  };
   const markJobComplete = async (job) => {
     await runAction(async () => { await completeWorkOrder(job.id, user.email); await reloadData(); }, "İş emri tamamlandı.");
   };
@@ -569,7 +574,7 @@ function App() {
         page === "vehicles" ? h(VehicleHistory, { jobs: data.jobs, queryIntent: vehicleQueryIntent, clearQueryIntent: () => setVehicleQueryIntent(null) }) :
         page === "compatibility" ? h(PartCompatibility, { jobs: data.jobs, fitments: data.fitments || [], openModal, removeFitment, saving }) :
         page === "movements" ? h(StockMovements, { movements: data.movements }) :
-        page === "invoices" ? h(Invoices, { invoices: data.invoices, openModal, saving }) :
+        page === "invoices" ? h(Invoices, { invoices: data.invoices, openModal, removeInvoice, saving }) :
         page === "orders" ? h(Orders, { drafts: data.drafts, lowStock, receiveDraft, createDraft }) :
         page === "stockcompare" ? h(StockCompare, { parts: data.parts, openModal }) :
         page === "returns" ? h(ReturnsPage, { returns: data.returns, openModal, saving }) :
@@ -1392,7 +1397,7 @@ function StockMovements({ movements }) {
     )) : h("div", { className: "empty-state" }, movements.length ? "Filtrelerle eşleşen hareket bulunamadı." : "Bu ekran açıldıktan sonra gerçekleşen stok hareketleri burada kaydedilir."))
   );
 }
-function Invoices({ invoices, openModal, saving }) {
+function Invoices({ invoices, openModal, removeInvoice, saving }) {
   const [query, setQuery] = useState("");
   const q = query.trim().toLocaleLowerCase("tr").replace(/ı/g, "i");
   const filtered = invoices.filter((invoice) => {
@@ -1416,7 +1421,7 @@ function Invoices({ invoices, openModal, saving }) {
           h("td", null, h("span", { className: `job-status ${invoice.status ? "status-done" : ""}` }, h("i", null), invoice.status || "-")),
           h("td", null, h("div", { className: "row-actions" },
             h("button", { className: "button button-small", disabled: saving, onClick: () => openModal("invoice", invoice) }, "Düzenle"),
-            h("button", { className: "button button-small button-danger", disabled: saving, onClick: () => { if (window.confirm(`"${invoice.code || invoice.id}" faturasını silmek istiyor musunuz?`)) { openModal(null); setToast(`Fatura ${invoice.code || invoice.id} silinecek.`); } } }, "Sil")
+            h("button", { className: "button button-small button-danger", disabled: saving, onClick: () => removeInvoice(invoice) }, "Sil")
           ))
         ])))
       )
@@ -2296,7 +2301,7 @@ function Modal({ modal, parts, customers, personnel, onClose, onSavePart, onSave
       onSaveNotification(notification); return;
     }
     if (modal.type === "return") {
-      const returnItem = { ...(modal.item || {}), name: String(form.get("name")).trim(), sku: String(form.get("sku")).trim(), quantity: Number(form.get("quantity") || 1), reason: String(form.get("reason")).trim(), supplier: String(form.get("supplier")).trim(), returnDate: String(form.get("returnDate")).trim(), status: String(form.get("status") || "pending" };
+      const returnItem = { ...(modal.item || {}), name: String(form.get("name")).trim(), sku: String(form.get("sku")).trim(), quantity: Number(form.get("quantity") || 1), reason: String(form.get("reason")).trim(), supplier: String(form.get("supplier")).trim(), returnDate: String(form.get("returnDate")).trim(), status: String(form.get("status") || "pending") };
       if (!returnItem.name) { setError("Parça adı zorunludur."); return; }
       onSaveReturnItem(returnItem); return;
     }
