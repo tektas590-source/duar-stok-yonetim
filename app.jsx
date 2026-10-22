@@ -501,6 +501,28 @@ function App() {
       setErrorMessage(error.message || "Parola güncellenemedi.");
     } finally { setAuthBusy(false); }
   }
+  const downloadStockExcel = () => {
+    const parts = data.parts.filter((part) => part.archived !== true).sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""), "tr"));
+    if (!parts.length) { setToast("İndirilecek stok kaydı yok."); return; }
+    const rows = parts.map((part) => ({
+      SKU: part.sku,
+      "Parça Adı": part.name,
+      Kategori: part.category,
+      Marka: part.brand,
+      "Mevcut Stok": Number(part.stock || 0),
+      "Minimum": Number(part.minimum || 0),
+      "Alış Fiyatı (KDV hariç)": Number(part.cost || 0),
+      "Satış Fiyatı (KDV hariç)": Number(part.price || 0),
+      "Stok Değeri (alış)": Math.round(Number(part.stock || 0) * Number(part.cost || 0) * 100) / 100,
+      Durum: Number(part.stock || 0) <= Number(part.minimum || 0) ? "Kritik" : "Yeterli",
+    }));
+    const workbook = XLSX.utils.book_new();
+    const sheet = XLSX.utils.json_to_sheet(rows);
+    sheet["!cols"] = [{ wch: 18 }, { wch: 40 }, { wch: 16 }, { wch: 16 }, { wch: 12 }, { wch: 10 }, { wch: 22 }, { wch: 22 }, { wch: 18 }, { wch: 10 }];
+    XLSX.utils.book_append_sheet(workbook, sheet, "Mevcut Stok");
+    XLSX.writeFile(workbook, `demir-mevcut-stok-${new Date().toISOString().slice(0, 10)}.xlsx`);
+    setToast(`${rows.length} parçalık mevcut stok Excel olarak indirildi.`);
+  };
   const logout = async () => {
     try { await signOutUser(); setPage("dashboard"); }
     catch (error) { console.error("Oturum kapatılamadı:", error); setErrorMessage(error.message || "Oturum kapatılamadı."); }
@@ -544,7 +566,7 @@ function App() {
           h("path", { d: "M100 50l5 15" })
         )
       ),
-      h("header", { className: "topbar" }, h("div", { className: "breadcrumbs" }, "Demir Service", h("span", null, "/"), titles[page][0]), h("div", { className: "topbar-right" }, h("button", { className: "icon-button", onClick: () => setGlobalSearchOpen(true), title: "Global ara (Ctrl+K)" }, h(Icon, { name: "search" })), h(LiveClock, { compact: true }), h("button", { className: "icon-button theme-toggle", onClick: toggleTheme, title: theme === "dark" ? "Açık temaya geç" : "Koyu temaya geç", "aria-label": theme === "dark" ? "Açık temaya geç" : "Koyu temaya geç" }, h(Icon, { name: theme === "dark" ? "sun" : "moon" })), h("button", { className: "icon-button notification", onClick: () => { if (lowStock.length) openCriticalInventory(); else { setQuery(""); setPage("inventory"); } setToast(`${lowStock.length} parçada kritik stok uyarısı var.`); }, title: "Stok uyarıları" }, h(Icon, { name: "bell" }), lowStock.length ? h("i", null) : null), h("div", { className: "top-avatar" }, "ST"), h("button", { className: "icon-button logout", onClick: logout, title: "Oturumu kapat", "aria-label": "Oturumu kapat" }, h(Icon, { name: "logout" })))),
+      h("header", { className: "topbar" }, h("div", { className: "breadcrumbs" }, "Demir Service", h("span", null, "/"), titles[page][0]), h("div", { className: "topbar-right" }, h("button", { className: "icon-button", onClick: () => setGlobalSearchOpen(true), title: "Global ara (Ctrl+K)" }, h(Icon, { name: "search" })), h(LiveClock, { compact: true }), h("button", { className: "icon-button theme-toggle", onClick: toggleTheme, title: theme === "dark" ? "Açık temaya geç" : "Koyu temaya geç", "aria-label": theme === "dark" ? "Açık temaya geç" : "Koyu temaya geç" }, h(Icon, { name: theme === "dark" ? "sun" : "moon" })), h("button", { className: "icon-button notification", onClick: () => { if (lowStock.length) openCriticalInventory(); else { setQuery(""); setPage("inventory"); } setToast(`${lowStock.length} parçada kritik stok uyarısı var.`); }, title: "Stok uyarıları" }, h(Icon, { name: "bell" }), lowStock.length ? h("i", null) : null), h("button", { className: "button button-quiet topbar-download", onClick: downloadStockExcel, title: "Mevcut stoğu Excel olarak indir" }, h(Icon, { name: "box", size: 14 }), "Stok Excel"), h("div", { className: "top-avatar" }, "ST"), h("button", { className: "icon-button logout", onClick: logout, title: "Oturumu kapat", "aria-label": "Oturumu kapat" }, h(Icon, { name: "logout" })))),
       h("section", { className: "page-content", key: page },
         h("div", { className: "page-heading" }, h("div", null, h("p", { className: "eyebrow" }, "DEMİR EUROREPAR CAR SERVICE"), h("h1", null, titles[page][0]), h("p", { className: "page-subtitle" }, titles[page][1])), h("div", { className: "heading-actions" },
           page === "dashboard" ? h("button", { className: "button button-primary", onClick: () => openModal("job"), disabled: saving }, h(Icon, { name: "plus", size: 16 }), "Yeni iş emri") :

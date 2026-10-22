@@ -3000,3 +3000,6 @@ html[data-theme="light"] ::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.1)
 /* Kısa pencerelerde menü kendi içinde kayar; profil ve çıkış her zaman görünür kalır. */
 .sidebar-bottom { flex: none; }
 @media (max-height: 820px) { .sidebar-help { display: none; } .brand { margin-bottom: 20px; } }
+
+.topbar-download { white-space: nowrap; font-size: 12px; padding: 6px 12px; }
+@media (max-width: 700px) { .topbar-download { padding: 6px 8px; } }
