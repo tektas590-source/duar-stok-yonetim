@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 
 const e = React.createElement;
 
-function useCountUp(target, duration = 1400) {
+export function useCountUp(target, duration = 1400) {
   const [value, setValue] = useState(0);
   useEffect(() => {
     const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
@@ -36,7 +36,7 @@ function gearPath(teeth, outer, root) {
 const BIG_GEAR = gearPath(30, 150, 128);
 const SMALL_GEAR = gearPath(18, 90, 74);
 
-const number = (value) => Math.round(value).toLocaleString("tr-TR");
+export const number = (value) => Math.round(value).toLocaleString("tr-TR");
 
 export function StockCinema({ parts }) {
   const stats = useMemo(() => {

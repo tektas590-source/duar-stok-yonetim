@@ -7,6 +7,7 @@ import { CinematicCar } from "./carScene.jsx";
 import { GearScene } from "./gearScene.jsx";
 import { LoginStory } from "./loginStory.jsx";
 import { StockCinema, AccentPicker } from "./stockCinema.jsx";
+import { WorkOrdersCinema, InvoicesCinema } from "./pageCinema.jsx";
 import { installFitScreen } from "./fitScreen.js";
 import { getOpenWorkOrders, getRevenueEligibleWorkOrders, getWorkOrderStatusClass, WORK_ORDER_STATUS } from "./workOrderLifecycle.js";
 import { formatFitmentSpec, formatFitmentVehicle, FUEL_TYPES, searchFitments, searchVehiclePartUsage } from "./vehicleCompatibility.js";
@@ -210,7 +211,19 @@ function App() {
   const [accent, setAccentState] = useState(() => { try { const saved = localStorage.getItem("demir-service-accent"); return ["green", "ember", "ice"].includes(saved) ? saved : "green"; } catch { return "green"; } });
   const setAccent = (value) => { setAccentState(value); try { localStorage.setItem("demir-service-accent", value); } catch { /* tercih saklanamadı */ } };
   useEffect(() => { document.documentElement.dataset.accent = accent; }, [accent]);
-  const toggleTheme = () => setTheme((current) => current === "dark" ? "light" : "dark");
+  const toggleTheme = (event) => {
+    const next = theme === "dark" ? "light" : "dark";
+    const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    const x = event?.clientX ?? window.innerWidth / 2;
+    const y = event?.clientY ?? window.innerHeight / 2;
+    if (!reduced && document.startViewTransition) {
+      document.documentElement.style.setProperty("--theme-x", `${x}px`);
+      document.documentElement.style.setProperty("--theme-y", `${y}px`);
+      document.startViewTransition(() => setTheme(next));
+    } else {
+      setTheme(next);
+    }
+  };
 
   // Global arama
   const globalSearchResults = React.useMemo(() => {
@@ -570,7 +583,7 @@ function App() {
           h("path", { d: "M100 50l5 15" })
         )
       ),
-      h("header", { className: "topbar" }, h("div", { className: "breadcrumbs" }, "Demir Service", h("span", null, "/"), titles[page][0]), h("div", { className: "topbar-right" }, h("button", { className: "icon-button", onClick: () => setGlobalSearchOpen(true), title: "Global ara (Ctrl+K)" }, h(Icon, { name: "search" })), h(LiveClock, { compact: true }), h(AccentPicker, { accent, setAccent }), h("button", { className: "icon-button theme-toggle", onClick: toggleTheme, title: theme === "dark" ? "Açık temaya geç" : "Koyu temaya geç", "aria-label": theme === "dark" ? "Açık temaya geç" : "Koyu temaya geç" }, h(Icon, { name: theme === "dark" ? "sun" : "moon" })), h("button", { className: "icon-button notification", onClick: () => { if (lowStock.length) openCriticalInventory(); else { setQuery(""); setPage("inventory"); } setToast(`${lowStock.length} parçada kritik stok uyarısı var.`); }, title: "Stok uyarıları" }, h(Icon, { name: "bell" }), lowStock.length ? h("i", null) : null), h("button", { className: "button button-quiet topbar-download", onClick: downloadStockExcel, title: "Mevcut stoğu Excel olarak indir" }, h(Icon, { name: "box", size: 14 }), "Stok Excel"), h("div", { className: "top-avatar" }, "ST"), h("button", { className: "icon-button logout", onClick: logout, title: "Oturumu kapat", "aria-label": "Oturumu kapat" }, h(Icon, { name: "logout" })))),
+      h("header", { className: "topbar" }, h("div", { className: "breadcrumbs" }, "Demir Service", h("span", null, "/"), titles[page][0]), h("div", { className: "topbar-right" }, h("button", { className: "icon-button", onClick: () => setGlobalSearchOpen(true), title: "Global ara (Ctrl+K)" }, h(Icon, { name: "search" })), h(LiveClock, { compact: true }), h(AccentPicker, { accent, setAccent }), h("button", { className: "icon-button theme-toggle", onClick: toggleTheme, title: theme === "dark" ? "Açık temaya geç" : "Koyu temaya geç", "aria-label": theme === "dark" ? "Açık temaya geç" : "Koyu temaya geç" }, h(Icon, { name: theme === "dark" ? "sun" : "moon" })), h("button", { className: `icon-button notification ${lowStock.length ? "notification-alert" : ""}`, onClick: () => { if (lowStock.length) openCriticalInventory(); else { setQuery(""); setPage("inventory"); } setToast(`${lowStock.length} parçada kritik stok uyarısı var.`); }, title: "Stok uyarıları" }, h(Icon, { name: "bell" }), lowStock.length ? h("i", null) : null), h("button", { className: "button button-quiet topbar-download", onClick: downloadStockExcel, title: "Mevcut stoğu Excel olarak indir" }, h(Icon, { name: "box", size: 14 }), "Stok Excel"), h("div", { className: "top-avatar" }, "ST"), h("button", { className: "icon-button logout", onClick: logout, title: "Oturumu kapat", "aria-label": "Oturumu kapat" }, h(Icon, { name: "logout" })))),
       h("section", { className: "page-content", key: page },
         h("div", { className: "page-heading" }, h("div", null, h("p", { className: "eyebrow" }, "DEMİR EUROREPAR CAR SERVICE"), h("h1", null, titles[page][0]), h("p", { className: "page-subtitle" }, titles[page][1])), h("div", { className: "heading-actions" },
           page === "dashboard" ? h("button", { className: "button button-primary", onClick: () => openModal("job"), disabled: saving }, h(Icon, { name: "plus", size: 16 }), "Yeni iş emri") :
@@ -1263,6 +1276,7 @@ function WorkOrders({ jobs, query, setQuery, openModal, markJobComplete, cancelJ
   }, [selectionIntent, clearSelectionIntent]);
   const filtered = jobs.filter((job) => `${job.code || job.id} ${job.plate} ${job.customer} ${job.make} ${job.model}`.toLocaleLowerCase("tr").includes(query.toLocaleLowerCase("tr")) && (status === "all" || job.status === status));
   return h(React.Fragment, null,
+    h(WorkOrdersCinema, { jobs }),
     h("div", { className: "list-toolbar" },
       h("div", { className: "search-wrap" }, h(Icon, { name: "search", size: 17 }), h("input", { value: query, onChange: (event) => setQuery(event.target.value), placeholder: "Plaka, müşteri veya iş emri ara..." })),
       h("select", { className: "filter-select", value: status, onChange: (event) => setStatus(event.target.value), "aria-label": "İş emri durumu filtresi" }, h("option", { value: "all" }, "Tüm durumlar"), h("option", { value: WORK_ORDER_STATUS.IN_PROGRESS }, WORK_ORDER_STATUS.IN_PROGRESS), h("option", { value: WORK_ORDER_STATUS.COMPLETED }, WORK_ORDER_STATUS.COMPLETED), h("option", { value: WORK_ORDER_STATUS.CANCELLED }, WORK_ORDER_STATUS.CANCELLED)),
@@ -1442,7 +1456,9 @@ function Invoices({ invoices, openModal, removeInvoice, saving }) {
     const haystack = `${invoice.code || invoice.id} ${invoice.supplier || ""} ${invoice.date || ""} ${dateLabel(invoice.date) || ""} ${invoice.status || ""}`;
     return haystack.toLocaleLowerCase("tr").replace(/ı/g, "i").includes(q);
   });
-  return h("section", { className: "panel table-panel" }, [
+  return h(React.Fragment, null,
+    h(InvoicesCinema, { invoices }),
+    h("section", { className: "panel table-panel" }, [
     h("div", { className: "list-toolbar" }, [
       h("div", { className: "search-wrap" }, h(Icon, { name: "search", size: 17 }), h("input", { value: query, onChange: (event) => setQuery(event.target.value), placeholder: "Fatura no, tedarikçi veya tarih ara..." })),
       h("span", { className: "result-count" }, `${filtered.length} fatura`)
@@ -1464,7 +1480,7 @@ function Invoices({ invoices, openModal, removeInvoice, saving }) {
         ])))
       )
     ) : h("div", { className: "empty-state" }, q ? "Aramanızla eşleşen fatura bulunamadı." : firebaseConfigured ? "Henüz alış faturası eklenmedi." : "Firebase yapılandırılmadığı için fatura yok. .env.local dosyasını düzenleyin ve sayfayı yenileyin.")
-  ]);
+  ]));
 }
 function Orders({ drafts, lowStock, receiveDraft, createDraft }) {
   const draftCards = drafts.map((draft) => h("section", { className: "panel draft-card", key: draft.id },
