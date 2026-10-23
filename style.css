@@ -3068,3 +3068,18 @@ html[data-theme="light"] .sc-hero { color: #f0f3f0; }
 @keyframes sc-pulse { 50% { opacity: 0.45; } }
 @media (prefers-reduced-motion: reduce) { .sc-gear-big, .sc-gear-small, .sc-sweep, .stock-low .stock-meter u { animation: none; } .sc-gauge-value, .sc-seg, .stock-meter u { transition: none; } }
 @media (max-width: 700px) { .sc-gears { opacity: 0.3; right: -140px; } .sc-gauge { width: 120px; height: 120px; } }
+
+/* ─── Kategoriye özel renk, kritik satır vurgusu, sıralı giriş animasyonu ─── */
+.category-tag { background: hsl(var(--cat-hue, 100) 55% 94% / 1); border-color: hsl(var(--cat-hue, 100) 45% 65% / 0.4); color: hsl(var(--cat-hue, 100) 45% 30%); }
+html[data-theme="dark"] .category-tag, :root:not([data-theme="light"]) .category-tag { background: hsl(var(--cat-hue, 100) 45% 18% / 0.55); border-color: hsl(var(--cat-hue, 100) 55% 55% / 0.35); color: hsl(var(--cat-hue, 100) 70% 78%); }
+.part-avatar { background: hsl(var(--cat-hue, 100) 55% 92%); color: hsl(var(--cat-hue, 100) 55% 28%); box-shadow: 0 0 0 1px hsl(var(--cat-hue, 100) 50% 60% / 0.4); }
+html[data-theme="dark"] .part-avatar, :root:not([data-theme="light"]) .part-avatar { background: hsl(var(--cat-hue, 100) 40% 20%); color: hsl(var(--cat-hue, 100) 75% 82%); }
+
+.table-scroll tbody tr { animation: row-in 0.5s ease backwards; animation-delay: var(--row-delay, 0ms); }
+@keyframes row-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+.row-critical { position: relative; }
+.row-critical td:first-child { box-shadow: inset 3px 0 0 0 var(--danger); }
+.row-critical .stock-value.stock-low { position: relative; }
+.row-critical .stock-value.stock-low::after { content: ""; position: absolute; inset: -4px -8px; border-radius: 8px; background: var(--danger-soft); z-index: -1; animation: row-critical-pulse 1.8s ease-in-out infinite; }
+@keyframes row-critical-pulse { 50% { opacity: 0.4; } }
+@media (prefers-reduced-motion: reduce) { .table-scroll tbody tr { animation: none; } .row-critical .stock-value.stock-low::after { animation: none; } }

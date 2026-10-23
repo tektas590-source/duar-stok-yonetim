@@ -1184,7 +1184,7 @@ function Inventory({ parts, query, setQuery, openModal, removePart, saving, filt
         const low = part.stock <= part.minimum;
         return h("tr", { key: part.id },
           h("td", null, h("button", { className: "icon-button favorite-button", type: "button", onClick: () => toggleFavorite(part.id), disabled: saving, title: part.favorite ? "Favoriden kaldır" : "Favorilere ekle" }, h(Icon, { name: part.favorite ? "bell" : "car", size: 14, className: part.favorite ? "favorite-active" : "" }))),
-          h("td", null, h("div", { className: "table-part" }, h("span", { className: "part-avatar" }, part.name.slice(0, 1)), h("span", null, h("strong", null, part.name), h("small", null, part.sku)))),
+          h("td", null, h("div", { className: "table-part" }, h("span", { className: "part-avatar", style: { "--cat-hue": categoryHue(part.category) } }, part.name.slice(0, 1)), h("span", null, h("strong", null, part.name), h("small", null, part.sku)))),
           h("td", null, h("span", { className: "category-tag" }, part.category)),
           h("td", null, h("div", { className: "stock-control" },
             h("button", { className: "button button-small button-outline stock-minus", type: "button", disabled: saving || part.stock <= 0, onClick: () => adjustPartStock(part, -1, "Çıkış"), title: "Stoktan 1 adet düşür" }, "-"),
