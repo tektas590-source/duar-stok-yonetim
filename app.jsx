@@ -1149,6 +1149,12 @@ function LiveClock({ compact }) {
   }, []);
   return h("span", { className: compact ? "today-label" : "hero-time" }, now.toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" }), compact ? " · " : null, compact ? new Intl.DateTimeFormat("tr-TR", { day: "2-digit", month: "short", year: "numeric" }).format(now) : null);
 }
+function categoryHue(name) {
+  const text = String(name || "Genel");
+  let hash = 0;
+  for (let i = 0; i < text.length; i++) hash = (hash * 31 + text.charCodeAt(i)) % 360;
+  return hash;
+}
 function Inventory({ parts, query, setQuery, openModal, removePart, saving, filterIntent, clearFilterIntent, toggleFavorite, adjustPartStock }) {
   const [stockFilter, setStockFilter] = useState(() => filterIntent || "all");
   const [showArchived, setShowArchived] = useState(false);
@@ -1180,12 +1186,12 @@ function Inventory({ parts, query, setQuery, openModal, removePart, saving, filt
   const tableContent = filtered.length ? h("div", { className: "table-scroll" },
     h("table", null,
       h("thead", null, h("tr", null, ["", "PARÇA", "KATEGORİ", "STOK", "ALIŞ FİYATI · KDV HARİÇ", "SATIŞ FİYATI · KDV HARİÇ", "DURUM", "İŞLEM"].map((label) => h("th", { key: label }, label)))),
-      h("tbody", null, filtered.map((part) => {
+      h("tbody", null, filtered.map((part, index) => {
         const low = part.stock <= part.minimum;
-        return h("tr", { key: part.id },
+        return h("tr", { key: part.id, className: low ? "row-critical" : "", style: { "--row-delay": `${Math.min(index, 24) * 18}ms` } },
           h("td", null, h("button", { className: "icon-button favorite-button", type: "button", onClick: () => toggleFavorite(part.id), disabled: saving, title: part.favorite ? "Favoriden kaldır" : "Favorilere ekle" }, h(Icon, { name: part.favorite ? "bell" : "car", size: 14, className: part.favorite ? "favorite-active" : "" }))),
           h("td", null, h("div", { className: "table-part" }, h("span", { className: "part-avatar", style: { "--cat-hue": categoryHue(part.category) } }, part.name.slice(0, 1)), h("span", null, h("strong", null, part.name), h("small", null, part.sku)))),
-          h("td", null, h("span", { className: "category-tag" }, part.category)),
+          h("td", null, h("span", { className: "category-tag", style: { "--cat-hue": categoryHue(part.category) } }, part.category)),
           h("td", null, h("div", { className: "stock-control" },
             h("button", { className: "button button-small button-outline stock-minus", type: "button", disabled: saving || part.stock <= 0, onClick: () => adjustPartStock(part, -1, "Çıkış"), title: "Stoktan 1 adet düşür" }, "-"),
             h("span", { className: `stock-value ${low ? "stock-low" : "stock-good"}` }, part.stock),
