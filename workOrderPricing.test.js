@@ -42,10 +42,31 @@ test("applies the existing 20 percent VAT once to the combined net amount", () =
   assert.deepEqual(calculateWorkOrderPriceBreakdown(parts, 99.99), {
     partsSubtotal: 551,
     laborAmount: 99.99,
+    externalLaborSubtotal: 0,
+    externalLaborCost: 0,
+    externalLaborProfit: 0,
     subtotal: 650.99,
     vat: 130.2,
     total: 781.19,
   });
+});
+
+test("folds external labor into the subtotal and reports its own profit", () => {
+  const externalLabor = [
+    { cost: 200, price: 300 },
+    { cost: 50, price: 100 },
+  ];
+  assert.deepEqual(calculateWorkOrderPriceBreakdown(parts, 99.99, externalLabor), {
+    partsSubtotal: 551,
+    laborAmount: 99.99,
+    externalLaborSubtotal: 400,
+    externalLaborCost: 250,
+    externalLaborProfit: 150,
+    subtotal: 1050.99,
+    vat: 210.2,
+    total: 1261.19,
+  });
+  assert.equal(calculateWorkOrderNetTotal(parts, 99.99, externalLabor), 1050.99);
 });
 
 test("rejects invalid part lines rather than persisting an inaccurate net total", () => {
