@@ -7,6 +7,7 @@ import { CinematicCar } from "./carScene.jsx";
 import { GearScene } from "./gearScene.jsx";
 import { LoginStory } from "./loginStory.jsx";
 import { StockCinema, AccentPicker } from "./stockCinema.jsx";
+import { BusinessProvider, useBusiness, saveBusinessSettings } from "./business.js";
 import { WorkOrdersCinema, InvoicesCinema } from "./pageCinema.jsx";
 import { installFitScreen } from "./fitScreen.js";
 import { getOpenWorkOrders, getRevenueEligibleWorkOrders, getWorkOrderStatusClass, WORK_ORDER_STATUS } from "./workOrderLifecycle.js";
@@ -187,6 +188,7 @@ function dateLabel(value) { return new Intl.DateTimeFormat("tr-TR", { day: "2-di
 function dateKey(date) { return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`; }
 
 function App() {
+  const business = useBusiness();
   const [theme, setTheme] = useState(() => localStorage.getItem("demir-service-theme") === "light" ? "light" : "dark");
   const [user, setUser] = useState(null);
   const [authReady, setAuthReady] = useState(false);
@@ -353,7 +355,8 @@ function App() {
   ];
   const isOwner = user?.email?.toLowerCase() === OWNER_EMAIL;
   if (isOwner) nav.push({ id: "access", label: "Yetkili Kullanıcılar", icon: "grid" });
-  const titles = { dashboard: ["Genel Bakış", "Servisinizin bugünkü durumuna göz atın."], inventory: ["Parça Envanteri", "Stoklarınızı ve parça fiyatlarınızı yönetin."], workorders: ["İş Emirleri", "Araç servis geçmişini ve devam eden işleri takip edin."], vehicles: ["Araç Servis Geçmişi", "Plakaya göre servis ziyaretlerini ve kullanılan parçaları bulun."], compatibility: ["Araç Uyumluluğu", "Marka, model, yakıt ve motor için uyumlu parçaları kaydedin; iş emri kullanımını da görün."], movements: ["Stok Hareketleri", "Giriş, çıkış ve düzeltmeleri kaynak ve kullanıcıyla izleyin."], invoices: ["Alış Faturaları", "Faturaları kaydedin, stok girişlerini anında işleyin."], orders: ["Taslak Siparişler", "Azalan parçalar için oluşturduğunuz sipariş önerileri."], reports: ["Raporlar", "Satış performansı ve iş emri cironuz."], stockcompare: ["Stok Karşılaştır", "Excel ile stok karşılaştırma yapın."], returns: ["İade Parçalar", "İade edilecek parçaları takip edin ve yönetin."], access: ["Yetkili Kullanıcılar", "Hesap ekleyin veya servis erişimini kaldırın."], chat: ["Sohbet", "Ekibinizle iletişim kurun."], servicebox: ["Peugeot ServiceBox", "Parça tespiti için Peugeot ServiceBox'a gidin."], customers: ["Müşteri Yönetimi", "Müşteri kayıtlarını, araçlarını ve iletişim bilgilerini yönetin."], personnel: ["Personel Yönetimi", "Çalışan kayıtlarını, rollerini ve performanslarını takip edin."], appointments: ["Randevu Takvimi", "Müşteri randevularını planlayın ve servis tarihlerini yönetin."], notifications: ["Bildirimler", "Düşük stok, randevu ve sistem bildirimlerini yönetin."], backup: ["Yedekleme", "Verilerinizi Excel/PDF olarak dışa aktarın ve yedekleyin."] };
+  if (isOwner) nav.push({ id: "settings", label: "İşletme Ayarları", icon: "wrench" });
+  const titles = { settings: ["İşletme Ayarları", "İşletme adını, kısa etiketini ve sloganını düzenleyin."], dashboard: ["Genel Bakış", "Servisinizin bugünkü durumuna göz atın."], inventory: ["Parça Envanteri", "Stoklarınızı ve parça fiyatlarınızı yönetin."], workorders: ["İş Emirleri", "Araç servis geçmişini ve devam eden işleri takip edin."], vehicles: ["Araç Servis Geçmişi", "Plakaya göre servis ziyaretlerini ve kullanılan parçaları bulun."], compatibility: ["Araç Uyumluluğu", "Marka, model, yakıt ve motor için uyumlu parçaları kaydedin; iş emri kullanımını da görün."], movements: ["Stok Hareketleri", "Giriş, çıkış ve düzeltmeleri kaynak ve kullanıcıyla izleyin."], invoices: ["Alış Faturaları", "Faturaları kaydedin, stok girişlerini anında işleyin."], orders: ["Taslak Siparişler", "Azalan parçalar için oluşturduğunuz sipariş önerileri."], reports: ["Raporlar", "Satış performansı ve iş emri cironuz."], stockcompare: ["Stok Karşılaştır", "Excel ile stok karşılaştırma yapın."], returns: ["İade Parçalar", "İade edilecek parçaları takip edin ve yönetin."], access: ["Yetkili Kullanıcılar", "Hesap ekleyin veya servis erişimini kaldırın."], chat: ["Sohbet", "Ekibinizle iletişim kurun."], servicebox: ["Peugeot ServiceBox", "Parça tespiti için Peugeot ServiceBox'a gidin."], customers: ["Müşteri Yönetimi", "Müşteri kayıtlarını, araçlarını ve iletişim bilgilerini yönetin."], personnel: ["Personel Yönetimi", "Çalışan kayıtlarını, rollerini ve performanslarını takip edin."], appointments: ["Randevu Takvimi", "Müşteri randevularını planlayın ve servis tarihlerini yönetin."], notifications: ["Bildirimler", "Düşük stok, randevu ve sistem bildirimlerini yönetin."], backup: ["Yedekleme", "Verilerinizi Excel/PDF olarak dışa aktarın ve yedekleyin."] };
   const openModal = (type, item = null) => setModal({ type, item });
   const openCriticalInventory = () => {
     setQuery("");
@@ -564,7 +567,7 @@ function App() {
         h("code", null, "VITE_FIREBASE_API_KEY=...\nVITE_FIREBASE_AUTH_DOMAIN=...\nVITE_FIREBASE_PROJECT_ID=...\nVITE_FIREBASE_STORAGE_BUCKET=...\nVITE_FIREBASE_MESSAGING_SENDER_ID=...\nVITE_FIREBASE_APP_ID=...")))
     : null,
     h("aside", { className: "sidebar" },
-      h("div", { className: "brand" }, h("div", { className: "brand-mark" }, "D"), h("div", null, h("strong", null, "DEMİR"), h("span", null, "EUROREPAR CAR SERVICE"))),
+      h("div", { className: "brand" }, h("div", { className: "brand-mark" }, business.initial), h("div", null, h("strong", null, business.brandWord), h("span", null, business.tagline))),
       h("div", { className: "side-label" }, "ÇALIŞMA ALANI"),
       h("nav", { className: "navigation" }, nav.map((item) => h("button", { key: item.id, className: `nav-item ${page === item.id ? "active" : ""}`, onClick: () => item.external ? window.open(item.url, "_blank") : (setPage(item.id), setQuery("")) }, h(Icon, { name: item.icon }), h("span", null, item.label), item.badge ? h("span", { className: "nav-badge" }, item.badge) : null))),
       h("div", { className: "sidebar-bottom" }, h("div", { className: "sidebar-help" }, h("div", { className: "help-icon" }, h(Icon, { name: "wrench", size: 17 })), h("strong", null, "Servis yönetimi"), h("span", null, "Tüm operasyonlarınız tek yerde.")), h("div", { className: "profile" }, h("div", { className: "avatar" }, (user.displayName || user.email || "ST").split(/\s+/).map((name) => name[0]).join("").slice(0, 2)), h("div", { className: "profile-info" }, h("strong", null, user.displayName || "Yetkili kullanıcı"), h("span", null, user.email)), h("button", { className: "icon-button logout", onClick: logout, title: "Oturumu kapat" }, h(Icon, { name: "logout", size: 17 })))),
@@ -583,9 +586,9 @@ function App() {
           h("path", { d: "M100 50l5 15" })
         )
       ),
-      h("header", { className: "topbar" }, h("div", { className: "breadcrumbs" }, "Demir Service", h("span", null, "/"), titles[page][0]), h("div", { className: "topbar-right" }, h("button", { className: "icon-button", onClick: () => setGlobalSearchOpen(true), title: "Global ara (Ctrl+K)" }, h(Icon, { name: "search" })), h(LiveClock, { compact: true }), h(AccentPicker, { accent, setAccent }), h("button", { className: "icon-button theme-toggle", onClick: toggleTheme, title: theme === "dark" ? "Açık temaya geç" : "Koyu temaya geç", "aria-label": theme === "dark" ? "Açık temaya geç" : "Koyu temaya geç" }, h(Icon, { name: theme === "dark" ? "sun" : "moon" })), h("button", { className: `icon-button notification ${lowStock.length ? "notification-alert" : ""}`, onClick: () => { if (lowStock.length) openCriticalInventory(); else { setQuery(""); setPage("inventory"); } setToast(`${lowStock.length} parçada kritik stok uyarısı var.`); }, title: "Stok uyarıları" }, h(Icon, { name: "bell" }), lowStock.length ? h("i", null) : null), h("button", { className: "button button-quiet topbar-download", onClick: downloadStockExcel, title: "Mevcut stoğu Excel olarak indir" }, h(Icon, { name: "box", size: 14 }), "Stok Excel"), h("div", { className: "top-avatar" }, "ST"), h("button", { className: "icon-button logout", onClick: logout, title: "Oturumu kapat", "aria-label": "Oturumu kapat" }, h(Icon, { name: "logout" })))),
+      h("header", { className: "topbar" }, h("div", { className: "breadcrumbs" }, business.shortName, h("span", null, "/"), titles[page][0]), h("div", { className: "topbar-right" }, h("button", { className: "icon-button", onClick: () => setGlobalSearchOpen(true), title: "Global ara (Ctrl+K)" }, h(Icon, { name: "search" })), h(LiveClock, { compact: true }), h(AccentPicker, { accent, setAccent }), h("button", { className: "icon-button theme-toggle", onClick: toggleTheme, title: theme === "dark" ? "Açık temaya geç" : "Koyu temaya geç", "aria-label": theme === "dark" ? "Açık temaya geç" : "Koyu temaya geç" }, h(Icon, { name: theme === "dark" ? "sun" : "moon" })), h("button", { className: `icon-button notification ${lowStock.length ? "notification-alert" : ""}`, onClick: () => { if (lowStock.length) openCriticalInventory(); else { setQuery(""); setPage("inventory"); } setToast(`${lowStock.length} parçada kritik stok uyarısı var.`); }, title: "Stok uyarıları" }, h(Icon, { name: "bell" }), lowStock.length ? h("i", null) : null), h("button", { className: "button button-quiet topbar-download", onClick: downloadStockExcel, title: "Mevcut stoğu Excel olarak indir" }, h(Icon, { name: "box", size: 14 }), "Stok Excel"), h("div", { className: "top-avatar" }, "ST"), h("button", { className: "icon-button logout", onClick: logout, title: "Oturumu kapat", "aria-label": "Oturumu kapat" }, h(Icon, { name: "logout" })))),
       h("section", { className: "page-content", key: page },
-        h("div", { className: "page-heading" }, h("div", null, h("p", { className: "eyebrow" }, "DEMİR EUROREPAR CAR SERVICE"), h("h1", null, titles[page][0]), h("p", { className: "page-subtitle" }, titles[page][1])), h("div", { className: "heading-actions" },
+        h("div", { className: "page-heading" }, h("div", null, h("p", { className: "eyebrow" }, business.fullName.toLocaleUpperCase("tr")), h("h1", null, titles[page][0]), h("p", { className: "page-subtitle" }, titles[page][1])), h("div", { className: "heading-actions" },
           page === "dashboard" ? h("button", { className: "button button-primary", onClick: () => openModal("job"), disabled: saving }, h(Icon, { name: "plus", size: 16 }), "Yeni iş emri") :
           page === "inventory" ? h("button", { className: "button button-primary", onClick: () => openModal("part"), disabled: saving }, h(Icon, { name: "plus", size: 16 }), "Parça ekle") :
           page === "workorders" ? h("button", { className: "button button-primary", onClick: () => openModal("job"), disabled: saving }, h(Icon, { name: "plus", size: 16 }), "İş emri oluştur") :
@@ -625,6 +628,10 @@ function App() {
         page === "servicebox" ? h(ServiceBoxPage) :
         page === "access" && isOwner ? h(AccessManagement, {
           onError: (error) => setErrorMessage(error.message || "Kullanıcı erişimi güncellenemedi."),
+          onSuccess: (message) => setToast(message),
+        }) :
+        page === "settings" && isOwner ? h(BusinessSettingsPage, {
+          onError: (error) => setErrorMessage(error.message || "İşletme ayarları kaydedilemedi."),
           onSuccess: (message) => setToast(message),
         }) :
         page === "customers" ? h(CustomersPage, { customers: data.customers, openModal, saving }) :
@@ -689,12 +696,13 @@ function ThemeToggle({ theme, toggleTheme, className = "" }) {
   return h("button", { className: `icon-button theme-toggle ${className}`, onClick: toggleTheme, type: "button", title: isDark ? "Açık temaya geç" : "Koyu temaya geç", "aria-label": isDark ? "Açık temaya geç" : "Koyu temaya geç" }, h(Icon, { name: isDark ? "sun" : "moon" }));
 }
 function Login({ onSubmit, busy, error, notice, theme, toggleTheme, configured }) {
+  const business = useBusiness();
   const [mode, setMode] = useState("login");
   const registering = mode === "register";
   const resetting = mode === "reset";
   return h("main", { className: "login-screen login-story-screen" }, h(GearScene, { variant: "login" }), h("div", { className: "login-decoration decoration-one" }), h("div", { className: "login-decoration decoration-two" }), h(ThemeToggle, { theme, toggleTheme, className: "standalone-theme-toggle" }), h("section", { className: "login-card" },
-    h("div", { className: "login-brand" }, h("div", { className: "brand-mark large" }, "D"), h("div", null, h("strong", null, "DEMİR"), h("span", null, "EUROREPAR CAR SERVICE"))),
-    h("div", { className: "login-copy" }, h("div", { className: "login-chip" }, h("span", { className: "status-dot" }), "DEMİR SERVICE YÖNETİMİ"), h("h1", null, registering ? "Hesap oluşturun." : resetting ? "Şifrenizi yenileyin." : "Güvenli giriş"), h("p", null, registering ? "E-posta doğrulamasından sonra servis yöneticiniz erişim izni verebilir." : resetting ? "Kullanıcı adınızı veya hesabınızın e-posta adresini yazın." : "Yalnızca servis yöneticisinin yetkilendirdiği hesaplar giriş yapabilir.")),
+    h("div", { className: "login-brand" }, h("div", { className: "brand-mark large" }, business.initial), h("div", null, h("strong", null, business.brandWord), h("span", null, business.tagline))),
+    h("div", { className: "login-copy" }, h("div", { className: "login-chip" }, h("span", { className: "status-dot" }), `${business.brandWord} SERVICE YÖNETİMİ`), h("h1", null, registering ? "Hesap oluşturun." : resetting ? "Şifrenizi yenileyin." : "Güvenli giriş"), h("p", null, registering ? "E-posta doğrulamasından sonra servis yöneticiniz erişim izni verebilir." : resetting ? "Kullanıcı adınızı veya hesabınızın e-posta adresini yazın." : "Yalnızca servis yöneticisinin yetkilendirdiği hesaplar giriş yapabilir.")),
     h("form", { className: "login-form", onSubmit },
       h("input", { type: "hidden", name: "mode", value: mode }),
       registering
@@ -708,10 +716,11 @@ function Login({ onSubmit, busy, error, notice, theme, toggleTheme, configured }
       !registering && !resetting ? h("button", { className: "auth-mode-button", type: "button", disabled: busy, onClick: () => { setMode("reset"); } }, "Şifremi unuttum") : null,
       resetting ? h("button", { className: "auth-mode-button", type: "button", disabled: busy, onClick: () => setMode("login") }, "Giriş ekranına dön") : null
     ),
-    h("div", { className: "login-foot" }, h("span", null, "E-posta doğrulama · yönetici onayı"), h("span", null, "Demir Eurorepar"))
+    h("div", { className: "login-foot" }, h("span", null, "E-posta doğrulama · yönetici onayı"), h("span", null, business.shortName))
   ), h(LoginStory, null));
 }
 function PasswordChange({ onSubmit, busy, error, theme, toggleTheme }) {
+  const business = useBusiness();
   function submit(event) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
@@ -727,7 +736,7 @@ function PasswordChange({ onSubmit, busy, error, theme, toggleTheme }) {
   return h("main", { className: "login-screen" },
     h(ThemeToggle, { theme, toggleTheme, className: "standalone-theme-toggle" }),
     h("section", { className: "login-card" },
-      h("div", { className: "login-brand" }, h("div", { className: "brand-mark large" }, "D"), h("div", null, h("strong", null, "DEMİR"), h("span", null, "EUROREPAR CAR SERVICE"))),
+      h("div", { className: "login-brand" }, h("div", { className: "brand-mark large" }, business.initial), h("div", null, h("strong", null, business.brandWord), h("span", null, business.tagline))),
       h("div", { className: "login-copy" }, h("div", { className: "login-chip" }, h("span", { className: "status-dot" }), "YÖNETİCİ GÜVENLİĞİ"), h("h1", null, "Yeni şifre belirleyin."), h("p", null, "İlk girişte geçici şifreyi değiştirmeniz gerekir.")),
       h("form", { className: "login-form", onSubmit: submit },
         h("label", null, "Yeni şifre (en az 6 karakter)", h("input", { name: "password", type: "password", minLength: 6, required: true, autoComplete: "new-password" })),
@@ -736,6 +745,34 @@ function PasswordChange({ onSubmit, busy, error, theme, toggleTheme }) {
         h("button", { className: "button button-primary login-submit", type: "submit", disabled: busy }, busy ? "Kaydediliyor..." : "Şifreyi değiştir", h(Icon, { name: "arrow", size: 17 }))
       )
     )
+  );
+}
+function BusinessSettingsPage({ onError, onSuccess }) {
+  const business = useBusiness();
+  const [saving, setSaving] = useState(false);
+  const [fullName, setFullName] = useState(business.fullName);
+  const [shortName, setShortName] = useState(business.shortName);
+  const [tagline, setTagline] = useState(business.tagline);
+  useEffect(() => { setFullName(business.fullName); setShortName(business.shortName); setTagline(business.tagline); }, [business.fullName, business.shortName, business.tagline]);
+  const submit = async (event) => {
+    event.preventDefault();
+    setSaving(true);
+    try {
+      await saveBusinessSettings({ fullName, shortName, tagline });
+      onSuccess?.("İşletme ayarları kaydedildi. Değişiklik tüm ekranlara anında yansır.");
+    } catch (error) { onError?.(error); }
+    finally { setSaving(false); }
+  };
+  return h("section", { className: "panel settings-panel" },
+    h("p", { className: "settings-intro" }, "Bu bilgiler giriş ekranında, menüde ve raporlarda görünür. Sistemi başka bir işletmeye devrederken yalnızca burayı güncellemeniz yeterlidir."),
+    h("form", { className: "settings-form", onSubmit: submit },
+      h("label", null, "İşletme adı (tam)", h("input", { value: fullName, onChange: (event) => setFullName(event.target.value), placeholder: "Demir Eurorepar Car Service", required: true })),
+      h("label", null, "Kısa ad", h("input", { value: shortName, onChange: (event) => setShortName(event.target.value), placeholder: "Demir Service" })),
+      h("label", null, "Slogan / etiket", h("input", { value: tagline, onChange: (event) => setTagline(event.target.value), placeholder: "EUROREPAR CAR SERVICE" })),
+      h("div", { className: "settings-preview" },
+        h("span", { className: "settings-preview-mark" }, (fullName.trim()[0] || "D").toLocaleUpperCase("tr")),
+        h("div", null, h("strong", null, (fullName.split(" ")[0] || "DEMİR").toLocaleUpperCase("tr")), h("span", null, tagline || business.tagline))),
+      h("button", { className: "button button-primary", type: "submit", disabled: saving }, saving ? "Kaydediliyor..." : "Kaydet"))
   );
 }
 function AccessManagement({ onError, onSuccess }) {
@@ -802,10 +839,11 @@ function AccessManagement({ onError, onSuccess }) {
   );
 }
 function AIAssistant({ personnel, customers, appointments, parts, jobs }) {
+  const business = useBusiness();
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState([
-    { id: "1", sender: "ai", text: "Merhaba! Ben Demir Service AI asistanınız. Personel, müşteri, randevu, parça stoku veya iş emirleri hakkında sorularınıza yardımcı olabilirim. Nasıl yardımcı olabilirim?" }
+    { id: "1", sender: "ai", text: `Merhaba! Ben ${business.shortName} AI asistanınız. Personel, müşteri, randevu, parça stoku veya iş emirleri hakkında sorularınıza yardımcı olabilirim. Nasıl yardımcı olabilirim?` }
   ]);
   const [typing, setTyping] = useState(false);
   const messagesEndRef = React.useRef(null);
@@ -833,7 +871,7 @@ function AIAssistant({ personnel, customers, appointments, parts, jobs }) {
     const summary = `Sistem özetiniz: ${pCount} personel (${activePersonnel} aktif), ${cCount} müşteri, ${aCount} randevu (${pendingAppts} beklemede), ${partCount} parça (${lowStock} kritik), ${jobCount} iş emri (${activeJobs} açık, ${completedJobs} tamamlandı, ${cancelledJobs} iptal), toplam ciro ${money(totalRevenue)} (tamamlananlardan ${money(completedRevenue)}).`;
 
     if (q.includes("merhaba") || q.includes("selam") || q.includes("nasılsın") || q.includes("günaydın") || q.includes("iyi akşamlar") || q.includes("selamın aleyküm")) {
-      return `Merhaba! Ben Demir Service AI asistanınız. ${summary} Size nasıl yardımcı olabilirim?`;
+      return `Merhaba! Ben ${business.shortName} AI asistanınız. ${summary} Size nasıl yardımcı olabilirim?`;
     }
     if (q.includes("yardım") || q.includes("ne yapabilir") || q.includes("nasıl kullanılır") || q.includes("özellikler") || q.includes("komutlar")) {
       return `Şunlar hakkında soru sorabilirsiniz:\n\n• PERSONEL: kayıt, maaş, komisyon, performans, aktif/pasif durum\n• MÜŞTERİ: kayıt, araç, plaka, iletişim, en aktif müşteri\n• RANDEVU: planlama, durum, bekleyenler, müşteri eşleştirme\n• PARÇA/STOK: envanter, stok seviyesi, minimum stok, kritik uyarı, SKU, fiyat\n• FATURA: alış faturaları, stok girişi, tedarikçi\n• İŞ EMRİ: servis işlemleri, ciro, durum takibi, araç geçmişi\n• GENEL: sistem özeti, raporlar, yedekleme, araç servis geçmişi\n\n${summary}`;
@@ -924,7 +962,7 @@ function AIAssistant({ personnel, customers, appointments, parts, jobs }) {
     open ? h("div", { className: "ai-panel" },
       h("div", { className: "ai-header" },
         h("div", { className: "ai-avatar" }, "AI"),
-        h("div", null, h("strong", null, "AI Asistan"), h("small", null, "Demir Service"))),
+        h("div", null, h("strong", null, "AI Asistan"), h("small", null, business.shortName))),
       h("div", { className: "ai-messages" },
         messages.map((msg) => h("div", {
           key: msg.id,
@@ -947,6 +985,7 @@ function AIAssistant({ personnel, customers, appointments, parts, jobs }) {
 }
 
 function Dashboard({ data, lowStock, revenue, setPage, openModal, createDraft, openCriticalInventory, openWorkOrder, openWorkOrderList, onOpenVehicle, onOpenLowStockPart, onOpenTopPart, onOpenOpenJobs, onOpenTotalCiro, onOpenInventory, onOpenMovement, onOpenInvoice }) {
+  const business = useBusiness();
   const openJobs = getOpenWorkOrders(data.jobs).length;
   const recentJobs = [...data.jobs].sort((first, second) => (second.updatedAt || second.date || "").localeCompare(first.updatedAt || first.date || "")).slice(0, 5);
   const metrics = [
@@ -956,7 +995,7 @@ function Dashboard({ data, lowStock, revenue, setPage, openModal, createDraft, o
     { label: "Kritik stok", value: String(lowStock.length).padStart(2, "0"), caption: "Minimum seviyede veya altında", onClick: openCriticalInventory, title: "Kritik stoktaki parçaları filtrele" },
   ];
   return h(React.Fragment, null,
-    h(CinematicCar, { variant: "hero" }, h("div", { className: "car-hero-copy" }, h("span", null, "EUROREPAR CAR SERVICE"), h("strong", null, "DEMİR SERVICE"))),
+    h(CinematicCar, { variant: "hero" }, h("div", { className: "car-hero-copy" }, h("span", null, business.tagline), h("strong", null, business.shortName.toLocaleUpperCase("tr")))),
     h(ServiceStatusLead, { openJobs, lowStock: lowStock.length, onOpenJobs: onOpenOpenJobs || openWorkOrderList, onOpenLowStock: openCriticalInventory }),
     h("div", { className: "metric-grid dashboard-metric-grid" }, metrics.map((metric) =>
       h("article", {
@@ -2128,6 +2167,7 @@ function StockCompare({ parts = [], openModal }) {
 }
 
 function Modal({ modal, parts, customers, personnel, onClose, onSavePart, onSaveJob, onSaveInvoice, onSaveFitment, onSaveCustomer, onSavePersonnel, onSaveAppointment, onSaveNotification, saving }) {
+  const business = useBusiness();
   const [lines, setLines] = useState(() => modal.type === "job" && modal.item
     ? (modal.item.items || []).map((item) => {
         const matchingPart = parts.find((part) => part.id === item.partId);
@@ -2505,7 +2545,7 @@ function Modal({ modal, parts, customers, personnel, onClose, onSavePart, onSave
     );
   }
   return h("div", { className: "modal-backdrop", onMouseDown: (event) => { if (event.target === event.currentTarget) onClose(); } }, h("section", { className: `modal-card ${modal.type === "invoice" ? "invoice-modal" : ""}`, role: "dialog", "aria-modal": "true", "aria-labelledby": "modal-title" },
-    h("div", { className: "modal-header" }, h("div", null, h("p", { className: "eyebrow" }, "DEMİR SERVICE"), h("h2", { id: "modal-title" }, title)), h("button", { className: "icon-button", onClick: onClose, type: "button", title: "Kapat" }, h(Icon, { name: "close" }))),
+    h("div", { className: "modal-header" }, h("div", null, h("p", { className: "eyebrow" }, business.shortName.toLocaleUpperCase("tr")), h("h2", { id: "modal-title" }, title)), h("button", { className: "icon-button", onClick: onClose, type: "button", title: "Kapat" }, h(Icon, { name: "close" }))),
     h("form", { onSubmit: submit, className: "modal-form" },
       modal.type === "part" ? h("div", { className: "form-grid" },
         h("label", null, "Parça adı", h("input", { name: "name", defaultValue: modal.item?.name || "", placeholder: "Örn. Yağ filtresi", required: true })),
@@ -2668,7 +2708,7 @@ function Modal({ modal, parts, customers, personnel, onClose, onSavePart, onSave
 }
 
 installFitScreen();
-createRoot(document.getElementById("root")).render(h(React.StrictMode, null, h(App)));
+createRoot(document.getElementById("root")).render(h(React.StrictMode, null, h(BusinessProvider, null, h(App))));
 
 /* ─── Müşteri Sayfası ──────────────────────────────────────────────────────── */
 function CustomersPage({ customers, openModal, saving }) {
@@ -2817,6 +2857,7 @@ function ReturnsPage({ returns, openModal, saving }) {
 
 /* ─── Yedekleme Sayfası ────────────────────────────────────────────────────── */
 function BackupPage({ data }) {
+  const business = useBusiness();
   const exportExcel = () => {
     const wb = XLSX.utils.book_new();
     const addSheet = (name, rows) => {
@@ -2833,7 +2874,7 @@ function BackupPage({ data }) {
     XLSX.writeFile(wb, `demir-service-yedek-${new Date().toISOString().slice(0, 10)}.xlsx`);
   };
   const exportPdf = () => {
-    const content = `# Demir Service Yedek Raporu\nTarih: ${new Date().toLocaleString("tr-TR")}\n\n## Özet\n- Parça: ${data.parts.length}\n- İş Emri: ${data.jobs.length}\n- Fatura: ${data.invoices.length}\n- Müşteri: ${data.customers.length}\n- Personel: ${data.personnel.length}\n- Randevu: ${data.appointments.length}\n- Bildirim: ${data.notifications.length}`;
+    const content = `# ${business.shortName} Yedek Raporu\nTarih: ${new Date().toLocaleString("tr-TR")}\n\n## Özet\n- Parça: ${data.parts.length}\n- İş Emri: ${data.jobs.length}\n- Fatura: ${data.invoices.length}\n- Müşteri: ${data.customers.length}\n- Personel: ${data.personnel.length}\n- Randevu: ${data.appointments.length}\n- Bildirim: ${data.notifications.length}`;
     const blob = new Blob([content], { type: "text/plain" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");

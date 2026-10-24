@@ -1,9 +1,11 @@
 import React, { useEffect, useState } from "react";
+import { useBusiness } from "./business.js";
 
 const e = React.createElement;
 
 // Giriş ekranındaki sinematik anlatım: kaydırdıkça dişli sahnesi değişir.
 export function LoginStory() {
+  const business = useBusiness();
   const [progress, setProgress] = useState(0);
   useEffect(() => {
     const update = () => {
@@ -18,7 +20,7 @@ export function LoginStory() {
 
   return e(React.Fragment, null,
     e("header", { className: "story-top" },
-      e("span", null, e("b", null, "Demir"), " Eurorepar Car Service"),
+      e("span", null, business.fullName),
       e("span", { className: "story-progress", "aria-hidden": "true" }, e("i", { style: { width: `${(progress * 100).toFixed(1)}%` } }))),
     e("div", { className: "story-hero" },
       e("p", { className: "story-tag" }, "Servis · Yedek Parça · Bakım"),
@@ -47,5 +49,5 @@ export function LoginStory() {
         e("ul", { className: "story-list" },
           [["Periyodik bakım", "YAĞ · FİLTRE"], ["Fren sistemi", "BALATA · DİSK"], ["Motor ve şanzıman", "ARIZA TESPİT"], ["Yedek parça", "STOKTAN TESLİM"]]
             .map(([name, tag]) => e("li", { key: name }, name, e("span", null, tag)))))),
-    e("footer", { className: "story-footer" }, "Demir Eurorepar Car Service"));
+    e("footer", { className: "story-footer" }, business.fullName));
 }

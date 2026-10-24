@@ -21,6 +21,13 @@ service cloud.firestore {
       allow delete: if isOwner() && email != 'tektas590@gmail.com';
     }
 
+    // İşletme adı/logo/slogan: giriş ekranında oturum açılmadan önce de gösterilir,
+    // bu yüzden herkese okunabilir; değiştirmek yalnızca yöneticiye açıktır.
+    match /settings/business {
+      allow read: if true;
+      allow write: if isOwner();
+    }
+
     match /{collection}/{document=**} {
       allow read, write: if collection in ['parts', 'jobs', 'invoices', 'drafts', 'fitments', 'chat', 'customers', 'personnel', 'appointments', 'notifications', 'returns'] && isAuthorized();
     }

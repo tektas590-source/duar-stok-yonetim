@@ -3149,3 +3149,14 @@ body, .sidebar, .topbar, .panel, .login-card, .sc-hero, .wc-hero, .ic-hero { tra
 @keyframes bell-ring { 0% { opacity: 0.7; transform: scale(0.7); } 70% { opacity: 0; transform: scale(1.5); } 100% { opacity: 0; transform: scale(1.5); } }
 @keyframes bell-dot { 0%, 100% { box-shadow: 0 0 0 2px var(--surface), 0 0 0 2px var(--surface); } 50% { box-shadow: 0 0 0 2px var(--surface), 0 0 10px 2px var(--danger); } }
 @media (prefers-reduced-motion: reduce) { .wc-sweep, .notification-alert::before, .notification-alert i { animation: none; } body, .sidebar, .topbar, .panel, .login-card, .sc-hero, .wc-hero, .ic-hero { transition: none; } }
+
+/* ─── İşletme Ayarları (white-label) ─────────────────────────────────────── */
+.settings-panel { max-width: 560px; padding: 24px; }
+.settings-intro { color: var(--text-muted); font-size: 13px; line-height: 1.6; margin: 0 0 20px; }
+.settings-form { display: flex; flex-direction: column; gap: 16px; }
+.settings-form label { display: flex; flex-direction: column; gap: 6px; font-size: 12px; color: var(--text-muted); font-weight: 600; }
+.settings-form input { font: inherit; padding: 10px 12px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--surface-raised); color: var(--text-main); }
+.settings-preview { display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-radius: var(--radius-md); border: 1px dashed var(--border-bright); background: var(--surface-raised); }
+.settings-preview-mark { flex: none; width: 36px; height: 36px; border-radius: 10px; background: linear-gradient(135deg, var(--accent) 0%, #8fe035 100%); color: var(--text-on-accent); display: grid; place-items: center; font: 800 18px var(--font-heading); }
+.settings-preview strong { display: block; font-size: 13px; letter-spacing: 0.04em; }
+.settings-preview span { display: block; font-size: 10px; letter-spacing: 0.14em; color: var(--text-muted); margin-top: 2px; }
