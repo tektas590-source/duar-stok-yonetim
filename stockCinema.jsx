@@ -90,7 +90,7 @@ export function StockCinema({ parts }) {
       e("li", { className: "sc-key-good" }, `Yeterli ${stats.good}`)));
 }
 
-const ACCENTS = [["green", "Yeşil"], ["ember", "Kor"], ["ice", "Buz"]];
+const ACCENTS = [["indigo", "İndigo"], ["amber", "Amber"], ["teal", "Zümrüt"]];
 
 export function AccentPicker({ accent, setAccent }) {
   return e("div", { className: "accent-picker", role: "group", "aria-label": "Vurgu rengi" },

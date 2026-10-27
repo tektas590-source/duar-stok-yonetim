@@ -210,7 +210,7 @@ function App() {
   const [errorMessage, setErrorMessage] = useState("");
   const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
   const [globalSearchQuery, setGlobalSearchQuery] = useState("");
-  const [accent, setAccentState] = useState(() => { try { const saved = localStorage.getItem("demir-service-accent"); return ["green", "ember", "ice"].includes(saved) ? saved : "green"; } catch { return "green"; } });
+  const [accent, setAccentState] = useState(() => { try { const saved = localStorage.getItem("demir-service-accent"); return ["indigo", "amber", "teal"].includes(saved) ? saved : "indigo"; } catch { return "indigo"; } });
   const setAccent = (value) => { setAccentState(value); try { localStorage.setItem("demir-service-accent", value); } catch { /* tercih saklanamadı */ } };
   useEffect(() => { document.documentElement.dataset.accent = accent; }, [accent]);
   const toggleTheme = (event) => {
