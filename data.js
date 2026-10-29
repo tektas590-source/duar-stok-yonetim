@@ -13,7 +13,7 @@ import {
 import { resolveBusinessDate } from "./businessDate.js";
 import { aggregateWorkOrderQuantities, calculateWorkOrderQuantityDeltas, calculateWorkOrderReversal } from "./workOrderInventory.js";
 import { WORK_ORDER_STATUS } from "./workOrderLifecycle.js";
-import { calculateWorkOrderNetTotal, normalizeLaborAmount } from "./workOrderPricing.js";
+import { calculateWorkOrderNetTotal, normalizeLaborAmount, normalizeDiscount } from "./workOrderPricing.js";
 import { db, OWNER_EMAIL } from "./firebase.js";
 
 const COLLECTIONS = ["parts", "jobs", "invoices", "drafts"];
@@ -259,6 +259,8 @@ export async function createWorkOrder(job, actor) {
   const database = requireDatabase();
   const businessDate = resolveBusinessDate(job.date);
   const laborAmount = normalizeLaborAmount(job.laborAmount);
+  const externalLabor = Array.isArray(job.externalLabor) ? job.externalLabor : [];
+  const laborDiscount = normalizeDiscount({ type: job.laborDiscountType, value: job.laborDiscountValue });
   const quantities = new Map();
   job.items.forEach((item) => quantities.set(item.partId, (quantities.get(item.partId) || 0) + item.qty));
   const partReferences = [...quantities.keys()].map((id) => doc(database, "parts", id));
@@ -290,7 +292,10 @@ export async function createWorkOrder(job, actor) {
       updatedAt: new Date().toISOString(),
       items,
       laborAmount,
-      total: calculateWorkOrderNetTotal(items, laborAmount),
+      externalLabor,
+      laborDiscountType: laborDiscount.type,
+      laborDiscountValue: laborDiscount.value,
+      total: calculateWorkOrderNetTotal(items, laborAmount, externalLabor, laborDiscount),
     };
     for (const [partId, quantity] of quantities) {
       const part = parts.get(partId);
@@ -317,6 +322,8 @@ export async function updateWorkOrder(jobId, job, actor) {
   const database = requireDatabase();
   const businessDate = resolveBusinessDate(job.date);
   const laborAmount = normalizeLaborAmount(job.laborAmount);
+  const externalLabor = Array.isArray(job.externalLabor) ? job.externalLabor : [];
+  const laborDiscount = normalizeDiscount({ type: job.laborDiscountType, value: job.laborDiscountValue });
   const jobReference = doc(database, "jobs", jobId);
   const baselineSnapshot = await getDoc(jobReference);
   if (!baselineSnapshot.exists()) throw new Error("Düzenlenecek iş emri bulunamadı.");
@@ -451,7 +458,10 @@ export async function updateWorkOrder(jobId, job, actor) {
       date: businessDate,
       items,
       laborAmount,
-      total: calculateWorkOrderNetTotal(items, laborAmount),
+      externalLabor,
+      laborDiscountType: laborDiscount.type,
+      laborDiscountValue: laborDiscount.value,
+      total: calculateWorkOrderNetTotal(items, laborAmount, externalLabor, laborDiscount),
       movementLedgerVersion: 1,
       updatedAt: new Date().toISOString(),
       ...(isNowCompleted ? { completedAt: new Date().toISOString(), completedBy: actor || OWNER_EMAIL } : {}),

@@ -16,7 +16,7 @@ import { parseInvoicePaste } from "./invoiceImport.js";
 import { findPartMatches, parsePastedPartQueries } from "./partSearch.js";
 import { changeInitialPassword, firebaseConfigured, OWNER_EMAIL, registerWithPassword, requestPasswordReset, signInWithPassword, signOutUser, subscribeToAuth } from "./firebase.js";
 import { calculateVat, VAT_RATE, vatIncludedAmount } from "./vat.js";
-import { calculateWorkOrderNetTotal, calculateWorkOrderPriceBreakdown, normalizeLaborAmount } from "./workOrderPricing.js";
+import { calculateWorkOrderNetTotal, calculateWorkOrderPriceBreakdown, normalizeLaborAmount, normalizeDiscount } from "./workOrderPricing.js";
 
 const JOB_STATUS_IN_PROGRESS = "Devam ediyor";
 const JOB_STATUS_COMPLETED = "Tamamlandı";
@@ -1349,7 +1349,7 @@ function WorkOrders({ jobs, query, setQuery, openModal, markJobComplete, cancelJ
               }, "Düzenle")
             )
           ),
-          selected === job.id ? h("tr", { className: "job-detail-row" }, h("td", { colSpan: 7 }, h("div", { className: "job-detail" }, h("strong", null, "Araç servis geçmişi / kullanılan parçalar"), job.items.map((item, index) => h("span", { key: `${item.partId || item.sku || item.name}-${index}` }, `${item.name} · ${item.qty} adet · ${money(Number(item.price || 0) * Number(item.qty || 0))} KDV hariç`)), h("span", null, `İşçilik · ${money(normalizeLaborAmount(job.laborAmount))} KDV hariç`), h("span", null, `Ara toplam · ${money(Number(job.total || 0))} KDV hariç`), h("span", null, `%${VAT_RATE * 100} KDV · ${money(calculateVat(Number(job.total || 0)).vat)}`), h("span", { className: "job-detail-total" }, `İş emri toplamı · ${money(vatIncludedAmount(job.total))} KDV dahil`), job.status === WORK_ORDER_STATUS.CANCELLED ? h("span", { className: "job-cancelled-note" }, "Kayıt iptal edildi; stok hareketleri korunuyor.") : h("div", { className: "job-lifecycle-actions" }, job.status === WORK_ORDER_STATUS.IN_PROGRESS ? h("button", { className: "button button-small", type: "button", disabled: saving, onClick: () => markJobComplete(job) }, "Tamamlandı") : null, h("button", { className: "button button-small button-danger", type: "button", disabled: saving, onClick: () => cancelJob(job) }, "İş emrini iptal et"), h("button", { className: "button button-small job-edit-action", type: "button", disabled: saving, onClick: () => openModal("job", job), "aria-label": `${job.code || "İş emri"} kaydını düzenle` }, "İş emrini düzenle"))))) : null
+          selected === job.id ? h("tr", { className: "job-detail-row" }, h("td", { colSpan: 7 }, h("div", { className: "job-detail" }, h("strong", null, "Araç servis geçmişi / kullanılan parçalar"), job.items.map((item, index) => h("span", { key: `${item.partId || item.sku || item.name}-${index}` }, `${item.name} · ${item.qty} adet · ${money(Number(item.price || 0) * Number(item.qty || 0))} KDV hariç${item.discountType && item.discountType !== "none" && Number(item.discountValue) > 0 ? ` (iskonto ${item.discountType === "percent" ? `%${item.discountValue}` : money(item.discountValue)})` : ""}`)), h("span", null, `İşçilik · ${money(normalizeLaborAmount(job.laborAmount))} KDV hariç`), (job.externalLabor || []).length ? h("span", null, `Harici işçilik · ${money((job.externalLabor || []).reduce((sum, el) => sum + (Number(el.price) || 0), 0))} KDV hariç`) : null, job.laborDiscountType && job.laborDiscountType !== "none" && Number(job.laborDiscountValue) > 0 ? h("span", { className: "job-detail-discount" }, job.laborDiscountType === "percent" ? `İşçilik iskontosu · %${job.laborDiscountValue}` : `İşçilik iskontosu · ${money(job.laborDiscountValue)}`) : null, h("span", null, `Ara toplam · ${money(Number(job.total || 0))} KDV hariç`), h("span", null, `%${VAT_RATE * 100} KDV · ${money(calculateVat(Number(job.total || 0)).vat)}`), h("span", { className: "job-detail-total" }, `İş emri toplamı · ${money(vatIncludedAmount(job.total))} KDV dahil`), job.status === WORK_ORDER_STATUS.CANCELLED ? h("span", { className: "job-cancelled-note" }, "Kayıt iptal edildi; stok hareketleri korunuyor.") : h("div", { className: "job-lifecycle-actions" }, job.status === WORK_ORDER_STATUS.IN_PROGRESS ? h("button", { className: "button button-small", type: "button", disabled: saving, onClick: () => markJobComplete(job) }, "Tamamlandı") : null, h("button", { className: "button button-small button-danger", type: "button", disabled: saving, onClick: () => cancelJob(job) }, "İş emrini iptal et"), h("button", { className: "button button-small job-edit-action", type: "button", disabled: saving, onClick: () => openModal("job", job), "aria-label": `${job.code || "İş emri"} kaydını düzenle` }, "İş emrini düzenle"))))) : null
         )))
       )
     ) : h("div", { className: "empty-state" }, "Henüz iş emri bulunmuyor."))
@@ -1570,9 +1570,13 @@ function VatSummary({ values, title = "KDV dahil toplam" }) {
 }
 
 function WorkOrderPriceSummary({ values }) {
+  const laborDiscountLabel = values.laborDiscountType === "percent" ? `İşçilik iskontosu (%${values.laborDiscountValue})` : "İşçilik iskontosu";
   return h("div", { className: "vat-summary work-order-price-summary", "aria-label": "İş emri toplam özeti" },
-    h("div", null, h("span", null, "Parça ara toplamı (KDV hariç)"), h("strong", null, money(values.partsSubtotal))),
+    h("div", null, h("span", null, "Parça ara toplamı (KDV hariç)"), h("strong", null, money(values.partsGross))),
+    values.partsDiscountTotal ? h("div", { className: "work-order-price-discount" }, h("span", null, "Parça iskontosu"), h("strong", null, `− ${money(values.partsDiscountTotal)}`)) : null,
     h("div", null, h("span", null, "İşçilik (KDV hariç)"), h("strong", null, money(values.laborAmount))),
+    values.laborDiscountAmount ? h("div", { className: "work-order-price-discount" }, h("span", null, laborDiscountLabel), h("strong", null, `− ${money(values.laborDiscountAmount)}`)) : null,
+    values.externalLaborSubtotal ? h("div", null, h("span", null, "Harici işçilik (KDV hariç)"), h("strong", null, money(values.externalLaborSubtotal))) : null,
     h("div", null, h("span", null, "Ara toplam (KDV hariç)"), h("strong", null, money(values.subtotal))),
     h("div", null, h("span", null, `%${VAT_RATE * 100} KDV`), h("strong", null, money(values.vat))),
     h("div", { className: "work-order-price-grand-total" }, h("span", null, "İş emri toplamı · KDV dahil"), h("strong", null, money(values.total)))
@@ -2184,16 +2188,20 @@ function Modal({ modal, parts, customers, personnel, onClose, onSavePart, onSave
           price: resolvedPrice,
           originalQty: item.qty,
           originalPrice: resolvedPrice,
-          archived: !matchingPart
+          archived: !matchingPart,
+          discountType: item.discountType || "none",
+          discountValue: String(item.discountValue ?? 0)
         };
       })
     : modal.type === "fitment" && modal.item
       ? (modal.item.parts || []).map((item) => ({ partId: item.partId || "", search: `${item.name || ""}${item.sku ? ` · ${item.sku}` : ""}`, name: item.name || "", sku: item.sku || "" }))
-    : [{ partId: "", qty: 1, search: "" }]);
+    : [{ partId: "", qty: 1, search: "", discountType: "none", discountValue: "0" }]);
   const [status, setStatus] = useState(() => modal.item?.status || JOB_STATUS_IN_PROGRESS);
   const [businessDate, setBusinessDate] = useState(() => modal.item?.date || dateKey(new Date()));
   const [laborAmount, setLaborAmount] = useState(() => String(modal.item?.laborAmount ?? 0));
   const [externalLabor, setExternalLabor] = useState(() => modal.type === "job" && modal.item?.externalLabor ? modal.item.externalLabor : []);
+  const [laborDiscountType, setLaborDiscountType] = useState(() => modal.item?.laborDiscountType || "none");
+  const [laborDiscountValue, setLaborDiscountValue] = useState(() => String(modal.item?.laborDiscountValue ?? 0));
   const [error, setError] = useState("");
   const [pasteMessage, setPasteMessage] = useState("");
   const [invoiceMode, setInvoiceMode] = useState("code");
@@ -2213,7 +2221,7 @@ function Modal({ modal, parts, customers, personnel, onClose, onSavePart, onSave
   const [newInvoicePart, setNewInvoicePart] = useState({ sku: "", name: "", qty: "1", cost: "", price: "", category: "Genel", brand: "", minimum: "5" });
   const title = modal.type === "part" ? modal.item ? "Parçayı düzenle" : "Yeni parça ekle" : modal.type === "job" ? modal.item ? "İş emrini düzenle" : "Yeni iş emri" : modal.type === "fitment" ? modal.item ? "Uyumluluğu düzenle" : "Araç uyumluluğu ekle" : modal.type === "customer" ? modal.item ? "Müşteriyi düzenle" : "Yeni müşteri ekle" : modal.type === "personnel" ? modal.item ? "Personeli düzenle" : "Yeni personel ekle" : modal.type === "appointment" ? modal.item ? "Randevuyu düzenle" : "Yeni randevu ekle" : modal.type === "notification" ? modal.item ? "Bildirimi düzenle" : "Yeni bildirim ekle" : modal.type === "invoice" ? modal.item ? "Faturayı düzenle" : "Alış faturası ekle" : modal.type === "return" ? modal.item ? "İade parçayı düzenle" : "İade parça ekle" : "Alış faturası ekle";
   const updateLine = (index, key, value) => setLines((current) => current.map((line, i) => i === index ? { ...line, [key]: value } : line));
-  const addLine = () => setLines((current) => [...current, { partId: "", qty: 1, search: "" }]);
+  const addLine = () => setLines((current) => [...current, { partId: "", qty: 1, search: "", discountType: "none", discountValue: "0" }]);
   const updateNewInvoicePart = (key, value) => setNewInvoicePart((current) => ({ ...current, [key]: value }));
   const updateExternalLabor = (index, key, value) => setExternalLabor((current) => current.map((item, i) => i === index ? { ...item, [key]: value } : item));
   const addExternalLabor = () => setExternalLabor((current) => [...current, { description: "", cost: "", price: "" }]);
@@ -2261,11 +2269,18 @@ function Modal({ modal, parts, customers, personnel, onClose, onSavePart, onSave
     const rawPrice = line.price !== undefined && line.price !== "" ? line.price : part?.price;
     const price = parseCurrencyInput(rawPrice);
     const qty = Number(line.qty);
-    return line.partId && Number.isInteger(qty) && qty > 0 && Number.isFinite(price) && price >= 0 ? [{ qty, price }] : [];
+    return line.partId && Number.isInteger(qty) && qty > 0 && Number.isFinite(price) && price >= 0
+      ? [{ qty, price, discountType: line.discountType || "none", discountValue: parseCurrencyInput(line.discountValue) || 0 }]
+      : [];
   });
   let jobPricing = null;
   try {
-    jobPricing = calculateWorkOrderPriceBreakdown(jobPreviewItems, parseCurrencyInput(laborAmount));
+    jobPricing = calculateWorkOrderPriceBreakdown(
+      jobPreviewItems,
+      parseCurrencyInput(laborAmount),
+      externalLabor.map((el) => ({ cost: parseCurrencyInput(el.cost) || 0, price: parseCurrencyInput(el.price) || 0 })),
+      { type: laborDiscountType, value: parseCurrencyInput(laborDiscountValue) }
+    );
   } catch {
     jobPricing = null;
   }
@@ -2454,6 +2469,7 @@ function Modal({ modal, parts, customers, personnel, onClose, onSavePart, onSave
         qty: Number(line.qty),
         price: unitPrice,
         cost: parseCurrencyInput(line.cost ?? part?.cost ?? 0),
+        ...(modal.type === "job" ? { discountType: line.discountType || "none", discountValue: parseCurrencyInput(line.discountValue) || 0 } : {}),
       };
     }).filter(Boolean);
     const groupedItems = new Map();
@@ -2477,12 +2493,12 @@ function Modal({ modal, parts, customers, personnel, onClose, onSavePart, onSave
     }
     if (modal.type === "job") {
       let normalizedLaborAmount;
+      let normalizedLaborDiscount;
       let total;
       try {
         normalizedLaborAmount = normalizeLaborAmount(parseCurrencyInput(laborAmount));
-        const externalLaborCost = externalLabor.reduce((sum, el) => sum + (parseCurrencyInput(el.cost) || 0), 0);
-        const externalLaborPrice = externalLabor.reduce((sum, el) => sum + (parseCurrencyInput(el.price) || 0), 0);
-        total = calculateWorkOrderNetTotal(items, normalizedLaborAmount, externalLabor.map(el => ({ cost: parseCurrencyInput(el.cost) || 0, price: parseCurrencyInput(el.price) || 0 })));
+        normalizedLaborDiscount = normalizeDiscount({ type: laborDiscountType, value: parseCurrencyInput(laborDiscountValue) });
+        total = calculateWorkOrderNetTotal(items, normalizedLaborAmount, externalLabor.map(el => ({ cost: parseCurrencyInput(el.cost) || 0, price: parseCurrencyInput(el.price) || 0 })), normalizedLaborDiscount);
       } catch (pricingError) {
         setError(pricingError.message || "İş emri tutarlarını kontrol edin.");
         return;
@@ -2517,6 +2533,8 @@ function Modal({ modal, parts, customers, personnel, onClose, onSavePart, onSave
           cost: parseCurrencyInput(el.cost) || 0,
           price: parseCurrencyInput(el.price) || 0
         })),
+        laborDiscountType: normalizedLaborDiscount.type,
+        laborDiscountValue: normalizedLaborDiscount.value,
         total,
         status: modal.item ? status : JOB_STATUS_IN_PROGRESS
       });
@@ -2539,7 +2557,17 @@ function Modal({ modal, parts, customers, personnel, onClose, onSavePart, onSave
         )) : h("label", null, index === 0 ? "Parça" : " ", h("select", { value: line.partId, onChange: (event) => updateLine(index, "partId", event.target.value), required: index === 0 }, h("option", { value: "" }, "Parça seçin"), parts.map((entry) => h("option", { key: entry.id, value: entry.id }, `${entry.name} · ${entry.sku}`)))),
       h("label", null, index === 0 ? "Adet" : " ", h("input", { type: "number", min: 1, max: type === "job" ? line.archived ? line.originalQty : part ? part.stock + (line.originalQty || 0) : undefined : undefined, value: line.qty, onChange: (event) => updateLine(index, "qty", event.target.value), required: true })),
       type === "job" ? h("label", null, index === 0 ? "Birim satış (₺)" : " ", h(CurrencyInput, { value: String(line.price !== undefined && line.price !== null ? line.price : (part?.price ?? "")), onChange: (val) => updateLine(index, "price", val), placeholder: "0,00" })) : null,
-      type === "job" ? h("button", { className: "button button-small button-danger job-line-remove", type: "button", onClick: () => setLines((current) => { const next = current.filter((_, lineIndex) => lineIndex !== index); return next.length ? next : [{ partId: "", qty: 1, search: "" }]; }), "aria-label": `${line.name || part?.name || `Parça ${index + 1}`} satırını kaldır` }, h(Icon, { name: "close", size: 14 })) : null,
+      type === "job" && !line.archived ? h("div", { className: "line-discount" },
+        h("label", null, index === 0 ? "İskonto" : " ",
+          h("select", { value: line.discountType || "none", "aria-label": `${line.name || part?.name || `Parça ${index + 1}`} iskonto türü`, onChange: (event) => { const val = event.target.value; updateLine(index, "discountType", val); if (val === "none") updateLine(index, "discountValue", "0"); } },
+            h("option", { value: "none" }, "Yok"),
+            h("option", { value: "percent" }, "%"),
+            h("option", { value: "amount" }, "₺")
+          )),
+        line.discountType && line.discountType !== "none" ? h("label", null, index === 0 ? " " : " ",
+          h(CurrencyInput, { value: String(line.discountValue ?? "0"), "aria-label": `${line.name || part?.name || `Parça ${index + 1}`} iskonto tutarı`, onChange: (val) => updateLine(index, "discountValue", val) })) : null
+      ) : null,
+      type === "job" ? h("button", { className: "button button-small button-danger job-line-remove", type: "button", onClick: () => setLines((current) => { const next = current.filter((_, lineIndex) => lineIndex !== index); return next.length ? next : [{ partId: "", qty: 1, search: "", discountType: "none", discountValue: "0" }]; }), "aria-label": `${line.name || part?.name || `Parça ${index + 1}`} satırını kaldır` }, h(Icon, { name: "close", size: 14 })) : null,
       type === "invoice" ? h("label", null, index === 0 ? "Birim alış · KDV hariç (₺)" : " ", h(CurrencyInput, { value: line.cost ?? part?.cost ?? "", onChange: (val) => updateLine(index, "cost", val), required: true })) : null,
       type === "invoice" ? h("label", null, index === 0 ? "Satış fiyatı · KDV hariç (₺)" : " ", h(CurrencyInput, { value: line.price ?? part?.price ?? "", onChange: (val) => updateLine(index, "price", val), required: true })) : null
     );
@@ -2596,7 +2624,18 @@ function Modal({ modal, parts, customers, personnel, onClose, onSavePart, onSave
           h("label", null, index === 0 ? "Satış fiyatı · KDV hariç (₺)" : " ", h(CurrencyInput, { value: el.price, onChange: (val) => updateExternalLabor(index, "price", val), placeholder: "0,00" })),
           h("button", { className: "button button-small button-danger job-line-remove", type: "button", onClick: () => removeExternalLabor(index) }, h(Icon, { name: "close", size: 14 }))
         ))) : null,
-        h("button", { className: "add-line-button", type: "button", onClick: addExternalLabor }, h(Icon, { name: "plus", size: 15 }), "Harici işçilik ekle")
+        h("button", { className: "add-line-button", type: "button", onClick: addExternalLabor }, h(Icon, { name: "plus", size: 15 }), "Harici işçilik ekle"),
+        h("div", { className: "modal-section-title" }, "İşçilik İskontosu", h("span", null, "İşçilik tutarı üzerinden, KDV hesaplanmadan önce uygulanır")),
+        h("div", { className: "discount-field" },
+          h("label", { htmlFor: "work-order-labor-discount-type" }, "İskonto türü",
+            h("select", { id: "work-order-labor-discount-type", value: laborDiscountType, onChange: (e) => { setLaborDiscountType(e.target.value); if (e.target.value === "none") setLaborDiscountValue("0"); setError(""); } },
+              h("option", { value: "none" }, "Yok"),
+              h("option", { value: "percent" }, "Yüzde (%)"),
+              h("option", { value: "amount" }, "Tutar (₺)")
+            )),
+          laborDiscountType !== "none" ? h("label", { htmlFor: "work-order-labor-discount-value" }, laborDiscountType === "percent" ? "İskonto yüzdesi (%)" : "İskonto tutarı · KDV hariç (₺)",
+            h(CurrencyInput, { id: "work-order-labor-discount-value", value: laborDiscountValue, onChange: (val) => { setLaborDiscountValue(val); setError(""); } })) : null
+        ),
       ) : modal.type === "customer" ? h(React.Fragment, null,
         h("div", { className: "form-grid" },
           h("label", null, "Müşteri adı", h("input", { name: "name", defaultValue: modal.item?.name || "", placeholder: "Ahmet Yılmaz", required: true })),

@@ -1669,7 +1669,13 @@ tbody tr:last-child td { border-bottom: none; }
   box-shadow: inset 3px 0 0 var(--accent);
 }
 .modal-item-line.job-item-line {
-  grid-template-columns: minmax(180px, 1fr) 75px 125px auto;
+  grid-template-columns: minmax(160px, 1fr) 65px 100px minmax(110px, 160px) auto;
+}
+.line-discount { display: flex; gap: 6px; align-items: end; }
+.line-discount select { width: 64px; flex: 0 0 auto; }
+.line-discount input { width: 90px; flex: 0 0 auto; }
+@media (max-width: 720px) {
+  .line-discount { flex-wrap: wrap; }
 }
 
 
@@ -1699,6 +1705,7 @@ tbody tr:last-child td { border-bottom: none; }
   font-weight: 600;
 }
 .job-cancelled-note { color: var(--danger) !important; border-color: rgba(255,107,107,0.2) !important; }
+.job-detail-discount { color: var(--danger) !important; border-color: color-mix(in srgb, var(--danger) 25%, transparent) !important; }
 .job-lifecycle-actions { width: 100%; display: flex; align-items: center; gap: 8px; padding-top: 4px; }
 .job-edit-action { margin-left: auto; }
 
@@ -2162,6 +2169,11 @@ textarea { height: auto; padding: 12px 14px; resize: vertical; line-height: 1.6;
 .labor-amount-field { display: grid; gap: 6px; }
 .labor-amount-field label { font-size: 12px; font-weight: 600; color: var(--text-muted); }
 .labor-amount-field small { font-size: 11px; color: var(--text-muted); }
+
+.discount-field { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: end; }
+.discount-field label { display: flex; flex-direction: column; gap: 6px; font-size: 12px; font-weight: 600; color: var(--text-muted); }
+.discount-field select { width: 100%; }
+@media (max-width: 560px) { .discount-field { grid-template-columns: 1fr; } }
 .labor-amount-field input { width: 200px; }
 
 /* ─── VAT Summary ────────────────────────────────── */
@@ -2186,6 +2198,7 @@ textarea { height: auto; padding: 12px 14px; resize: vertical; line-height: 1.6;
 .vat-summary strong { color: var(--text-main); font-weight: 600; }
 
 .work-order-price-summary {}
+.work-order-price-discount strong { color: var(--danger) !important; }
 .work-order-price-grand-total { background: var(--accent-soft) !important; border-top: 1px solid var(--border-bright) !important; }
 .work-order-price-grand-total span { color: var(--text-main) !important; font-weight: 600; }
 .work-order-price-grand-total strong { color: var(--accent) !important; font: 700 16px var(--font-heading); }
@@ -2414,6 +2427,7 @@ textarea { height: auto; padding: 12px 14px; resize: vertical; line-height: 1.6;
   .report-bar-row { grid-template-columns: 24px 100px 1fr 44px; gap: 8px; }
   .modal-item-line { grid-template-columns: 1fr 70px auto; }
   .modal-item-line.fitment-part-line { grid-template-columns: minmax(0, 1fr) auto auto; }
+  .modal-item-line.job-item-line { grid-template-columns: 1fr; }
   .invoice-workspace { grid-template-columns: 1fr; }
 }
 
