@@ -14,7 +14,7 @@ import {
 import { resolveBusinessDate } from "./businessDate.js";
 import { aggregateWorkOrderQuantities, calculateWorkOrderQuantityDeltas, calculateWorkOrderReversal } from "./workOrderInventory.js";
 import { selectEdmsRecordsToImport } from "./edmsImport.js";
-import { buildEdmsJobEnrichments, selectPurchaseInvoicesToImport, buildPurchaseInvoicePayload, buildRetroactiveStockCorrection } from "./edmsInvoiceReconcile.js";
+import { buildEdmsJobEnrichments, selectPurchaseInvoicesToImport, buildPurchaseInvoicePayload, buildRetroactiveStockCorrection, buildJobFromInvoice, buildAdditionalInvoicePatch } from "./edmsInvoiceReconcile.js";
 import { selectManualWorkOrders } from "./manualJobCleanup.js";
 import { WORK_ORDER_STATUS } from "./workOrderLifecycle.js";
 import { calculateWorkOrderNetTotal, normalizeLaborAmount, normalizeDiscount } from "./workOrderPricing.js";
@@ -1305,6 +1305,123 @@ export async function correctEdmsEnrichmentStock(jobs, parts, actor) {
   }
 
   return { correctedJobs: jobCount, correctedParts: corrections.length, warnings };
+}
+
+// Tek seferlik, el ile doğrulanmış eksik kayıt düzeltmesi: eDMS'in kendi
+// Fatura Raporu'nda satış faturası olarak görünen ama uygulamada hiçbir
+// karşılığı olmayan birkaç iş emrini (kullanıcıyla birlikte tek tek teyit
+// edilmiş), faturanın kendi satırlarından (plaka/şasi/parça/işçilik)
+// oluşturur; ayrıca zaten var olan bir iş emrine ait ikinci bir faturayı
+// (ör. aynı ziyaretin ek faturası) mevcut satırların üzerine toplayarak
+// ekler. `gaps` her biri `{ invoiceNo, action: "newJob" | "appendToJob",
+// externalId?, jobCode? }` biçiminde, app.jsx'teki sabit (hardcoded)
+// KNOWN_INVOICE_GAPS listesinden gelir — otomatik/toplu bir eşleştirme
+// DEĞİLDİR. İdempotenttir: bir boşluk zaten doldurulmuşsa (iş emri veya
+// fatura no zaten varsa) tekrar uygulanmaz, `skipped` içinde raporlanır.
+export async function fixKnownEdmsInvoiceGaps(gaps, jobs, parts, salesRecords, actor) {
+  const database = requireDatabase();
+  const salesByInvoiceNo = new Map((Array.isArray(salesRecords) ? salesRecords : []).map((inv) => [inv.invoiceNo, inv]));
+  const jobsById = new Map((Array.isArray(jobs) ? jobs : []).map((j) => [j.id, j]));
+  const jobsByCode = new Map((Array.isArray(jobs) ? jobs : []).map((j) => [j.code, j]));
+
+  const now = new Date().toISOString();
+  const businessDate = resolveBusinessDate(now.slice(0, 10));
+  const newJobWrites = [];
+  const jobUpdateWrites = [];
+  const newPartWrites = [];
+  const soldItemsForStock = []; // { items, jobCode }
+  const warnings = [];
+  const skipped = [];
+  let createdJobs = 0;
+  let appendedInvoices = 0;
+
+  for (const gap of Array.isArray(gaps) ? gaps : []) {
+    const invoice = salesByInvoiceNo.get(gap.invoiceNo);
+    if (!invoice) { skipped.push(`${gap.invoiceNo}: Fatura Raporu'nda bulunamadı (yüklenen dosyada yok).`); continue; }
+
+    if (gap.action === "newJob") {
+      const jobId = `edms-job-${gap.externalId}`;
+      if (jobsById.has(jobId)) { skipped.push(`${gap.invoiceNo}: EDMS-${gap.externalId} zaten mevcut, tekrar oluşturulmadı.`); continue; }
+      const { job: newJob, newParts, warnings: w } = buildJobFromInvoice(invoice, parts, { externalId: gap.externalId });
+      newJobWrites.push({ ref: doc(database, "jobs", newJob.id), data: newJob });
+      newPartWrites.push(...newParts.map((part) => ({ ref: doc(database, "parts", part.id), data: part })));
+      soldItemsForStock.push({ items: newJob.items, jobCode: newJob.code });
+      warnings.push(...w.map((msg) => `[${newJob.code}] ${msg}`));
+      createdJobs += 1;
+    } else if (gap.action === "appendToJob") {
+      const existingJob = jobsByCode.get(gap.jobCode);
+      if (!existingJob) { skipped.push(`${gap.invoiceNo}: hedef iş emri ${gap.jobCode} bulunamadı.`); continue; }
+      if (String(existingJob.edmsInvoiceNo || "").includes(gap.invoiceNo)) { skipped.push(`${gap.invoiceNo}: ${gap.jobCode}'e zaten eklenmiş.`); continue; }
+      const { patch, addedItems, newParts, warnings: w } = buildAdditionalInvoicePatch(existingJob, invoice, parts);
+      jobUpdateWrites.push({ ref: doc(database, "jobs", existingJob.id), data: { ...patch, updatedAt: now } });
+      newPartWrites.push(...newParts.map((part) => ({ ref: doc(database, "parts", part.id), data: part })));
+      soldItemsForStock.push({ items: addedItems, jobCode: gap.jobCode });
+      warnings.push(...w.map((msg) => `[${gap.jobCode}] ${msg}`));
+      appendedInvoices += 1;
+      // Aynı iş emrine birden fazla eksik fatura ekleniyorsa (ör. aynı
+      // ziyaretin iki faturası), bir sonraki gap bu güncellenmiş (toplanmış)
+      // durumu görsün diye haritayı güncelliyoruz.
+      jobsByCode.set(gap.jobCode, { ...existingJob, ...patch });
+    } else {
+      skipped.push(`${gap.invoiceNo}: bilinmeyen işlem türü "${gap.action}".`);
+    }
+  }
+
+  if (!newJobWrites.length && !jobUpdateWrites.length) {
+    return { createdJobs: 0, appendedInvoices: 0, warnings, skipped };
+  }
+
+  // Satılan parçaların stoğunu düş (enrichEdmsJobsWithInvoiceLines ile aynı mantık).
+  const existingPartById = new Map((Array.isArray(parts) ? parts : []).map((part) => [part.id, part]));
+  const newPartById = new Map(newPartWrites.map((w) => [w.ref.id, w.data]));
+  const soldQuantities = new Map();
+  soldItemsForStock.forEach(({ items, jobCode }) => {
+    items.forEach((item) => {
+      if (!item.partId) return;
+      const entry = soldQuantities.get(item.partId) || { qty: 0, name: item.name, sku: item.sku, jobCodes: [] };
+      entry.qty += Number(item.qty) || 0;
+      entry.jobCodes.push(jobCode);
+      soldQuantities.set(item.partId, entry);
+    });
+  });
+  const stockWrites = [];
+  const movementWrites = [];
+  soldQuantities.forEach((entry, partId) => {
+    const livePart = existingPartById.get(partId) || newPartById.get(partId);
+    const stockBefore = Number(livePart?.stock || 0);
+    const stockAfter = Math.max(0, stockBefore - entry.qty);
+    if (stockBefore - entry.qty < 0) {
+      warnings.push(`${entry.sku || partId} için satılan miktar (${entry.qty}) mevcut stoktan (${stockBefore}) fazla; stok 0'da sabitlendi.`);
+    }
+    stockWrites.push({ ref: doc(database, "parts", partId), data: { stock: stockAfter, sold: (Number(livePart?.sold) || 0) + entry.qty } });
+    const movement = movementRecord({ id: partId, name: livePart?.name || entry.name, sku: livePart?.sku || entry.sku }, {
+      qty: -entry.qty,
+      type: "eDMS satış faturası (eksik kayıt düzeltmesi)",
+      reference: "job",
+      referenceCode: entry.jobCodes.join(", "),
+      actor,
+      stockBefore,
+      stockAfter,
+      date: businessDate,
+    });
+    movementWrites.push({ ref: doc(database, "parts", partId, "movements", movement.id), data: movement });
+  });
+
+  const writes = [
+    ...newPartWrites,
+    ...newJobWrites,
+    ...jobUpdateWrites.map((w) => ({ ...w, merge: true })),
+    ...stockWrites.map((w) => ({ ...w, merge: true })),
+    ...movementWrites,
+  ];
+
+  for (const group of chunk(writes, 400)) {
+    const batch = writeBatch(database);
+    group.forEach(({ ref, data, merge }) => (merge ? batch.set(ref, data, { merge: true }) : batch.set(ref, data)));
+    await batch.commit();
+  }
+
+  return { createdJobs, appendedInvoices, warnings, skipped };
 }
 
 // Kullanıcının kendi ekranından elle girdiği (eDMS kökenli OLMAYAN) iş

@@ -9,6 +9,8 @@ import {
   buildPurchaseInvoicePayload,
   selectJobsNeedingStockCorrection,
   buildRetroactiveStockCorrection,
+  buildJobFromInvoice,
+  buildAdditionalInvoicePatch,
 } from "./edmsInvoiceReconcile.js";
 import { WORK_ORDER_STATUS } from "./workOrderLifecycle.js";
 
@@ -220,4 +222,56 @@ test("buildRetroactiveStockCorrection: aggregates sold qty per part across jobs,
   assert.equal(p2.stockAfter, 0);
   assert.equal(result.warnings.length, 1);
   assert.match(result.warnings[0], /SKU2/);
+});
+
+test("buildJobFromInvoice: builds a full new eDMS job directly from an invoice's own lines", () => {
+  const invoice = saleInvoice({ invoiceNo: "5001000030", externalId: "1016001", plate: "06DP8243", vin: "VF38D5FS8CL002314", firma: "MUSTAFA BURAK YILDIRIM", date: "2026-10-17" });
+  const { job: newJob, newParts, warnings } = buildJobFromInvoice(invoice, []);
+  assert.equal(newJob.id, "edms-job-1016001");
+  assert.equal(newJob.code, "EDMS-1016001");
+  assert.equal(newJob.source, "eDMS");
+  assert.equal(newJob.externalId, "1016001");
+  assert.equal(newJob.plate, "06DP8243");
+  assert.equal(newJob.vin, "VF38D5FS8CL002314");
+  assert.equal(newJob.customer, "MUSTAFA BURAK YILDIRIM");
+  assert.equal(newJob.date, "2026-10-17");
+  assert.equal(newJob.status, WORK_ORDER_STATUS.COMPLETED);
+  assert.equal(newJob.items.length, 1);
+  assert.equal(newJob.laborAmount, 2000);
+  assert.equal(newJob.total, 8200); // 2000 işçilik + 6200 parça (KDV hariç)
+  assert.ok(newJob.enrichedFromEdmsInvoiceAt);
+  assert.equal(newParts.length, 1); // "BK31 V254A16 AG5CND N" envanterde yok
+  assert.equal(warnings.length, 1);
+});
+
+test("buildJobFromInvoice: falls back to invoice.externalId when no override is given", () => {
+  const invoice = saleInvoice({ externalId: "917001" });
+  const { job: newJob } = buildJobFromInvoice(invoice, []);
+  assert.equal(newJob.externalId, "917001");
+  assert.equal(newJob.code, "EDMS-917001");
+});
+
+test("buildAdditionalInvoicePatch: adds a second invoice's lines onto an already-enriched job, summing totals", () => {
+  const existingJob = job({
+    items: [{ partId: "p-existing", sku: "EXIST", name: "Mevcut Parça", category: "Genel", brand: "", qty: 1, price: 1000, discountType: "none", discountValue: 0 }],
+    laborAmount: 500,
+    total: 1500,
+    edmsLaborLines: [{ kod: "L1", name: "Mevcut İşçilik", net: 500 }],
+    edmsInvoiceNo: "5001000013",
+  });
+  const secondInvoice = saleInvoice({
+    invoiceNo: "5001000016",
+    items: [
+      { kind: "Hizmet", kod: "ERT001", name: "Bakım İşçiliği", unitPrice: 1500, qty: 1, discountPercent: 0, vatPercent: 20, lineTotal: 1500, discountAmount: 0, vatAmount: 300, grossTotal: 1800 },
+      { kind: "Stok", kod: "1109.AY", name: "YAĞ FİLTRESİ", unitPrice: 298.81, qty: 1, discountPercent: 0, vatPercent: 20, lineTotal: 298.81, discountAmount: 0, vatAmount: 59.76, grossTotal: 358.57 },
+    ],
+  });
+  const { patch, addedItems, warnings } = buildAdditionalInvoicePatch(existingJob, secondInvoice, []);
+  assert.equal(patch.items.length, 2); // 1 mevcut + 1 yeni
+  assert.equal(patch.laborAmount, 2000); // 500 + 1500
+  assert.equal(patch.total, 3298.81); // 1500 + (1500+298.81)
+  assert.equal(patch.edmsLaborLines.length, 2);
+  assert.equal(patch.edmsInvoiceNo, "5001000013, 5001000016");
+  assert.equal(addedItems.length, 1); // sadece bu ikinci faturadan gelen parça
+  assert.equal(warnings.length, 1); // 1109.AY envanterde yok
 });

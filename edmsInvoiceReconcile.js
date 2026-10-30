@@ -365,3 +365,56 @@ export function buildRetroactiveStockCorrection(jobs, parts) {
     jobCount: targets.length,
   };
 }
+
+// --- 7) Bilinen eksikler: eDMS'in kendi Fatura Raporu'nda satış faturası
+// olarak görünen ama uygulamada HİÇ karşılığı olmayan iş emirlerini,
+// faturanın kendi satırlarından (plaka/şasi/parça/işçilik) oluşturma. Bu,
+// otomatik/toplu bir eşleştirme DEĞİLDİR — sadece kullanıcının tek tek
+// "evet, bu gerçekten eksik" dediği faturalar için, invoiceNo'ya göre tekil
+// olarak çağrılır (bkz. KNOWN_INVOICE_GAPS, app.jsx).
+export function buildJobFromInvoice(invoice, parts, { externalId, status = WORK_ORDER_STATUS.COMPLETED } = {}) {
+  const { patch, newParts, warnings } = buildJobEnrichmentPatch(null, invoice, parts);
+  const now = new Date().toISOString();
+  const resolvedExternalId = externalId || invoice.externalId || invoice.invoiceNo;
+  const job = {
+    id: `edms-job-${resolvedExternalId}`,
+    code: `EDMS-${resolvedExternalId}`,
+    source: "eDMS",
+    externalId: resolvedExternalId,
+    plate: invoice.plate || null,
+    vin: invoice.vin || null,
+    customer: invoice.firma || "",
+    date: invoice.date,
+    status,
+    movementLedgerVersion: 1,
+    // Fatura zaten faturalanmış/ödenmiş bir işin kaydı olduğu için parça/
+    // işçilik satırlarıyla birlikte doğrudan "zenginleştirilmiş" oluşturulur;
+    // stok düşümü data.js'teki yazma adımında ayrıca yapılır.
+    enrichedFromEdmsInvoiceAt: now,
+    createdFromInvoiceGapFixAt: now,
+    ...patch,
+  };
+  return { job, newParts, warnings };
+}
+
+// Zaten var olan (ve zenginleştirilmiş) bir iş emrine, eDMS'te aynı iş
+// emri numarasına ait İKİNCİ bir satış faturasının satırlarını ekler
+// (ör. aynı ziyarette ayrı kesilmiş iki fatura, ya da sonradan eklenen bir
+// ek işlem). Mevcut satırların üzerine YAZMAZ, toplar.
+export function buildAdditionalInvoicePatch(existingJob, invoice, parts) {
+  const { patch, newParts, warnings } = buildJobEnrichmentPatch(existingJob, invoice, parts);
+  const mergedTotal = roundCurrency((Number(existingJob.total) || 0) + patch.total);
+  const mergedLaborAmount = roundCurrency((Number(existingJob.laborAmount) || 0) + patch.laborAmount);
+  return {
+    patch: {
+      items: [...(existingJob.items || []), ...patch.items],
+      laborAmount: mergedLaborAmount,
+      total: mergedTotal,
+      edmsLaborLines: [...(existingJob.edmsLaborLines || []), ...patch.edmsLaborLines],
+      edmsInvoiceNo: [existingJob.edmsInvoiceNo, patch.edmsInvoiceNo].filter(Boolean).join(", "),
+    },
+    addedItems: patch.items, // sadece bu ek faturadan gelen satırlar — stok düşümü bunlar üzerinden yapılmalı
+    newParts,
+    warnings,
+  };
+}
