@@ -1424,6 +1424,58 @@ export async function fixKnownEdmsInvoiceGaps(gaps, jobs, parts, salesRecords, a
   return { createdJobs, appendedInvoices, warnings, skipped };
 }
 
+// Tek seferlik, el ile doğrulanmış tutar düzeltmesi: edmsImport.js'teki eski
+// içe aktarma kodu, hiç zenginleştirilmemiş (parça/işçilik satırı hiç
+// eklenmemiş) kapalı iş emirlerinde eDMS'in KDV DAHİL fatura tutarını
+// doğrudan `job.total`'a yazıyordu. Uygulamanın geri kalanı `job.total`'ı
+// her zaman KDV HARİÇ (net) kabul edip ekranda göstermeden önce tekrar
+// +%20 KDV uyguladığından, bu kayıtlarda KDV iki kez uygulanmış (ekranda
+// gerçek tutarın %20 fazlası) görünüyordu. Bu fonksiyon SADECE `total`
+// alanını eDMS'teki gerçek (KDV dahil) fatura tutarından geri hesaplanan
+// doğru net tutara düzeltir — parça/işçilik satırı eklemez, stok
+// etkilemez. `fixes` her biri `{ jobCode, correctTotal, label }` biçiminde,
+// app.jsx'teki sabit (hardcoded) KNOWN_KDV_DOUBLING_FIXES listesinden gelir
+// — otomatik/toplu bir tarama DEĞİLDİR, her satır kullanıcıyla birlikte tek
+// tek teyit edilmiştir. İdempotenttir: bir iş emrinin toplamı zaten doğru
+// değere yakınsa (±0,01₺) tekrar yazılmaz, `skipped` içinde raporlanır.
+export async function fixKdvDoublingTotals(fixes, jobs, actor) {
+  const database = requireDatabase();
+  const jobsByCode = new Map((Array.isArray(jobs) ? jobs : []).map((j) => [j.code, j]));
+  const now = new Date().toISOString();
+  const fixed = [];
+  const skipped = [];
+
+  const writes = [];
+  for (const fix of Array.isArray(fixes) ? fixes : []) {
+    const job = jobsByCode.get(fix.jobCode);
+    if (!job) { skipped.push(`${fix.jobCode}: iş emri bulunamadı.`); continue; }
+    const currentTotal = Number(job.total) || 0;
+    if (Math.abs(currentTotal - fix.correctTotal) < 0.01) {
+      skipped.push(`${fix.jobCode}: zaten doğru tutarda (${currentTotal.toFixed(2)}₺), tekrar yazılmadı.`);
+      continue;
+    }
+    writes.push({
+      ref: doc(database, "jobs", job.id),
+      data: {
+        total: fix.correctTotal,
+        kdvDoublingFixedAt: now,
+        kdvDoublingFixedBy: actor || OWNER_EMAIL,
+        kdvDoublingFixedFrom: currentTotal,
+        updatedAt: now,
+      },
+    });
+    fixed.push({ jobCode: fix.jobCode, from: currentTotal, to: fix.correctTotal, label: fix.label });
+  }
+
+  for (const group of chunk(writes, 400)) {
+    const batch = writeBatch(database);
+    group.forEach(({ ref, data }) => batch.set(ref, data, { merge: true }));
+    await batch.commit();
+  }
+
+  return { fixed, skipped };
+}
+
 // Kullanıcının kendi ekranından elle girdiği (eDMS kökenli OLMAYAN) iş
 // emirlerini KALICI olarak siler. Bu geri alınamaz bir işlemdir; arayüz,
 // onay almadan bu fonksiyonu çağırmamalıdır. Her iş emri için önce stok

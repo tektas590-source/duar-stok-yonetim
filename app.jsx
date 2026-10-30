@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState, useRef } from "react";
 import { createRoot } from "react-dom/client";
 import "./style.css";
-import { cancelWorkOrder, completeWorkOrder, correctEdmsEnrichmentStock, createPurchaseInvoice, deletePurchaseInvoice, createStockDraft, createWorkOrder, deleteFitment, deleteManualWorkOrders, deletePart, deletePersonnel, deleteCustomer, deleteAppointment, deleteNotification, deleteReturnItem, enrichEdmsJobsWithInvoiceLines, fetchServiceData, fixKnownEdmsInvoiceGaps, getPersonnelPerformance, grantUserAccess, importEdmsPurchaseInvoices, importEdmsWorkOrders, listAppointments, listAuthorizedUsers, listCustomers, listNotifications, listPersonnel, listReturns, markNotificationRead, receiveStockDraft, restorePart, revokeUserAccess, saveAppointment, saveCustomer, saveFitment, savePart, savePersonnel, saveReturnItem, sendChatMessage, subscribeToChat, subscribeToServiceData, togglePartFavorite, updateAppointmentStatus, updateReturnStatus, updateWorkOrder, adjustStock } from "./data.js";
+import { cancelWorkOrder, completeWorkOrder, correctEdmsEnrichmentStock, createPurchaseInvoice, deletePurchaseInvoice, createStockDraft, createWorkOrder, deleteFitment, deleteManualWorkOrders, deletePart, deletePersonnel, deleteCustomer, deleteAppointment, deleteNotification, deleteReturnItem, enrichEdmsJobsWithInvoiceLines, fetchServiceData, fixKdvDoublingTotals, fixKnownEdmsInvoiceGaps, getPersonnelPerformance, grantUserAccess, importEdmsPurchaseInvoices, importEdmsWorkOrders, listAppointments, listAuthorizedUsers, listCustomers, listNotifications, listPersonnel, listReturns, markNotificationRead, receiveStockDraft, restorePart, revokeUserAccess, saveAppointment, saveCustomer, saveFitment, savePart, savePersonnel, saveReturnItem, sendChatMessage, subscribeToChat, subscribeToServiceData, togglePartFavorite, updateAppointmentStatus, updateReturnStatus, updateWorkOrder, adjustStock } from "./data.js";
 import * as XLSX from "xlsx";
 import { parseEdmsWorkOrderReport, selectEdmsRecordsToImport } from "./edmsImport.js";
 import { parseFaturaRaporuReport, splitFaturaRaporuByType } from "./faturaRaporuImport.js";
@@ -38,6 +38,27 @@ const KNOWN_INVOICE_GAPS = [
   { invoiceNo: "5001000016", action: "appendToJob", jobCode: "EDMS-922002", label: "Derya Şenyer — EDMS-922002'nin ikinci faturası (şasi no eDMS'te hatalı uzunlukta olduğu için otomatik eşleşmedi)" },
   { invoiceNo: "5001000006", action: "appendToJob", jobCode: "EDMS-831002", label: "Burhan Gençbay · 55ASU020 (31 Ağu) — açık ve boş iş emrine 1. fatura" },
   { invoiceNo: "5001000007", action: "appendToJob", jobCode: "EDMS-831002", label: "Burhan Gençbay · 55ASU020 (31 Ağu) — açık ve boş iş emrine 2. fatura" },
+];
+
+// edmsImport.js'teki eski "Müşteri Listeleme" (WDMU050) içe aktarma kodu,
+// hiç zenginleştirilmemiş (parça/işçilik satırı hiç eklenmemiş) kapalı iş
+// emirlerinde eDMS'in KDV DAHİL fatura tutarını doğrudan `job.total`'a
+// yazıyordu; uygulama her yerde `job.total`'ı KDV HARİÇ kabul edip tekrar
+// +%20 KDV uyguladığından bu kayıtlarda KDV iki kez uygulanmış oluyordu.
+// `correctTotal`, eDMS'teki gerçek (KDV dahil) fatura tutarından geri
+// hesaplanan doğru NET (KDV hariç) tutardır — kullanıcıyla birlikte, eDMS
+// Satış Faturası ekranındaki gerçek faturalar tek tek açılarak teyit
+// edilmiştir. Otomatik/toplu bir tarama DEĞİLDİR.
+const KNOWN_KDV_DOUBLING_FIXES = [
+  { jobCode: "EDMS-626001", correctTotal: 2475.00, label: "Kaan Mert Erat · 55APH941 — ekranda ₺3.564,00 (olması gereken ₺2.970,00)" },
+  { jobCode: "EDMS-626005", correctTotal: 2250.00, label: "\"DENEME SADECE\" (test kaydı) · AAAA — ekranda ₺3.240,00 (olması gereken ₺2.700,00)" },
+  { jobCode: "EDMS-626006", correctTotal: 8593.33, label: "Kaan Mert Erat · 55APH941, \"ÖRNEK FATURA\" — ekranda ₺12.374,40 (olması gereken ₺10.312,00)" },
+  { jobCode: "EDMS-817001", correctTotal: 5285.00, label: "Mustafa Erhan Bakırhan · 55AKB245 — ekranda ₺7.610,40 (olması gereken ₺6.342,00)" },
+  { jobCode: "EDMS-902001", correctTotal: 8310.00, label: "Nihan Altunay · 55VA957 — ekranda ₺11.966,40 (olması gereken ₺9.972,00)" },
+  { jobCode: "EDMS-909001", correctTotal: 3122.50, label: "Ayhan Bozdoğan · 55AJD693 — ekranda ₺4.496,40 (olması gereken ₺3.747,00)" },
+  { jobCode: "EDMS-909003", correctTotal: 201.67, label: "Ayhan Bozdoğan · 55AJD693 (2. iş emri) — ekranda ₺290,40 (olması gereken ₺242,00)" },
+  { jobCode: "EDMS-912001", correctTotal: 7470.00, label: "Fatih Akçay · 05AK022 — ekranda ₺10.756,80 (olması gereken ₺8.964,00)" },
+  { jobCode: "EDMS-925002", correctTotal: 185.83, label: "Demir İnş. Akaryakıt · 34BCF450 — ekranda ₺267,60 (olması gereken ₺223,00; fatura eDMS'te bulunamadı, WDMU050'den hesaplandı)" },
 ];
 
 const h = React.createElement;
@@ -559,6 +580,16 @@ function App() {
       if (onDone) onDone(result);
     });
   };
+  const persistKdvDoublingFix = async (onDone) => {
+    await runAction(async () => {
+      const result = await fixKdvDoublingTotals(KNOWN_KDV_DOUBLING_FIXES, data.jobs, user.email);
+      await reloadData();
+      setToast(result.fixed.length
+        ? `${result.fixed.length} iş emrinin tutarı düzeltildi.`
+        : "Düzeltilecek kayıt bulunamadı (tüm iş emirleri zaten düzeltilmiş).");
+      if (onDone) onDone(result);
+    });
+  };
   const persistStockCorrection = async (onDone) => {
     await runAction(async () => {
       const result = await correctEdmsEnrichmentStock(data.jobs, data.parts, user.email);
@@ -708,7 +739,7 @@ function App() {
         page === "invoices" ? h(Invoices, { invoices: data.invoices, openModal, removeInvoice, saving }) :
         page === "orders" ? h(Orders, { drafts: data.drafts, lowStock, receiveDraft, createDraft }) :
         page === "stockcompare" ? h(StockCompare, { parts: data.parts, openModal }) :
-        page === "edmsimport" ? h(EdmsImport, { jobs: data.jobs, parts: data.parts, invoices: data.invoices, saving, onImport: persistEdmsImport, onImportFaturaRaporu: persistFaturaRaporuImport, onCleanupManualJobs: persistManualJobCleanup, onCorrectStock: persistStockCorrection, onFixInvoiceGaps: persistInvoiceGapFixes }) :
+        page === "edmsimport" ? h(EdmsImport, { jobs: data.jobs, parts: data.parts, invoices: data.invoices, saving, onImport: persistEdmsImport, onImportFaturaRaporu: persistFaturaRaporuImport, onCleanupManualJobs: persistManualJobCleanup, onCorrectStock: persistStockCorrection, onFixInvoiceGaps: persistInvoiceGapFixes, onFixKdvDoubling: persistKdvDoublingFix }) :
         page === "returns" ? h(ReturnsPage, { returns: data.returns, openModal, saving }) :
         page === "chat" ? h(ChatPage, { messages: chatMessages, user, sendMessage: async (text) => { await sendChatMessage(user.email, user.displayName, text); }, saving, configured: firebaseConfigured }) :
         page === "servicebox" ? h(ServiceBoxPage) :
@@ -2348,6 +2379,57 @@ function ManualJobCleanup({ jobs = [], onCleanup, saving }) {
   );
 }
 
+// KNOWN_KDV_DOUBLING_FIXES listesindeki, KDV'nin iki kez uygulandığı tespit
+// edilmiş iş emirlerini gösterir ve tek seferlik tutar düzeltmesini
+// başlatır. Düzeltilecek kayıt kalmayınca (tüm iş emirlerinin `total`'ı
+// zaten doğru değere yakın olunca) panel kendiliğinden gizlenir.
+function KdvDoublingFixPanel({ jobs = [], onFix, saving }) {
+  const [result, setResult] = useState(null);
+  const jobsByCode = new Map(jobs.map((j) => [j.code, j]));
+  const pending = KNOWN_KDV_DOUBLING_FIXES.filter((fix) => {
+    const job = jobsByCode.get(fix.jobCode);
+    if (!job) return false;
+    return Math.abs((Number(job.total) || 0) - fix.correctTotal) >= 0.01;
+  });
+  if (!pending.length && !result) return null;
+
+  async function handleFix() {
+    const confirmed = window.confirm(
+      `${pending.length} iş emrinin tutarı, eDMS'teki gerçek fatura tutarına göre düzeltilecek (KDV'nin iki kez uygulandığı hata). Devam edilsin mi?`
+    );
+    if (!confirmed) return;
+    await onFix((res) => setResult(res));
+  }
+
+  return h("div", { style: { marginBottom: "28px" } },
+    h("div", { className: "compare-header-row" },
+      h("div", null,
+        h("h2", null, "KDV İki Kez Uygulanan Kayıtları Düzelt"),
+        h("p", null, "Hiç zenginleştirilmemiş (parça/işçilik satırı eklenmemiş) bazı kapalı iş emirlerinde, eski içe aktarma kodu eDMS'in KDV DAHİL fatura tutarını KDV HARİÇ (net) tutar yerine yazmıştı. Ekranda bu yüzden gerçek tutarın %20 fazlası görünüyordu. Bu panel sadece tutarı düzeltir; parça/işçilik satırı eklemez.")
+      )
+    ),
+    pending.length > 0 ? h("div", { className: "table-scroll" },
+      h("table", null,
+        h("thead", null, h("tr", null, ["İŞ EMRİ", "AÇIKLAMA", "ŞU AN (KDV HARİÇ)", "OLMASI GEREKEN (KDV HARİÇ)"].map((label) => h("th", { key: label }, label)))),
+        h("tbody", null, pending.map((fix) => {
+          const job = jobsByCode.get(fix.jobCode);
+          return h("tr", { key: fix.jobCode },
+            h("td", null, fix.jobCode),
+            h("td", null, fix.label),
+            h("td", null, (Number(job.total) || 0).toLocaleString("tr-TR", { minimumFractionDigits: 2 })),
+            h("td", null, fix.correctTotal.toLocaleString("tr-TR", { minimumFractionDigits: 2 }))
+          );
+        }))
+      )
+    ) : null,
+    pending.length > 0 ? h("button", { className: "button button-danger", type: "button", disabled: saving, onClick: handleFix, style: { marginTop: "12px" } },
+      saving ? "Düzeltiliyor…" : `${pending.length} İş Emrinin Tutarını Düzelt`) : null,
+    result ? h("p", { className: "form-notice", role: "status" },
+      `${result.fixed.length} iş emrinin tutarı düzeltildi.` + (result.skipped.length ? ` ${result.skipped.length} kayıt atlandı.` : "")
+    ) : null
+  );
+}
+
 // enrichEdmsJobsWithInvoiceLines'ın ilk sürümü stoktan düşmüyordu; bu
 // panel, o dönemde zenginleştirilmiş ama hiç stok düşülmemiş iş emirlerini
 // gösterir ve tek seferlik geriye dönük düzeltmeyi başlatır. Düzeltilecek
@@ -2408,7 +2490,7 @@ function StockCorrectionPanel({ jobs = [], parts = [], onCorrect, saving }) {
   );
 }
 
-function EdmsImport({ jobs = [], parts = [], invoices = [], saving, onImport, onImportFaturaRaporu, onCleanupManualJobs, onCorrectStock, onFixInvoiceGaps }) {
+function EdmsImport({ jobs = [], parts = [], invoices = [], saving, onImport, onImportFaturaRaporu, onCleanupManualJobs, onCorrectStock, onFixInvoiceGaps, onFixKdvDoubling }) {
   const [fileName, setFileName] = useState("");
   const [loading, setLoading] = useState(false);
   const [parseErrors, setParseErrors] = useState([]);
@@ -2453,6 +2535,7 @@ function EdmsImport({ jobs = [], parts = [], invoices = [], saving, onImport, on
   }
 
   return h("section", { className: "stock-compare" },
+    h(KdvDoublingFixPanel, { jobs, onFix: onFixKdvDoubling, saving }),
     h(StockCorrectionPanel, { jobs, parts, onCorrect: onCorrectStock, saving }),
     h(ManualJobCleanup, { jobs, onCleanup: onCleanupManualJobs, saving }),
     h("hr", { style: { margin: "28px 0" } }),
