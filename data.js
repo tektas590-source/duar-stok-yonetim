@@ -9,9 +9,11 @@ import {
   runTransaction,
   setDoc,
   where,
+  writeBatch,
 } from "firebase/firestore";
 import { resolveBusinessDate } from "./businessDate.js";
 import { aggregateWorkOrderQuantities, calculateWorkOrderQuantityDeltas, calculateWorkOrderReversal } from "./workOrderInventory.js";
+import { selectEdmsRecordsToImport } from "./edmsImport.js";
 import { WORK_ORDER_STATUS } from "./workOrderLifecycle.js";
 import { calculateWorkOrderNetTotal, normalizeLaborAmount, normalizeDiscount } from "./workOrderPricing.js";
 import { db, OWNER_EMAIL } from "./firebase.js";
@@ -1063,4 +1065,66 @@ export async function deleteReturnItem(returnId) {
 export async function updateReturnStatus(returnId, status, actor) {
   const database = requireDatabase();
   await setDoc(doc(database, "returns", returnId), { status, updatedAt: new Date().toISOString() }, { merge: true });
+}
+
+function chunk(list, size) {
+  const chunks = [];
+  for (let index = 0; index < list.length; index += size) chunks.push(list.slice(index, index + size));
+  return chunks;
+}
+
+// eDMS'in "Müşteri Listeleme" (WDMU050) raporundan ayrıştırılmış kayıtları
+// doğrudan `jobs` koleksiyonuna yazar. createWorkOrder/updateWorkOrder'ın
+// envanterden parça düşme mantığını BİLEREK atlar: bu kayıtlarda parça
+// satırı yok, sadece toplam fatura tutarı var (items: []). Mevcut iş
+// emirleriyle plaka/şasi (ve varsa önceden içe aktarılmış externalId) üzerinden
+// eşleştirip sadece eksik olanları ekler; aynı rapor tekrar yüklenirse hiçbir
+// kayıt ikinci kez eklenmez (idempotent).
+export async function importEdmsWorkOrders(records, existingJobs, actor) {
+  const database = requireDatabase();
+  const { toAdd, alreadyPresent } = selectEdmsRecordsToImport(records, existingJobs);
+  if (!toAdd.length) return { added: 0, skipped: alreadyPresent.length, jobs: [] };
+
+  const now = new Date().toISOString();
+  const createdJobs = toAdd.map((record) => ({
+    id: makeId(),
+    code: `EDMS-${record.externalId}`,
+    source: "eDMS",
+    externalId: record.externalId,
+    plate: record.plate,
+    vin: record.vin,
+    customer: record.customer,
+    phone: record.phone,
+    address: record.address,
+    city: record.city,
+    district: record.district,
+    make: record.make,
+    bodyType: record.bodyType,
+    model: record.model,
+    modelYear: record.modelYear,
+    date: record.date,
+    arrivalKm: record.arrivalKm,
+    jobKind: record.jobKind,
+    serviceAdvisor: record.serviceAdvisor,
+    closedAt: record.closedAt,
+    status: record.status === "closed" ? WORK_ORDER_STATUS.COMPLETED : WORK_ORDER_STATUS.IN_PROGRESS,
+    items: [],
+    laborAmount: 0,
+    externalLabor: [],
+    laborDiscountType: null,
+    laborDiscountValue: 0,
+    total: record.total,
+    movementLedgerVersion: 1,
+    importedAt: now,
+    updatedAt: now,
+    actor: actor || "",
+  }));
+
+  for (const group of chunk(createdJobs, 400)) {
+    const batch = writeBatch(database);
+    group.forEach((job) => batch.set(doc(database, "jobs", job.id), job));
+    await batch.commit();
+  }
+
+  return { added: createdJobs.length, skipped: alreadyPresent.length, jobs: createdJobs };
 }

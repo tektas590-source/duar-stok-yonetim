@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useState, useRef } from "react";
 import { createRoot } from "react-dom/client";
 import "./style.css";
-import { cancelWorkOrder, completeWorkOrder, createPurchaseInvoice, deletePurchaseInvoice, createStockDraft, createWorkOrder, deleteFitment, deletePart, deletePersonnel, deleteCustomer, deleteAppointment, deleteNotification, deleteReturnItem, fetchServiceData, getPersonnelPerformance, grantUserAccess, listAppointments, listAuthorizedUsers, listCustomers, listNotifications, listPersonnel, listReturns, markNotificationRead, receiveStockDraft, restorePart, revokeUserAccess, saveAppointment, saveCustomer, saveFitment, savePart, savePersonnel, saveReturnItem, sendChatMessage, subscribeToChat, subscribeToServiceData, togglePartFavorite, updateAppointmentStatus, updateReturnStatus, updateWorkOrder, adjustStock } from "./data.js";
+import { cancelWorkOrder, completeWorkOrder, createPurchaseInvoice, deletePurchaseInvoice, createStockDraft, createWorkOrder, deleteFitment, deletePart, deletePersonnel, deleteCustomer, deleteAppointment, deleteNotification, deleteReturnItem, fetchServiceData, getPersonnelPerformance, grantUserAccess, importEdmsWorkOrders, listAppointments, listAuthorizedUsers, listCustomers, listNotifications, listPersonnel, listReturns, markNotificationRead, receiveStockDraft, restorePart, revokeUserAccess, saveAppointment, saveCustomer, saveFitment, savePart, savePersonnel, saveReturnItem, sendChatMessage, subscribeToChat, subscribeToServiceData, togglePartFavorite, updateAppointmentStatus, updateReturnStatus, updateWorkOrder, adjustStock } from "./data.js";
 import * as XLSX from "xlsx";
+import { parseEdmsWorkOrderReport, selectEdmsRecordsToImport } from "./edmsImport.js";
 import { CinematicCar } from "./carScene.jsx";
 import { GearScene } from "./gearScene.jsx";
 import { LoginStory } from "./loginStory.jsx";
@@ -343,6 +344,7 @@ function App() {
     { id: "orders", label: "Taslak Siparişler", icon: "cart", badge: data.drafts.length || null },
     { id: "reports", label: "Raporlar", icon: "chart" },
     { id: "stockcompare", label: "Stok Karşılaştır", icon: "chart" },
+    { id: "edmsimport", label: "eDMS'ten İçe Aktar", icon: "box" },
     { id: "returns", label: "İade Parçalar", icon: "receipt", badge: data.returns?.filter((r) => r.status === "pending").length || null },
     { id: "chat", label: "Sohbet", icon: "bell", badge: chatMessages.length || null },
     { id: "servicebox", label: "ServiceBox", icon: "search", external: true, url: "https://idfed.mpsa.com/as/authorization.oauth2?response_type=code&client_id=CIDHBJGJWDTBSTEPFPFESQQNEIOJKOUQ&redirect_uri=https%3A%2F%2Fservicebox.mpsa.com%2Fdo%2Foauth2Callback&scope=openid+prd%3Ajbn+profile&state=T_uiRpnctUziudhxhzOiQs3FnICKHQLg5r4UKy9F8ZHLfk_8YUirCf4cB6z9sPjeoUoT4aL1_rf1OHVHLsUgExJBPXNRHqNP&code_challenge=bpZaD0Od0siQfVjM9C0NRHF0n-jSaAWzINuDL8W97BU&code_challenge_method=S256" },
@@ -356,7 +358,7 @@ function App() {
   const isOwner = user?.email?.toLowerCase() === OWNER_EMAIL;
   if (isOwner) nav.push({ id: "access", label: "Yetkili Kullanıcılar", icon: "grid" });
   if (isOwner) nav.push({ id: "settings", label: "İşletme Ayarları", icon: "wrench" });
-  const titles = { settings: ["İşletme Ayarları", "İşletme adını, kısa etiketini ve sloganını düzenleyin."], dashboard: ["Genel Bakış", "Servisinizin bugünkü durumuna göz atın."], inventory: ["Parça Envanteri", "Stoklarınızı ve parça fiyatlarınızı yönetin."], workorders: ["İş Emirleri", "Araç servis geçmişini ve devam eden işleri takip edin."], vehicles: ["Araç Servis Geçmişi", "Plakaya göre servis ziyaretlerini ve kullanılan parçaları bulun."], compatibility: ["Araç Uyumluluğu", "Marka, model, yakıt ve motor için uyumlu parçaları kaydedin; iş emri kullanımını da görün."], movements: ["Stok Hareketleri", "Giriş, çıkış ve düzeltmeleri kaynak ve kullanıcıyla izleyin."], invoices: ["Alış Faturaları", "Faturaları kaydedin, stok girişlerini anında işleyin."], orders: ["Taslak Siparişler", "Azalan parçalar için oluşturduğunuz sipariş önerileri."], reports: ["Raporlar", "Satış performansı ve iş emri cironuz."], stockcompare: ["Stok Karşılaştır", "Excel ile stok karşılaştırma yapın."], returns: ["İade Parçalar", "İade edilecek parçaları takip edin ve yönetin."], access: ["Yetkili Kullanıcılar", "Hesap ekleyin veya servis erişimini kaldırın."], chat: ["Sohbet", "Ekibinizle iletişim kurun."], servicebox: ["Peugeot ServiceBox", "Parça tespiti için Peugeot ServiceBox'a gidin."], customers: ["Müşteri Yönetimi", "Müşteri kayıtlarını, araçlarını ve iletişim bilgilerini yönetin."], personnel: ["Personel Yönetimi", "Çalışan kayıtlarını, rollerini ve performanslarını takip edin."], appointments: ["Randevu Takvimi", "Müşteri randevularını planlayın ve servis tarihlerini yönetin."], notifications: ["Bildirimler", "Düşük stok, randevu ve sistem bildirimlerini yönetin."], backup: ["Yedekleme", "Verilerinizi Excel/PDF olarak dışa aktarın ve yedekleyin."] };
+  const titles = { settings: ["İşletme Ayarları", "İşletme adını, kısa etiketini ve sloganını düzenleyin."], dashboard: ["Genel Bakış", "Servisinizin bugünkü durumuna göz atın."], inventory: ["Parça Envanteri", "Stoklarınızı ve parça fiyatlarınızı yönetin."], workorders: ["İş Emirleri", "Araç servis geçmişini ve devam eden işleri takip edin."], vehicles: ["Araç Servis Geçmişi", "Plakaya göre servis ziyaretlerini ve kullanılan parçaları bulun."], compatibility: ["Araç Uyumluluğu", "Marka, model, yakıt ve motor için uyumlu parçaları kaydedin; iş emri kullanımını da görün."], movements: ["Stok Hareketleri", "Giriş, çıkış ve düzeltmeleri kaynak ve kullanıcıyla izleyin."], invoices: ["Alış Faturaları", "Faturaları kaydedin, stok girişlerini anında işleyin."], orders: ["Taslak Siparişler", "Azalan parçalar için oluşturduğunuz sipariş önerileri."], reports: ["Raporlar", "Satış performansı ve iş emri cironuz."], stockcompare: ["Stok Karşılaştır", "Excel ile stok karşılaştırma yapın."], edmsimport: ["eDMS'ten İçe Aktar", "EUROREPAR eDMS'ten aldığınız \"Müşteri Listeleme\" Excel raporunu iş emri kayıtlarına aktarın."], returns: ["İade Parçalar", "İade edilecek parçaları takip edin ve yönetin."], access: ["Yetkili Kullanıcılar", "Hesap ekleyin veya servis erişimini kaldırın."], chat: ["Sohbet", "Ekibinizle iletişim kurun."], servicebox: ["Peugeot ServiceBox", "Parça tespiti için Peugeot ServiceBox'a gidin."], customers: ["Müşteri Yönetimi", "Müşteri kayıtlarını, araçlarını ve iletişim bilgilerini yönetin."], personnel: ["Personel Yönetimi", "Çalışan kayıtlarını, rollerini ve performanslarını takip edin."], appointments: ["Randevu Takvimi", "Müşteri randevularını planlayın ve servis tarihlerini yönetin."], notifications: ["Bildirimler", "Düşük stok, randevu ve sistem bildirimlerini yönetin."], backup: ["Yedekleme", "Verilerinizi Excel/PDF olarak dışa aktarın ve yedekleyin."] };
   const openModal = (type, item = null) => setModal({ type, item });
   const openCriticalInventory = () => {
     setQuery("");
@@ -483,6 +485,16 @@ function App() {
   };
   const receiveDraft = async (id) => {
     await runAction(async () => { await receiveStockDraft(id, user.email); await reloadData(); }, "Sipariş stoğa işlendi ve hareket geçmişi güncellendi.");
+  };
+  const persistEdmsImport = async (records, onDone) => {
+    await runAction(async () => {
+      const result = await importEdmsWorkOrders(records, data.jobs, user.email);
+      await reloadData();
+      setToast(result.added
+        ? `${result.added} iş emri eklendi${result.skipped ? `, ${result.skipped} kayıt zaten vardı` : ""}.`
+        : `Eklenecek yeni kayıt yok (${result.skipped} kayıt zaten uygulamada mevcut).`);
+      if (onDone) onDone(result);
+    });
   };
   async function authenticate(event) {
     event.preventDefault();
@@ -623,6 +635,7 @@ function App() {
         page === "invoices" ? h(Invoices, { invoices: data.invoices, openModal, removeInvoice, saving }) :
         page === "orders" ? h(Orders, { drafts: data.drafts, lowStock, receiveDraft, createDraft }) :
         page === "stockcompare" ? h(StockCompare, { parts: data.parts, openModal }) :
+        page === "edmsimport" ? h(EdmsImport, { jobs: data.jobs, saving, onImport: persistEdmsImport }) :
         page === "returns" ? h(ReturnsPage, { returns: data.returns, openModal, saving }) :
         page === "chat" ? h(ChatPage, { messages: chatMessages, user, sendMessage: async (text) => { await sendChatMessage(user.email, user.displayName, text); }, saving, configured: firebaseConfigured }) :
         page === "servicebox" ? h(ServiceBoxPage) :
@@ -2166,6 +2179,147 @@ function StockCompare({ parts = [], openModal }) {
           )
         )
       )
+    ) : null
+  );
+}
+
+function EdmsImport({ jobs = [], saving, onImport }) {
+  const [fileName, setFileName] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [parseErrors, setParseErrors] = useState([]);
+  const [preview, setPreview] = useState(null); // { toAdd, alreadyPresent }
+  const [importedCount, setImportedCount] = useState(null);
+
+  async function handleFileUpload(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    setFileName(file.name);
+    setLoading(true);
+    setImportedCount(null);
+    setParseErrors([]);
+    setPreview(null);
+    try {
+      const data = await file.arrayBuffer();
+      const workbook = XLSX.read(data, { type: "array", cellDates: true });
+      const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(firstSheet, { defval: null });
+      const { records, errors } = parseEdmsWorkOrderReport(rows);
+      setParseErrors(errors);
+      const { toAdd, alreadyPresent } = selectEdmsRecordsToImport(records, jobs);
+      setPreview({ toAdd, alreadyPresent });
+    } catch (error) {
+      console.error("eDMS Excel okuma hatası:", error);
+      alert("Excel dosyası okunamadı. eDMS'teki \"Müşteri Listeleme\" raporundan \"Excel'e Aktar\" ile aldığınız dosyayı seçtiğinizden emin olun.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function handleReset() {
+    setFileName("");
+    setParseErrors([]);
+    setPreview(null);
+    setImportedCount(null);
+  }
+
+  async function handleConfirm() {
+    if (!preview || !preview.toAdd.length) return;
+    await onImport(preview.toAdd, (result) => setImportedCount(result.added));
+  }
+
+  return h("section", { className: "stock-compare" },
+    h("div", { className: "compare-header-row" },
+      h("div", null,
+        h("h2", null, "eDMS'ten İçe Aktar"),
+        h("p", null, "EUROREPAR eDMS'teki \"Müşteri Listeleme\" raporunu (Excel'e Aktar) yükleyin; plaka/şasi numarasına göre eşleştirip sadece uygulamada eksik olan iş emirlerini ekler.")
+      ),
+      (preview || fileName) ? h("button", {
+        className: "button button-secondary button-small",
+        onClick: handleReset,
+        type: "button"
+      }, h(Icon, { name: "close", size: 14 }), "Yeni Dosya Yükle") : null
+    ),
+
+    !preview ? h("div", { className: "upload-section" },
+      h("label", { className: "upload-label" },
+        h("input", {
+          type: "file",
+          accept: ".xlsx,.xls",
+          onChange: handleFileUpload,
+          disabled: loading
+        }),
+        h("div", { className: "upload-content" },
+          h(Icon, { name: "box", size: 36 }),
+          h("span", null, loading ? "Excel okunuyor ve karşılaştırılıyor..." : fileName || "eDMS Excel dosyasını seçin veya buraya sürükleyin"),
+          h("small", null, "eDMS → Müşteri Listeleme → Excel'e Aktar ile aldığınız .xlsx dosyası")
+        )
+      )
+    ) : null,
+
+    parseErrors.length > 0 ? h("div", { className: "paste-result paste-result-error" },
+      h("strong", null, `${parseErrors.length} satır atlandı`),
+      h("ul", null, parseErrors.slice(0, 20).map((message, index) => h("li", { key: index }, message))),
+      parseErrors.length > 20 ? h("p", null, `… ve ${parseErrors.length - 20} satır daha.`) : null
+    ) : null,
+
+    preview ? h(React.Fragment, null,
+      h("div", { className: "compare-metrics-grid" },
+        h("div", { className: "compare-metric-card is-missing-system" },
+          h("span", { className: "compare-metric-label" }, "Eklenecek Yeni İş Emri"),
+          h("strong", { className: "compare-metric-num" }, preview.toAdd.length),
+          h("span", { className: "compare-metric-sub" }, "Uygulamada eksik olanlar")
+        ),
+        h("div", { className: "compare-metric-card is-matched" },
+          h("span", { className: "compare-metric-label" }, "Zaten Mevcut"),
+          h("strong", { className: "compare-metric-num" }, preview.alreadyPresent.length),
+          h("span", { className: "compare-metric-sub" }, "Plaka/şasi ile eşleşti, atlanacak")
+        ),
+        h("div", { className: "compare-metric-card is-diff" },
+          h("span", { className: "compare-metric-label" }, "Kapalı (Faturalı)"),
+          h("strong", { className: "compare-metric-num" }, preview.toAdd.filter((r) => r.status === "closed").length),
+          h("span", { className: "compare-metric-sub" }, "Ciroya dahil edilecek")
+        ),
+        h("div", { className: "compare-metric-card is-unmatched" },
+          h("span", { className: "compare-metric-label" }, "Halen Açık"),
+          h("strong", { className: "compare-metric-num" }, preview.toAdd.filter((r) => r.status === "open").length),
+          h("span", { className: "compare-metric-sub" }, "Henüz faturalanmadı")
+        )
+      ),
+
+      preview.toAdd.length > 0 ? h("div", { className: "table-scroll" },
+        h("table", null,
+          h("thead", null,
+            h("tr", null,
+              ["İŞ EMRİ NO", "PLAKA", "MÜŞTERİ", "ARAÇ", "TARİH", "DURUM", "TUTAR (KDV HARİÇ)"].map((label) => h("th", { key: label }, label))
+            )
+          ),
+          h("tbody", null,
+            preview.toAdd.slice(0, 50).map((record) =>
+              h("tr", { key: record.externalId },
+                h("td", null, record.externalId),
+                h("td", null, record.plate),
+                h("td", null, record.customer),
+                h("td", null, [record.make, record.model].filter(Boolean).join(" ")),
+                h("td", null, record.date),
+                h("td", null, record.status === "closed" ? "Tamamlandı" : "Devam ediyor"),
+                h("td", null, record.status === "closed" ? record.total.toLocaleString("tr-TR", { minimumFractionDigits: 2 }) : "—")
+              )
+            )
+          )
+        )
+      ) : null,
+      preview.toAdd.length > 50 ? h("p", { className: "text-muted" }, `… ve ${preview.toAdd.length - 50} kayıt daha.`) : null,
+
+      h("div", { style: { marginTop: "16px" } },
+        h("button", {
+          className: "button button-primary",
+          disabled: saving || !preview.toAdd.length,
+          type: "button",
+          onClick: handleConfirm,
+        }, saving ? "Aktarılıyor…" : preview.toAdd.length ? `${preview.toAdd.length} İş Emrini İçe Aktar` : "Eklenecek yeni kayıt yok")
+      ),
+
+      importedCount !== null ? h("p", { className: "form-notice", role: "status" }, `${importedCount} iş emri başarıyla eklendi. Araç Geçmişi ve Raporlar sayfalarına hemen yansıdı.`) : null
     ) : null
   );
 }
