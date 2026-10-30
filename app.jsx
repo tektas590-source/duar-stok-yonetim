@@ -1,11 +1,12 @@
 import React, { useCallback, useEffect, useState, useRef } from "react";
 import { createRoot } from "react-dom/client";
 import "./style.css";
-import { cancelWorkOrder, completeWorkOrder, createPurchaseInvoice, deletePurchaseInvoice, createStockDraft, createWorkOrder, deleteFitment, deletePart, deletePersonnel, deleteCustomer, deleteAppointment, deleteNotification, deleteReturnItem, enrichEdmsJobsWithInvoiceLines, fetchServiceData, getPersonnelPerformance, grantUserAccess, importEdmsPurchaseInvoices, importEdmsWorkOrders, listAppointments, listAuthorizedUsers, listCustomers, listNotifications, listPersonnel, listReturns, markNotificationRead, receiveStockDraft, restorePart, revokeUserAccess, saveAppointment, saveCustomer, saveFitment, savePart, savePersonnel, saveReturnItem, sendChatMessage, subscribeToChat, subscribeToServiceData, togglePartFavorite, updateAppointmentStatus, updateReturnStatus, updateWorkOrder, adjustStock } from "./data.js";
+import { cancelWorkOrder, completeWorkOrder, createPurchaseInvoice, deletePurchaseInvoice, createStockDraft, createWorkOrder, deleteFitment, deleteManualWorkOrders, deletePart, deletePersonnel, deleteCustomer, deleteAppointment, deleteNotification, deleteReturnItem, enrichEdmsJobsWithInvoiceLines, fetchServiceData, getPersonnelPerformance, grantUserAccess, importEdmsPurchaseInvoices, importEdmsWorkOrders, listAppointments, listAuthorizedUsers, listCustomers, listNotifications, listPersonnel, listReturns, markNotificationRead, receiveStockDraft, restorePart, revokeUserAccess, saveAppointment, saveCustomer, saveFitment, savePart, savePersonnel, saveReturnItem, sendChatMessage, subscribeToChat, subscribeToServiceData, togglePartFavorite, updateAppointmentStatus, updateReturnStatus, updateWorkOrder, adjustStock } from "./data.js";
 import * as XLSX from "xlsx";
 import { parseEdmsWorkOrderReport, selectEdmsRecordsToImport } from "./edmsImport.js";
 import { parseFaturaRaporuReport, splitFaturaRaporuByType } from "./faturaRaporuImport.js";
 import { buildEdmsJobEnrichments, selectPurchaseInvoicesToImport } from "./edmsInvoiceReconcile.js";
+import { selectManualWorkOrders, summarizeManualWorkOrders } from "./manualJobCleanup.js";
 import { CinematicCar } from "./carScene.jsx";
 import { GearScene } from "./gearScene.jsx";
 import { LoginStory } from "./loginStory.jsx";
@@ -523,6 +524,15 @@ function App() {
       if (onDone) onDone({ purchaseResult, enrichResult });
     });
   };
+  const persistManualJobCleanup = async (jobIds, onDone) => {
+    await runAction(async () => {
+      const targetJobs = data.jobs.filter((job) => jobIds.includes(job.id));
+      const result = await deleteManualWorkOrders(targetJobs, user.email);
+      await reloadData();
+      setToast(`${result.deleted} elle girilmiş iş emri silindi${result.failed.length ? `, ${result.failed.length} kayıt silinemedi` : ""}.`);
+      if (onDone) onDone(result);
+    });
+  };
   async function authenticate(event) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
@@ -662,7 +672,7 @@ function App() {
         page === "invoices" ? h(Invoices, { invoices: data.invoices, openModal, removeInvoice, saving }) :
         page === "orders" ? h(Orders, { drafts: data.drafts, lowStock, receiveDraft, createDraft }) :
         page === "stockcompare" ? h(StockCompare, { parts: data.parts, openModal }) :
-        page === "edmsimport" ? h(EdmsImport, { jobs: data.jobs, parts: data.parts, invoices: data.invoices, saving, onImport: persistEdmsImport, onImportFaturaRaporu: persistFaturaRaporuImport }) :
+        page === "edmsimport" ? h(EdmsImport, { jobs: data.jobs, parts: data.parts, invoices: data.invoices, saving, onImport: persistEdmsImport, onImportFaturaRaporu: persistFaturaRaporuImport, onCleanupManualJobs: persistManualJobCleanup }) :
         page === "returns" ? h(ReturnsPage, { returns: data.returns, openModal, saving }) :
         page === "chat" ? h(ChatPage, { messages: chatMessages, user, sendMessage: async (text) => { await sendChatMessage(user.email, user.displayName, text); }, saving, configured: firebaseConfigured }) :
         page === "servicebox" ? h(ServiceBoxPage) :
@@ -2210,7 +2220,99 @@ function StockCompare({ parts = [], openModal }) {
   );
 }
 
-function EdmsImport({ jobs = [], parts = [], invoices = [], saving, onImport, onImportFaturaRaporu }) {
+// Kullanıcının kendi ekranından elle girdiği (eDMS kökenli OLMAYAN) iş
+// emirlerini listeler ve KALICI silme için açık, yazılı bir onayister.
+// Geri alınamaz bir işlem olduğu için varsayılan olarak hiçbir kayıt
+// seçili/silinebilir değildir; önce önizleme, sonra "SİL" yazarak onay gerekir.
+function ManualJobCleanup({ jobs = [], onCleanup, saving }) {
+  const [expanded, setExpanded] = useState(false);
+  const [confirmText, setConfirmText] = useState("");
+  const [result, setResult] = useState(null);
+
+  const manualJobs = selectManualWorkOrders(jobs);
+  const summary = summarizeManualWorkOrders(manualJobs, { edmsDataFrom: "2026-06-25", edmsDataTo: "2026-10-30" });
+  const canDelete = expanded && confirmText.trim().toLocaleUpperCase("tr") === "SİL" && manualJobs.length > 0;
+
+  async function handleDelete() {
+    if (!canDelete) return;
+    const confirmed = window.confirm(
+      `${manualJobs.length} elle girilmiş iş emri KALICI olarak silinecek (toplam ${summary.totalRevenue.toLocaleString("tr-TR", { minimumFractionDigits: 2 })} TL ciro). Bu işlem geri alınamaz. Devam edilsin mi?`
+    );
+    if (!confirmed) return;
+    await onCleanup(manualJobs.map((j) => j.id), (res) => { setResult(res); setExpanded(false); setConfirmText(""); });
+  }
+
+  return h("div", null,
+    h("div", { className: "compare-header-row" },
+      h("div", null,
+        h("h2", null, "Elle Girilen İş Emirlerini Temizle"),
+        h("p", null, "Uygulamanın kendi ekranından (eDMS dışından) girilmiş iş emirleri mükerrer kayıt ve ciro farkına yol açabilir. Aşağıda bu kayıtların önizlemesi var; silmeden önce eDMS verilerinin (Müşteri Listeleme + Fatura Raporu) güncel olduğundan emin olun.")
+      )
+    ),
+    h("div", { className: "compare-metrics-grid" },
+      h("div", { className: "compare-metric-card is-unmatched" },
+        h("span", { className: "compare-metric-label" }, "Elle Girilmiş İş Emri"),
+        h("strong", { className: "compare-metric-num" }, manualJobs.length),
+        h("span", { className: "compare-metric-sub" }, "eDMS kökenli değil")
+      ),
+      h("div", { className: "compare-metric-card is-diff" },
+        h("span", { className: "compare-metric-label" }, "Toplam Ciro (KDV hariç)"),
+        h("strong", { className: "compare-metric-num" }, summary.totalRevenue.toLocaleString("tr-TR", { minimumFractionDigits: 2 })),
+        h("span", { className: "compare-metric-sub" }, "Silinecek kayıtların toplamı")
+      ),
+      h("div", { className: "compare-metric-card is-missing-system" },
+        h("span", { className: "compare-metric-label" }, "Tarih Aralığı"),
+        h("strong", { className: "compare-metric-num", style: { fontSize: "16px" } }, summary.dateFrom ? `${summary.dateFrom} → ${summary.dateTo}` : "—"),
+        h("span", { className: "compare-metric-sub" }, "")
+      )
+    ),
+
+    summary.outsideEdmsRange.length > 0 ? h("div", { className: "paste-result paste-result-error" },
+      h("strong", null, `${summary.outsideEdmsRange.length} kayıt, eDMS Fatura Raporu'nun kapsadığı tarih aralığının (2026-06-25 → 2026-10-30) DIŞINDA`),
+      h("p", null, "Bu kayıtlar silinirse yerine eDMS'ten gelecek bir karşılık olmayabilir — o dönemin verisi eDMS'te yoksa bu iş emirleri kalıcı olarak kaybolur.")
+    ) : null,
+
+    manualJobs.length > 0 ? h("div", { className: "table-scroll" },
+      h("table", null,
+        h("thead", null, h("tr", null, ["KOD", "PLAKA", "MÜŞTERİ", "TARİH", "DURUM", "TUTAR"].map((label) => h("th", { key: label }, label)))),
+        h("tbody", null, manualJobs.slice(0, 50).map((job) =>
+          h("tr", { key: job.id },
+            h("td", null, job.code || job.id),
+            h("td", null, job.plate),
+            h("td", null, job.customer),
+            h("td", null, job.date),
+            h("td", null, job.status),
+            h("td", null, Number(job.total || 0).toLocaleString("tr-TR", { minimumFractionDigits: 2 }))
+          )
+        ))
+      )
+    ) : h("p", { className: "text-muted" }, "Elle girilmiş iş emri bulunamadı."),
+    manualJobs.length > 50 ? h("p", { className: "text-muted" }, `… ve ${manualJobs.length - 50} kayıt daha.`) : null,
+
+    manualJobs.length > 0 ? h("div", { style: { marginTop: "16px" } },
+      !expanded ? h("button", { className: "button button-secondary", type: "button", onClick: () => setExpanded(true) }, "Silme İşlemini Başlat") :
+        h("div", null,
+          h("p", { className: "form-notice" }, `Onaylamak için aşağıya "SİL" yazın. Bu işlem ${manualJobs.length} iş emrini ve ilgili stok hareketlerini geri alınamaz şekilde kaldırır.`),
+          h("input", {
+            type: "text",
+            value: confirmText,
+            onChange: (e) => setConfirmText(e.target.value),
+            placeholder: "SİL",
+            style: { maxWidth: "160px", marginRight: "8px" }
+          }),
+          h("button", { className: "button button-danger", type: "button", disabled: !canDelete || saving, onClick: handleDelete },
+            saving ? "Siliniyor…" : `${manualJobs.length} İş Emrini Kalıcı Sil`),
+          h("button", { className: "button button-secondary button-small", type: "button", style: { marginLeft: "8px" }, onClick: () => { setExpanded(false); setConfirmText(""); } }, "Vazgeç")
+        )
+    ) : null,
+
+    result ? h("p", { className: "form-notice", role: "status" },
+      `${result.deleted} iş emri silindi.` + (result.failed.length ? ` ${result.failed.length} kayıt silinemedi.` : "") + (result.warnings.length ? ` ${result.warnings.length} uyarı oluştu (stok iadesi eksik olabilir).` : "")
+    ) : null
+  );
+}
+
+function EdmsImport({ jobs = [], parts = [], invoices = [], saving, onImport, onImportFaturaRaporu, onCleanupManualJobs }) {
   const [fileName, setFileName] = useState("");
   const [loading, setLoading] = useState(false);
   const [parseErrors, setParseErrors] = useState([]);
@@ -2255,6 +2357,8 @@ function EdmsImport({ jobs = [], parts = [], invoices = [], saving, onImport, on
   }
 
   return h("section", { className: "stock-compare" },
+    h(ManualJobCleanup, { jobs, onCleanup: onCleanupManualJobs, saving }),
+    h("hr", { style: { margin: "28px 0" } }),
     h("div", { className: "compare-header-row" },
       h("div", null,
         h("h2", null, "eDMS'ten İçe Aktar"),

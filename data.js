@@ -15,6 +15,7 @@ import { resolveBusinessDate } from "./businessDate.js";
 import { aggregateWorkOrderQuantities, calculateWorkOrderQuantityDeltas, calculateWorkOrderReversal } from "./workOrderInventory.js";
 import { selectEdmsRecordsToImport } from "./edmsImport.js";
 import { buildEdmsJobEnrichments, selectPurchaseInvoicesToImport, buildPurchaseInvoicePayload } from "./edmsInvoiceReconcile.js";
+import { selectManualWorkOrders } from "./manualJobCleanup.js";
 import { WORK_ORDER_STATUS } from "./workOrderLifecycle.js";
 import { calculateWorkOrderNetTotal, normalizeLaborAmount, normalizeDiscount } from "./workOrderPricing.js";
 import { db, OWNER_EMAIL } from "./firebase.js";
@@ -1196,4 +1197,40 @@ export async function enrichEdmsJobsWithInvoiceLines(jobs, salesRecords, parts, 
     unmatchedInvoices,
     skippedJobs,
   };
+}
+
+// Kullanıcının kendi ekranından elle girdiği (eDMS kökenli OLMAYAN) iş
+// emirlerini KALICI olarak siler. Bu geri alınamaz bir işlemdir; arayüz,
+// onay almadan bu fonksiyonu çağırmamalıdır. Her iş emri için önce stok
+// etkisi, mevcut cancelWorkOrder'ın test edilmiş transaction mantığıyla
+// geri alınır (parça iade), ardından kayıt tamamen silinir. Parça bağlantısı
+// eksik eski kayıtlarda (cancelWorkOrder stok güvenliği nedeniyle reddeder)
+// stok iadesi yapılamadığı için sadece doğrudan silinir ve bu durum
+// `warnings` içinde ayrıca bildirilir.
+export async function deleteManualWorkOrders(jobs, actor) {
+  const database = requireDatabase();
+  const manualJobs = selectManualWorkOrders(jobs);
+  const deleted = [];
+  const warnings = [];
+  const failed = [];
+
+  for (const job of manualJobs) {
+    try {
+      if (job.status !== WORK_ORDER_STATUS.CANCELLED) {
+        try {
+          await cancelWorkOrder(job.id, actor);
+        } catch (cancelError) {
+          // Parça bağlantısı eksik eski kayıt: stok iadesi yapılamıyor,
+          // ama kayıt yine de siliniyor (kullanıcı bilerek "tümünü sil" dedi).
+          warnings.push(`[${job.code || job.id}] Stok iadesi yapılamadı (${cancelError.message || cancelError}); kayıt stoğa dokunmadan silindi.`);
+        }
+      }
+      await deleteDoc(doc(database, "jobs", job.id));
+      deleted.push({ id: job.id, code: job.code, plate: job.plate, total: job.total });
+    } catch (error) {
+      failed.push({ id: job.id, code: job.code, error: error.message || String(error) });
+    }
+  }
+
+  return { deleted: deleted.length, deletedJobs: deleted, failed, warnings };
 }
