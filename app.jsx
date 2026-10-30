@@ -44,9 +44,19 @@ const KNOWN_INVOICE_GAPS = [
   { invoiceNo: "5001000030", action: "newJob", externalId: "1016001", label: "Mustafa Burak Yıldırım · 06DP8243 — iş emri hiç oluşturulmamış" },
   { invoiceNo: "5001000038", action: "newJob", externalId: "1020001", label: "Ferit Borası · 55DL170 — iş emri hiç oluşturulmamış" },
   { invoiceNo: "5001000040", action: "newJob", externalId: "1027001", label: "Mesut Karaman · 06BEV560 — iş emri hiç oluşturulmamış" },
-  { invoiceNo: "5001000016", action: "appendToJob", jobCode: "EDMS-922002", label: "Derya Şenyer — EDMS-922002'nin ikinci faturası (şasi no eDMS'te hatalı uzunlukta olduğu için otomatik eşleşmedi)" },
   { invoiceNo: "5001000006", action: "appendToJob", jobCode: "EDMS-831002", label: "Burhan Gençbay · 55ASU020 (31 Ağu) — açık ve boş iş emrine 1. fatura" },
   { invoiceNo: "5001000007", action: "appendToJob", jobCode: "EDMS-831002", label: "Burhan Gençbay · 55ASU020 (31 Ağu) — açık ve boş iş emrine 2. fatura" },
+  // NOT: Burada daha önce "5001000016 → EDMS-922002 (ikinci fatura)" diye bir
+  // girdi vardı. 30.10.2026'da kullanıcının "DERYA ŞENYERİN İŞ EMRİ TUTARI
+  // YANLIŞ" bildirimi üzerine eDMS Satış Faturası ekranından 5001000016
+  // numaralı fatura tek tek açılıp incelendi: bu fatura EDMS-922002'nin
+  // İKİNCİ bir faturası DEĞİL, TEK ve asıl faturasıydı — 6 parça + 1 işçilik
+  // satırı, uygulamada zaten kayıtlı olan satırlarla (kod/miktar/fiyat)
+  // birebir aynı (Net 4.361,54 / KDV 872,31 / KDV Dahil 5.233,85). Yani bu
+  // fatura zaten doğru şekilde otomatik eşleşmişti; "şasi no hatalı uzunlukta"
+  // varsayımı yanlıştı. Bu hatalı girdi, iş emrinin tutarını KNOWN_KDV_DOUBLING_FIXES'teki
+  // EDMS-922002 kaydına yol açan (aynı faturanın tutarının bir kez daha
+  // eklenmesi gibi davranan) sorunun kök nedeniydi; kalıcı olarak kaldırıldı.
 ];
 
 // edmsImport.js'teki eski "Müşteri Listeleme" (WDMU050) içe aktarma kodu,
@@ -68,6 +78,12 @@ const KNOWN_KDV_DOUBLING_FIXES = [
   { jobCode: "EDMS-909003", correctTotal: 201.67, label: "Ayhan Bozdoğan · 55AJD693 (2. iş emri) — ekranda ₺290,40 (olması gereken ₺242,00)" },
   { jobCode: "EDMS-912001", correctTotal: 7470.00, label: "Fatih Akçay · 05AK022 — ekranda ₺10.756,80 (olması gereken ₺8.964,00)" },
   { jobCode: "EDMS-925002", correctTotal: 185.83, label: "Demir İnş. Akaryakıt · 34BCF450 — ekranda ₺267,60 (olması gereken ₺223,00; fatura eDMS'te bulunamadı, WDMU050'den hesaplandı)" },
+  // EDMS-922002 farklı bir nedenden: KDV'nin basitçe iki kez uygulanması değil,
+  // yukarıdaki (artık kaldırılmış) hatalı KNOWN_INVOICE_GAPS girdisi yüzünden
+  // tek bir gerçek faturanın (5001000016) tutarı iş emrine BİR KEZ DAHA
+  // eklenmişti. Sonuç olarak ekrandaki tutar da aynı şekilde "olması
+  // gerekenin" üzerinde göründüğü için düzeltme mekanizması buraya uyuyor.
+  { jobCode: "EDMS-922002", correctTotal: 4361.54, label: "Derya Şenyer · 55ARE725 — ekranda ₺11.514,65 (olması gereken ₺5.233,85; eDMS Satış Faturası 5001000016 ile birebir doğrulandı — 'ikinci fatura' yoktu, aynı faturanın tutarı KNOWN_INVOICE_GAPS'teki hatalı appendToJob girdisiyle bir kez daha eklenmişti)" },
 ];
 
 // Kullanıcının isteğiyle: eDMS'in canlı "İş Emri" ekranında (Menü → İş Emri;
