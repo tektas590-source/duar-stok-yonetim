@@ -1,12 +1,13 @@
 import React, { useCallback, useEffect, useState, useRef } from "react";
 import { createRoot } from "react-dom/client";
 import "./style.css";
-import { cancelWorkOrder, completeWorkOrder, correctEdmsEnrichmentStock, createPurchaseInvoice, deletePurchaseInvoice, createStockDraft, createWorkOrder, deleteFitment, deleteManualWorkOrders, deletePart, deletePersonnel, deleteCustomer, deleteAppointment, deleteNotification, deleteReturnItem, enrichEdmsJobsWithInvoiceLines, fetchServiceData, fixKdvDoublingTotals, fixKnownEdmsInvoiceGaps, getPersonnelPerformance, grantUserAccess, importEdmsPurchaseInvoices, importEdmsWorkOrders, listAppointments, listAuthorizedUsers, listCustomers, listNotifications, listPersonnel, listReturns, markNotificationRead, receiveStockDraft, restorePart, revokeUserAccess, saveAppointment, saveCustomer, saveFitment, savePart, savePersonnel, saveReturnItem, sendChatMessage, subscribeToChat, subscribeToServiceData, togglePartFavorite, updateAppointmentStatus, updateReturnStatus, updateWorkOrder, adjustStock } from "./data.js";
+import { cancelWorkOrder, completeWorkOrder, correctEdmsEnrichmentStock, createPurchaseInvoice, deletePurchaseInvoice, createStockDraft, createWorkOrder, deleteFitment, deleteManualWorkOrders, deleteStaleOpenWorkOrders, deletePart, deletePersonnel, deleteCustomer, deleteAppointment, deleteNotification, deleteReturnItem, enrichEdmsJobsWithInvoiceLines, fetchServiceData, fixKdvDoublingTotals, fixKnownEdmsInvoiceGaps, getPersonnelPerformance, grantUserAccess, importEdmsPurchaseInvoices, importEdmsWorkOrders, listAppointments, listAuthorizedUsers, listCustomers, listNotifications, listPersonnel, listReturns, markNotificationRead, receiveStockDraft, restorePart, revokeUserAccess, saveAppointment, saveCustomer, saveFitment, savePart, savePersonnel, saveReturnItem, sendChatMessage, subscribeToChat, subscribeToServiceData, togglePartFavorite, updateAppointmentStatus, updateReturnStatus, updateWorkOrder, adjustStock } from "./data.js";
 import * as XLSX from "xlsx";
 import { parseEdmsWorkOrderReport, selectEdmsRecordsToImport } from "./edmsImport.js";
 import { parseFaturaRaporuReport, splitFaturaRaporuByType } from "./faturaRaporuImport.js";
 import { buildEdmsJobEnrichments, selectPurchaseInvoicesToImport, buildRetroactiveStockCorrection, buildInvoiceReconciliationReport } from "./edmsInvoiceReconcile.js";
 import { selectManualWorkOrders, summarizeManualWorkOrders } from "./manualJobCleanup.js";
+import { selectStaleOpenWorkOrders, selectOpenWorkOrdersNeedingReview, summarizeStaleOpenWorkOrders } from "./staleOpenJobCleanup.js";
 import { CinematicCar } from "./carScene.jsx";
 import { GearScene } from "./gearScene.jsx";
 import { LoginStory } from "./loginStory.jsx";
@@ -21,6 +22,13 @@ import { findPartMatches, parsePastedPartQueries } from "./partSearch.js";
 import { changeInitialPassword, firebaseConfigured, OWNER_EMAIL, registerWithPassword, requestPasswordReset, signInWithPassword, signOutUser, subscribeToAuth } from "./firebase.js";
 import { calculateVat, VAT_RATE, vatIncludedAmount } from "./vat.js";
 import { calculateWorkOrderNetTotal, calculateWorkOrderPriceBreakdown, normalizeLaborAmount, normalizeDiscount } from "./workOrderPricing.js";
+
+// Kullanıcının isteğiyle: aylardır "Devam ediyor" kalmış, hiç parça/işçilik
+// girilmemiş eski açık iş emirlerini temizlerken dokunulmayacak ay (içinde
+// bulunulan iş ayı — Ekim 2026). Gerçek içinde veri olan açık kayıtlara,
+// tarihi ne olursa olsun, bu temizlik hiçbir zaman dokunmaz (bkz.
+// staleOpenJobCleanup.js).
+const STALE_OPEN_JOB_KEEP_MONTH = "2026-10";
 
 const JOB_STATUS_IN_PROGRESS = "Devam ediyor";
 const JOB_STATUS_COMPLETED = "Tamamlandı";
@@ -568,6 +576,14 @@ function App() {
       if (onDone) onDone(result);
     });
   };
+  const persistStaleOpenJobCleanup = async (onDone) => {
+    await runAction(async () => {
+      const result = await deleteStaleOpenWorkOrders(data.jobs, user.email, { keepMonthPrefix: STALE_OPEN_JOB_KEEP_MONTH });
+      await reloadData();
+      setToast(`${result.deleted} eski açık iş emri silindi${result.failed.length ? `, ${result.failed.length} kayıt silinemedi` : ""}.`);
+      if (onDone) onDone(result);
+    });
+  };
   const persistInvoiceGapFixes = async (salesRecords, onDone) => {
     await runAction(async () => {
       const result = await fixKnownEdmsInvoiceGaps(KNOWN_INVOICE_GAPS, data.jobs, data.parts, salesRecords, user.email);
@@ -739,7 +755,7 @@ function App() {
         page === "invoices" ? h(Invoices, { invoices: data.invoices, openModal, removeInvoice, saving }) :
         page === "orders" ? h(Orders, { drafts: data.drafts, lowStock, receiveDraft, createDraft }) :
         page === "stockcompare" ? h(StockCompare, { parts: data.parts, openModal }) :
-        page === "edmsimport" ? h(EdmsImport, { jobs: data.jobs, parts: data.parts, invoices: data.invoices, saving, onImport: persistEdmsImport, onImportFaturaRaporu: persistFaturaRaporuImport, onCleanupManualJobs: persistManualJobCleanup, onCorrectStock: persistStockCorrection, onFixInvoiceGaps: persistInvoiceGapFixes, onFixKdvDoubling: persistKdvDoublingFix }) :
+        page === "edmsimport" ? h(EdmsImport, { jobs: data.jobs, parts: data.parts, invoices: data.invoices, saving, onImport: persistEdmsImport, onImportFaturaRaporu: persistFaturaRaporuImport, onCleanupManualJobs: persistManualJobCleanup, onCleanupStaleOpenJobs: persistStaleOpenJobCleanup, onCorrectStock: persistStockCorrection, onFixInvoiceGaps: persistInvoiceGapFixes, onFixKdvDoubling: persistKdvDoublingFix }) :
         page === "returns" ? h(ReturnsPage, { returns: data.returns, openModal, saving }) :
         page === "chat" ? h(ChatPage, { messages: chatMessages, user, sendMessage: async (text) => { await sendChatMessage(user.email, user.displayName, text); }, saving, configured: firebaseConfigured }) :
         page === "servicebox" ? h(ServiceBoxPage) :
@@ -2379,6 +2395,92 @@ function ManualJobCleanup({ jobs = [], onCleanup, saving }) {
   );
 }
 
+// Ekim 2026 dışında kalmış, hiç parça/işçilik girilmemiş (tamamen boş) eski
+// "Devam ediyor" iş emirlerini listeler ve toplu silme başlatır. Tarihi ne
+// olursa olsun GERÇEK veri (parça/işçilik/tutar) içeren açık kayıtlara bu
+// panel hiç dokunmaz — onlar ayrı, salt bilgi amaçlı bir listede gösterilir.
+function StaleOpenJobCleanup({ jobs = [], onCleanup, saving }) {
+  const [expanded, setExpanded] = useState(false);
+  const [confirmText, setConfirmText] = useState("");
+  const [result, setResult] = useState(null);
+
+  const staleJobs = selectStaleOpenWorkOrders(jobs, { keepMonthPrefix: STALE_OPEN_JOB_KEEP_MONTH });
+  const needsReview = selectOpenWorkOrdersNeedingReview(jobs, { keepMonthPrefix: STALE_OPEN_JOB_KEEP_MONTH });
+  const summary = summarizeStaleOpenWorkOrders(staleJobs);
+  const canDelete = expanded && confirmText.trim().toLocaleUpperCase("tr") === "SİL" && staleJobs.length > 0;
+
+  if (!staleJobs.length && !needsReview.length && !result) return null;
+
+  async function handleDelete() {
+    if (!canDelete) return;
+    await onCleanup((res) => { setResult(res); setExpanded(false); setConfirmText(""); });
+  }
+
+  return h("div", { style: { marginBottom: "28px" } },
+    h("div", { className: "compare-header-row" },
+      h("div", null,
+        h("h2", null, "Eski Açık İş Emirlerini Temizle"),
+        h("p", null, `${STALE_OPEN_JOB_KEEP_MONTH} dışında kalmış, hiç parça/işçilik girilmemiş (toplamı da 0 olan) açık iş emirleri — muhtemelen zamanında kapatılmamış eski kayıtlar. Bu panel SADECE tamamen boş kayıtları siler; gerçek veri içeren hiçbir açık iş emrine (tarihi ne olursa olsun) dokunmaz.`)
+      )
+    ),
+    h("div", { className: "compare-metrics-grid" },
+      h("div", { className: "compare-metric-card is-unmatched" },
+        h("span", { className: "compare-metric-label" }, "Silinecek Boş Açık İş Emri"),
+        h("strong", { className: "compare-metric-num" }, staleJobs.length),
+        h("span", { className: "compare-metric-sub" }, `${STALE_OPEN_JOB_KEEP_MONTH} dışında, 0 parça / 0 işçilik / ₺0`)
+      ),
+      h("div", { className: "compare-metric-card is-missing-system" },
+        h("span", { className: "compare-metric-label" }, "Tarih Aralığı"),
+        h("strong", { className: "compare-metric-num", style: { fontSize: "16px" } }, summary.dateFrom ? `${summary.dateFrom} → ${summary.dateTo}` : "—"),
+        h("span", { className: "compare-metric-sub" }, "")
+      )
+    ),
+
+    needsReview.length > 0 ? h("div", { className: "paste-result paste-result-error" },
+      h("strong", null, `${needsReview.length} açık iş emri ${STALE_OPEN_JOB_KEEP_MONTH} dışında ama GERÇEK veri içeriyor — otomatik silinMEDİ, elle gözden geçirin:`),
+      h("ul", null, needsReview.map((job) => h("li", { key: job.id },
+        `${job.code || job.id} · ${job.date} · ${job.customer || ""} · ${(job.items || []).length} parça kalemi · ₺${Number(job.total || 0).toLocaleString("tr-TR", { minimumFractionDigits: 2 })}`
+      )))
+    ) : null,
+
+    staleJobs.length > 0 ? h("div", { className: "table-scroll" },
+      h("table", null,
+        h("thead", null, h("tr", null, ["KOD", "PLAKA", "MÜŞTERİ", "TARİH"].map((label) => h("th", { key: label }, label)))),
+        h("tbody", null, staleJobs.slice(0, 80).map((job) =>
+          h("tr", { key: job.id },
+            h("td", null, job.code || job.id),
+            h("td", null, job.plate),
+            h("td", null, job.customer),
+            h("td", null, job.date)
+          )
+        ))
+      )
+    ) : null,
+    staleJobs.length > 80 ? h("p", { className: "text-muted" }, `… ve ${staleJobs.length - 80} kayıt daha.`) : null,
+
+    staleJobs.length > 0 ? h("div", { style: { marginTop: "16px" } },
+      !expanded ? h("button", { className: "button button-secondary", type: "button", onClick: () => setExpanded(true) }, "Silme İşlemini Başlat") :
+        h("div", null,
+          h("p", { className: "form-notice" }, `Onaylamak için aşağıya "SİL" yazın. Bu işlem ${staleJobs.length} boş iş emrini geri alınamaz şekilde kaldırır.`),
+          h("input", {
+            type: "text",
+            value: confirmText,
+            onChange: (e) => setConfirmText(e.target.value),
+            placeholder: "SİL",
+            style: { maxWidth: "160px", marginRight: "8px" }
+          }),
+          h("button", { className: "button button-danger", type: "button", disabled: !canDelete || saving, onClick: handleDelete },
+            saving ? "Siliniyor…" : `${staleJobs.length} İş Emrini Kalıcı Sil`),
+          h("button", { className: "button button-secondary button-small", type: "button", style: { marginLeft: "8px" }, onClick: () => { setExpanded(false); setConfirmText(""); } }, "Vazgeç")
+        )
+    ) : null,
+
+    result ? h("p", { className: "form-notice", role: "status" },
+      `${result.deleted} iş emri silindi.` + (result.failed.length ? ` ${result.failed.length} kayıt silinemedi.` : "") + (result.warnings.length ? ` ${result.warnings.length} uyarı oluştu.` : "")
+    ) : null
+  );
+}
+
 // KNOWN_KDV_DOUBLING_FIXES listesindeki, KDV'nin iki kez uygulandığı tespit
 // edilmiş iş emirlerini gösterir ve tek seferlik tutar düzeltmesini
 // başlatır. Düzeltilecek kayıt kalmayınca (tüm iş emirlerinin `total`'ı
@@ -2490,7 +2592,7 @@ function StockCorrectionPanel({ jobs = [], parts = [], onCorrect, saving }) {
   );
 }
 
-function EdmsImport({ jobs = [], parts = [], invoices = [], saving, onImport, onImportFaturaRaporu, onCleanupManualJobs, onCorrectStock, onFixInvoiceGaps, onFixKdvDoubling }) {
+function EdmsImport({ jobs = [], parts = [], invoices = [], saving, onImport, onImportFaturaRaporu, onCleanupManualJobs, onCleanupStaleOpenJobs, onCorrectStock, onFixInvoiceGaps, onFixKdvDoubling }) {
   const [fileName, setFileName] = useState("");
   const [loading, setLoading] = useState(false);
   const [parseErrors, setParseErrors] = useState([]);
@@ -2537,6 +2639,7 @@ function EdmsImport({ jobs = [], parts = [], invoices = [], saving, onImport, on
   return h("section", { className: "stock-compare" },
     h(KdvDoublingFixPanel, { jobs, onFix: onFixKdvDoubling, saving }),
     h(StockCorrectionPanel, { jobs, parts, onCorrect: onCorrectStock, saving }),
+    h(StaleOpenJobCleanup, { jobs, onCleanup: onCleanupStaleOpenJobs, saving }),
     h(ManualJobCleanup, { jobs, onCleanup: onCleanupManualJobs, saving }),
     h("hr", { style: { margin: "28px 0" } }),
     h("div", { className: "compare-header-row" },

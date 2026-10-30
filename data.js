@@ -16,6 +16,7 @@ import { aggregateWorkOrderQuantities, calculateWorkOrderQuantityDeltas, calcula
 import { selectEdmsRecordsToImport } from "./edmsImport.js";
 import { buildEdmsJobEnrichments, selectPurchaseInvoicesToImport, buildPurchaseInvoicePayload, buildRetroactiveStockCorrection, buildJobFromInvoice, buildAdditionalInvoicePatch } from "./edmsInvoiceReconcile.js";
 import { selectManualWorkOrders } from "./manualJobCleanup.js";
+import { selectStaleOpenWorkOrders } from "./staleOpenJobCleanup.js";
 import { WORK_ORDER_STATUS } from "./workOrderLifecycle.js";
 import { calculateWorkOrderNetTotal, normalizeLaborAmount, normalizeDiscount } from "./workOrderPricing.js";
 import { db, OWNER_EMAIL } from "./firebase.js";
@@ -1504,6 +1505,40 @@ export async function deleteManualWorkOrders(jobs, actor) {
       }
       await deleteDoc(doc(database, "jobs", job.id));
       deleted.push({ id: job.id, code: job.code, plate: job.plate, total: job.total });
+    } catch (error) {
+      failed.push({ id: job.id, code: job.code, error: error.message || String(error) });
+    }
+  }
+
+  return { deleted: deleted.length, deletedJobs: deleted, failed, warnings };
+}
+
+// Aylardır "Devam ediyor" durumunda kalmış, hiç parça/işçilik girilmemiş
+// (toplamı da 0 olan) ve belirtilen ay dışında kalan iş emirlerini kalıcı
+// olarak siler. `keepMonthPrefix` ("YYYY-MM") o aydaki açık iş emirlerine
+// dokunmaz; seçim mantığı (ve "gerçek veri içerdiği için otomatik
+// silinmeyen" kayıtların ayrıca bulunması) staleOpenJobCleanup.js'te.
+// Seçilen kayıtların tanımı gereği parçası/işçiliği olmadığından stok
+// iadesi normalde gerekmez; yine de deleteManualWorkOrders ile aynı güvenli
+// cancelWorkOrder + deleteDoc deseni kullanılır.
+export async function deleteStaleOpenWorkOrders(jobs, actor, { keepMonthPrefix } = {}) {
+  const database = requireDatabase();
+  const staleJobs = selectStaleOpenWorkOrders(jobs, { keepMonthPrefix });
+  const deleted = [];
+  const warnings = [];
+  const failed = [];
+
+  for (const job of staleJobs) {
+    try {
+      if (job.status !== WORK_ORDER_STATUS.CANCELLED) {
+        try {
+          await cancelWorkOrder(job.id, actor);
+        } catch (cancelError) {
+          warnings.push(`[${job.code || job.id}] Stok iadesi yapılamadı (${cancelError.message || cancelError}); kayıt stoğa dokunmadan silindi.`);
+        }
+      }
+      await deleteDoc(doc(database, "jobs", job.id));
+      deleted.push({ id: job.id, code: job.code, plate: job.plate, date: job.date });
     } catch (error) {
       failed.push({ id: job.id, code: job.code, error: error.message || String(error) });
     }
