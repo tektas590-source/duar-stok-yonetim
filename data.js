@@ -14,6 +14,7 @@ import {
 import { resolveBusinessDate } from "./businessDate.js";
 import { aggregateWorkOrderQuantities, calculateWorkOrderQuantityDeltas, calculateWorkOrderReversal } from "./workOrderInventory.js";
 import { selectEdmsRecordsToImport } from "./edmsImport.js";
+import { buildEdmsJobEnrichments, selectPurchaseInvoicesToImport, buildPurchaseInvoicePayload } from "./edmsInvoiceReconcile.js";
 import { WORK_ORDER_STATUS } from "./workOrderLifecycle.js";
 import { calculateWorkOrderNetTotal, normalizeLaborAmount, normalizeDiscount } from "./workOrderPricing.js";
 import { db, OWNER_EMAIL } from "./firebase.js";
@@ -1127,4 +1128,72 @@ export async function importEdmsWorkOrders(records, existingJobs, actor) {
   }
 
   return { added: createdJobs.length, skipped: alreadyPresent.length, jobs: createdJobs };
+}
+
+// eDMS "Fatura Raporu" (WDMR010) çıktısındaki Satın Alma faturalarını içe
+// aktarır: her biri için (zaten var olan) createPurchaseInvoice çağrılır, bu
+// da `invoices` kaydını oluşturur VE stoğu transaction içinde artırır
+// (kullanıcının talimatı: "Stoğu da güncellesin"). Daha önce aynı fatura
+// numarasıyla içe aktarılmış olanlar atlanır. Bir faturadaki hata diğerlerini
+// engellemez; hatalar sonuçta ayrıca raporlanır.
+export async function importEdmsPurchaseInvoices(purchaseRecords, existingInvoices, parts, actor) {
+  const { toAdd, alreadyPresent } = selectPurchaseInvoicesToImport(purchaseRecords, existingInvoices);
+  const imported = [];
+  const failed = [];
+  const warnings = [];
+  for (const record of toAdd) {
+    const { payload, warnings: lineWarnings } = buildPurchaseInvoicePayload(record, parts);
+    lineWarnings.forEach((warning) => warnings.push(`[${record.invoiceNo}] ${warning}`));
+    if (!payload.items.length) {
+      failed.push({ invoiceNo: record.invoiceNo, error: "Faturada içe aktarılabilir stok satırı yok." });
+      continue;
+    }
+    try {
+      const saved = await createPurchaseInvoice(payload, actor);
+      imported.push(saved);
+    } catch (error) {
+      failed.push({ invoiceNo: record.invoiceNo, error: error.message || String(error) });
+    }
+  }
+  return { imported: imported.length, skipped: alreadyPresent.length, failed, warnings, invoices: imported };
+}
+
+// eDMS "Fatura Raporu"ndaki Satış faturalarının parça/işçilik satırlarını,
+// kapsamdaki (kapalı; veya 01.10.2026 sonrası açık) ve henüz zenginleştirilmemiş
+// eDMS iş emirlerine ekler. Sadece `jobs` dokümanını (items/laborAmount/total
+// vb.) ve gerekirse eksik parçalar için 0 stoklu yeni kartları yazar —
+// createWorkOrder/updateWorkOrder'ın stok düşme/transaction mantığını
+// BİLEREK atlar (importEdmsWorkOrders ile aynı prensip: bunlar geçmiş,
+// zaten gerçekleşmiş kayıtlardır, canlı stok hareketi değildir).
+export async function enrichEdmsJobsWithInvoiceLines(jobs, salesRecords, parts, actor, options = {}) {
+  const database = requireDatabase();
+  const { enrichments, newParts, warnings, ambiguous, unmatchedInvoices, skippedJobs } = buildEdmsJobEnrichments(jobs, salesRecords, parts, options);
+  if (!enrichments.length && !newParts.length) {
+    return { updated: 0, newParts: 0, warnings, ambiguous, unmatchedInvoices, skippedJobs };
+  }
+
+  const now = new Date().toISOString();
+  const writes = [
+    ...newParts.map((part) => ({ ref: doc(database, "parts", part.id), data: part })),
+    ...enrichments.map(({ jobId, patch }) => ({
+      ref: doc(database, "jobs", jobId),
+      data: { ...patch, enrichedFromEdmsInvoiceAt: now, updatedAt: now },
+      merge: true,
+    })),
+  ];
+
+  for (const group of chunk(writes, 400)) {
+    const batch = writeBatch(database);
+    group.forEach(({ ref, data, merge }) => (merge ? batch.set(ref, data, { merge: true }) : batch.set(ref, data)));
+    await batch.commit();
+  }
+
+  return {
+    updated: enrichments.length,
+    newParts: newParts.length,
+    warnings,
+    ambiguous,
+    unmatchedInvoices,
+    skippedJobs,
+  };
 }

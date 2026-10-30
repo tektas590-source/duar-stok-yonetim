@@ -8,7 +8,7 @@
     "dev:e2e": "node devE2E.js",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "node --test invoiceImport.test.js partSearch.test.js vat.test.js businessDate.test.js vehicleCompatibility.test.js workOrderInventory.test.js workOrderLifecycle.test.js workOrderPricing.test.js fitScreen.test.js edmsImport.test.js"
+    "test": "node --test invoiceImport.test.js partSearch.test.js vat.test.js businessDate.test.js vehicleCompatibility.test.js workOrderInventory.test.js workOrderLifecycle.test.js workOrderPricing.test.js fitScreen.test.js edmsImport.test.js faturaRaporuImport.test.js edmsInvoiceReconcile.test.js"
   },
   "dependencies": {
     "firebase": "^13.0.0",

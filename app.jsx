@@ -1,9 +1,11 @@
 import React, { useCallback, useEffect, useState, useRef } from "react";
 import { createRoot } from "react-dom/client";
 import "./style.css";
-import { cancelWorkOrder, completeWorkOrder, createPurchaseInvoice, deletePurchaseInvoice, createStockDraft, createWorkOrder, deleteFitment, deletePart, deletePersonnel, deleteCustomer, deleteAppointment, deleteNotification, deleteReturnItem, fetchServiceData, getPersonnelPerformance, grantUserAccess, importEdmsWorkOrders, listAppointments, listAuthorizedUsers, listCustomers, listNotifications, listPersonnel, listReturns, markNotificationRead, receiveStockDraft, restorePart, revokeUserAccess, saveAppointment, saveCustomer, saveFitment, savePart, savePersonnel, saveReturnItem, sendChatMessage, subscribeToChat, subscribeToServiceData, togglePartFavorite, updateAppointmentStatus, updateReturnStatus, updateWorkOrder, adjustStock } from "./data.js";
+import { cancelWorkOrder, completeWorkOrder, createPurchaseInvoice, deletePurchaseInvoice, createStockDraft, createWorkOrder, deleteFitment, deletePart, deletePersonnel, deleteCustomer, deleteAppointment, deleteNotification, deleteReturnItem, enrichEdmsJobsWithInvoiceLines, fetchServiceData, getPersonnelPerformance, grantUserAccess, importEdmsPurchaseInvoices, importEdmsWorkOrders, listAppointments, listAuthorizedUsers, listCustomers, listNotifications, listPersonnel, listReturns, markNotificationRead, receiveStockDraft, restorePart, revokeUserAccess, saveAppointment, saveCustomer, saveFitment, savePart, savePersonnel, saveReturnItem, sendChatMessage, subscribeToChat, subscribeToServiceData, togglePartFavorite, updateAppointmentStatus, updateReturnStatus, updateWorkOrder, adjustStock } from "./data.js";
 import * as XLSX from "xlsx";
 import { parseEdmsWorkOrderReport, selectEdmsRecordsToImport } from "./edmsImport.js";
+import { parseFaturaRaporuReport, splitFaturaRaporuByType } from "./faturaRaporuImport.js";
+import { buildEdmsJobEnrichments, selectPurchaseInvoicesToImport } from "./edmsInvoiceReconcile.js";
 import { CinematicCar } from "./carScene.jsx";
 import { GearScene } from "./gearScene.jsx";
 import { LoginStory } from "./loginStory.jsx";
@@ -496,6 +498,31 @@ function App() {
       if (onDone) onDone(result);
     });
   };
+  const persistFaturaRaporuImport = async ({ purchaseRecords, salesRecords }, onDone) => {
+    await runAction(async () => {
+      const purchaseResult = purchaseRecords.length
+        ? await importEdmsPurchaseInvoices(purchaseRecords, data.invoices, data.parts, user.email)
+        : { imported: 0, skipped: 0, failed: [], warnings: [] };
+      // Alış faturaları stoğu güncelledikten sonra, satış satırlarını en güncel
+      // parça listesiyle eşleştirmek için veriyi taze olarak tekrar çekiyoruz
+      // (reloadData, React state güncellemesini bu kapanış içinde senkron
+      // yansıtmaz; bu yüzden doğrudan fetchServiceData kullanılıyor).
+      const freshAfterPurchase = await fetchServiceData();
+      setData(freshAfterPurchase);
+      const enrichResult = salesRecords.length
+        ? await enrichEdmsJobsWithInvoiceLines(freshAfterPurchase.jobs, salesRecords, freshAfterPurchase.parts, user.email)
+        : { updated: 0, newParts: 0, warnings: [], ambiguous: [], unmatchedInvoices: [], skippedJobs: [] };
+      await reloadData();
+      const summary = [
+        purchaseResult.imported ? `${purchaseResult.imported} alış faturası (stok güncellendi)` : null,
+        purchaseResult.skipped ? `${purchaseResult.skipped} alış faturası zaten vardı` : null,
+        enrichResult.updated ? `${enrichResult.updated} iş emrine satır eklendi` : null,
+        enrichResult.newParts ? `${enrichResult.newParts} yeni stok kartı önerildi` : null,
+      ].filter(Boolean).join(", ");
+      setToast(summary || "İçe aktarılacak yeni kayıt bulunamadı.");
+      if (onDone) onDone({ purchaseResult, enrichResult });
+    });
+  };
   async function authenticate(event) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
@@ -635,7 +662,7 @@ function App() {
         page === "invoices" ? h(Invoices, { invoices: data.invoices, openModal, removeInvoice, saving }) :
         page === "orders" ? h(Orders, { drafts: data.drafts, lowStock, receiveDraft, createDraft }) :
         page === "stockcompare" ? h(StockCompare, { parts: data.parts, openModal }) :
-        page === "edmsimport" ? h(EdmsImport, { jobs: data.jobs, saving, onImport: persistEdmsImport }) :
+        page === "edmsimport" ? h(EdmsImport, { jobs: data.jobs, parts: data.parts, invoices: data.invoices, saving, onImport: persistEdmsImport, onImportFaturaRaporu: persistFaturaRaporuImport }) :
         page === "returns" ? h(ReturnsPage, { returns: data.returns, openModal, saving }) :
         page === "chat" ? h(ChatPage, { messages: chatMessages, user, sendMessage: async (text) => { await sendChatMessage(user.email, user.displayName, text); }, saving, configured: firebaseConfigured }) :
         page === "servicebox" ? h(ServiceBoxPage) :
@@ -2183,7 +2210,7 @@ function StockCompare({ parts = [], openModal }) {
   );
 }
 
-function EdmsImport({ jobs = [], saving, onImport }) {
+function EdmsImport({ jobs = [], parts = [], invoices = [], saving, onImport, onImportFaturaRaporu }) {
   const [fileName, setFileName] = useState("");
   const [loading, setLoading] = useState(false);
   const [parseErrors, setParseErrors] = useState([]);
@@ -2320,6 +2347,175 @@ function EdmsImport({ jobs = [], saving, onImport }) {
       ),
 
       importedCount !== null ? h("p", { className: "form-notice", role: "status" }, `${importedCount} iş emri başarıyla eklendi. Araç Geçmişi ve Raporlar sayfalarına hemen yansıdı.`) : null
+    ) : null,
+
+    h("hr", { style: { margin: "28px 0" } }),
+    h(FaturaRaporuImport, { jobs, parts, invoices, saving, onImport: onImportFaturaRaporu })
+  );
+}
+
+// eDMS "Fatura Raporu" (WDMR010, Form: FATURA RAPORU(DETAY)) Excel çıktısını
+// yükler; Satın Alma faturalarını (stok güncelleyerek) ve Satış faturalarının
+// parça/işçilik satırlarını (kapsamdaki iş emirlerine ekleyerek) önizler.
+function FaturaRaporuImport({ jobs = [], parts = [], invoices = [], saving, onImport }) {
+  const [fileName, setFileName] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [parseErrors, setParseErrors] = useState([]);
+  const [preview, setPreview] = useState(null);
+  const [result, setResult] = useState(null);
+
+  async function handleFileUpload(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    setFileName(file.name);
+    setLoading(true);
+    setResult(null);
+    setParseErrors([]);
+    setPreview(null);
+    try {
+      const data = await file.arrayBuffer();
+      const workbook = XLSX.read(data, { type: "array", cellDates: true });
+      const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(firstSheet, { header: 1, defval: null });
+      const { invoices: parsedInvoices, errors } = parseFaturaRaporuReport(rows);
+      setParseErrors(errors);
+      const { sales, purchases } = splitFaturaRaporuByType(parsedInvoices);
+      const { toAdd: purchasesToAdd, alreadyPresent: purchasesSkipped } = selectPurchaseInvoicesToImport(purchases, invoices);
+      const enrichmentPreview = buildEdmsJobEnrichments(jobs, sales, parts);
+      setPreview({
+        purchasesToAdd,
+        purchasesSkipped,
+        enrichmentPreview,
+        salesRecords: sales,
+      });
+    } catch (error) {
+      console.error("Fatura Raporu Excel okuma hatası:", error);
+      alert("Excel dosyası okunamadı. eDMS'teki \"Fatura Raporu\" (WDMR010) çıktısından \"Excel'e Aktar\" ile aldığınız dosyayı seçtiğinizden emin olun.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function handleReset() {
+    setFileName("");
+    setParseErrors([]);
+    setPreview(null);
+    setResult(null);
+  }
+
+  async function handleConfirm() {
+    if (!preview) return;
+    // enrichEdmsJobsWithInvoiceLines (data.js) eşleştirmeyi kendi içinde
+    // yeniden çalıştırır; burada sadece ayrıştırılmış ham satış faturası
+    // listesinin TAMAMINI iletiyoruz (önizlemedeki eşleşme sonucu değil).
+    await onImport({ purchaseRecords: preview.purchasesToAdd, salesRecords: preview.salesRecords }, (res) => setResult(res));
+  }
+
+  const warnings = preview ? preview.enrichmentPreview.warnings : [];
+  const ambiguous = preview ? preview.enrichmentPreview.ambiguous : [];
+
+  return h("section", { className: "stock-compare" },
+    h("div", { className: "compare-header-row" },
+      h("div", null,
+        h("h2", null, "Fatura Raporu (Alış + Satış) İçe Aktar"),
+        h("p", null, "EUROREPAR eDMS'teki \"Fatura Raporu\" (WDMR010) çıktısını yükleyin: Satın Alma faturaları stoğu güncelleyerek içe aktarılır; Satış faturalarının parça/işçilik satırları, kapalı iş emirlerine ve 01.10.2026 sonrası açık iş emirlerine eklenir.")
+      ),
+      (preview || fileName) ? h("button", {
+        className: "button button-secondary button-small",
+        onClick: handleReset,
+        type: "button"
+      }, h(Icon, { name: "close", size: 14 }), "Yeni Dosya Yükle") : null
+    ),
+
+    !preview ? h("div", { className: "upload-section" },
+      h("label", { className: "upload-label" },
+        h("input", {
+          type: "file",
+          accept: ".xlsx,.xls",
+          onChange: handleFileUpload,
+          disabled: loading
+        }),
+        h("div", { className: "upload-content" },
+          h(Icon, { name: "box", size: 36 }),
+          h("span", null, loading ? "Excel okunuyor ve karşılaştırılıyor..." : fileName || "eDMS Fatura Raporu Excel dosyasını seçin veya buraya sürükleyin"),
+          h("small", null, "eDMS → Fatura Raporu (WDMR010) → Excel'e Aktar ile aldığınız dosya")
+        )
+      )
+    ) : null,
+
+    parseErrors.length > 0 ? h("div", { className: "paste-result paste-result-error" },
+      h("strong", null, `${parseErrors.length} satır/fatura atlandı`),
+      h("ul", null, parseErrors.slice(0, 20).map((message, index) => h("li", { key: index }, message)))
+    ) : null,
+
+    preview ? h(React.Fragment, null,
+      h("div", { className: "compare-metrics-grid" },
+        h("div", { className: "compare-metric-card is-missing-system" },
+          h("span", { className: "compare-metric-label" }, "Eklenecek Alış Faturası"),
+          h("strong", { className: "compare-metric-num" }, preview.purchasesToAdd.length),
+          h("span", { className: "compare-metric-sub" }, "Stok otomatik güncellenecek")
+        ),
+        h("div", { className: "compare-metric-card is-matched" },
+          h("span", { className: "compare-metric-label" }, "Zaten İçe Aktarılmış"),
+          h("strong", { className: "compare-metric-num" }, preview.purchasesSkipped.length),
+          h("span", { className: "compare-metric-sub" }, "Fatura no eşleşti, atlanacak")
+        ),
+        h("div", { className: "compare-metric-card is-diff" },
+          h("span", { className: "compare-metric-label" }, "Zenginleşecek İş Emri"),
+          h("strong", { className: "compare-metric-num" }, preview.enrichmentPreview.enrichments.length),
+          h("span", { className: "compare-metric-sub" }, "Kapalı veya 01.10.2026 sonrası açık")
+        ),
+        h("div", { className: "compare-metric-card is-unmatched" },
+          h("span", { className: "compare-metric-label" }, "Eşleşmeyen Satış Faturası"),
+          h("strong", { className: "compare-metric-num" }, preview.enrichmentPreview.unmatchedInvoices.length),
+          h("span", { className: "compare-metric-sub" }, "İş emriyle ilişkilendirilemedi")
+        )
+      ),
+
+      preview.enrichmentPreview.enrichments.length > 0 ? h("div", { className: "table-scroll" },
+        h("table", null,
+          h("thead", null,
+            h("tr", null,
+              ["İŞ EMRİ", "FATURA NO", "PARÇA SATIRI", "İŞÇİLİK", "TOPLAM (KDV HARİÇ)", "DURUM"].map((label) => h("th", { key: label }, label))
+            )
+          ),
+          h("tbody", null,
+            preview.enrichmentPreview.enrichments.slice(0, 50).map((e) =>
+              h("tr", { key: e.jobId },
+                h("td", null, e.job.code || e.job.externalId),
+                h("td", null, e.invoice.invoiceNo),
+                h("td", null, e.patch.items.length),
+                h("td", null, e.patch.laborAmount.toLocaleString("tr-TR", { minimumFractionDigits: 2 })),
+                h("td", null, e.patch.total.toLocaleString("tr-TR", { minimumFractionDigits: 2 })),
+                h("td", null, e.reconciled ? "✓ Uyuşuyor" : "⚠ Fark var")
+              )
+            )
+          )
+        )
+      ) : null,
+      preview.enrichmentPreview.enrichments.length > 50 ? h("p", { className: "text-muted" }, `… ve ${preview.enrichmentPreview.enrichments.length - 50} kayıt daha.`) : null,
+
+      (warnings.length > 0 || ambiguous.length > 0) ? h("div", { className: "paste-result paste-result-error", style: { marginTop: "12px" } },
+        h("strong", null, `${warnings.length + ambiguous.length} uyarı — gözden geçirin`),
+        h("ul", null, [
+          ...warnings.slice(0, 15).map((message, index) => h("li", { key: `w${index}` }, message)),
+          ...ambiguous.slice(0, 10).map((a, index) => h("li", { key: `a${index}` }, `${a.job.code || a.job.id}: ${a.reason} (${a.invoices.map((i) => i.invoiceNo).join(", ")})`)),
+        ])
+      ) : null,
+
+      h("div", { style: { marginTop: "16px" } },
+        h("button", {
+          className: "button button-primary",
+          disabled: saving || (!preview.purchasesToAdd.length && !preview.enrichmentPreview.enrichments.length),
+          type: "button",
+          onClick: handleConfirm,
+        }, saving ? "Aktarılıyor…" : "Alış Faturalarını ve İş Emri Satırlarını İçe Aktar")
+      ),
+
+      result ? h("p", { className: "form-notice", role: "status" },
+        `${result.purchaseResult.imported} alış faturası içe aktarıldı, ${result.enrichResult.updated} iş emrine satır eklendi` +
+        (result.enrichResult.newParts ? `, ${result.enrichResult.newParts} yeni stok kartı oluşturuldu` : "") + "."
+      ) : null
     ) : null
   );
 }
