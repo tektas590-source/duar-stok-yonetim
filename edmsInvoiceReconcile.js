@@ -50,7 +50,18 @@ function daysBetween(dateA, dateB) {
 export function selectEdmsJobsInScope(jobs, { cutoffDate = OPEN_SCOPE_CUTOFF } = {}) {
   return (Array.isArray(jobs) ? jobs : []).filter((job) => {
     if (job.source !== "eDMS") return false;
-    if (Array.isArray(job.items) && job.items.length) return false; // zaten zenginleştirilmiş
+    // Normalde zaten parça/işçilik satırı olan bir iş emri "zenginleştirilmiş"
+    // sayılıp tekrar işlenmez. Ancak `plannedFromEdmsAt` ile oluşturulan
+    // kayıtlar (bkz. missingOctoberJobs.js) GERÇEK bir faturadan değil,
+    // eDMS İş Emri ekranındaki "Planlanan" (henüz faturalanmamış)
+    // verilerden geliyor — bunlar kapsam dışı bırakılırsa, iş emri gerçekten
+    // faturalandığında otomatik zenginleştirme bu kaydı sessizce atlar ve
+    // geçici/planlı veriler kalıcı olarak yanlış kalır (tıpkı daha önce
+    // düzeltilen KDV'nin iki kez uygulanması hatasına benzer bir risk). Bu
+    // yüzden bu kayıtlar, gerçek bir faturayla eşleşip zenginleştirilene
+    // kadar (bu da `plannedFromEdmsAt`'i temizler, bkz. data.js) kapsamda
+    // kalmaya devam eder.
+    if (Array.isArray(job.items) && job.items.length && !job.plannedFromEdmsAt) return false; // zaten zenginleştirilmiş
     const isClosed = job.status === WORK_ORDER_STATUS.COMPLETED;
     if (isClosed) return true;
     const isOpen = job.status === WORK_ORDER_STATUS.IN_PROGRESS;

@@ -17,6 +17,7 @@ import { selectEdmsRecordsToImport } from "./edmsImport.js";
 import { buildEdmsJobEnrichments, selectPurchaseInvoicesToImport, buildPurchaseInvoicePayload, buildRetroactiveStockCorrection, buildJobFromInvoice, buildAdditionalInvoicePatch } from "./edmsInvoiceReconcile.js";
 import { selectManualWorkOrders } from "./manualJobCleanup.js";
 import { selectStaleOpenWorkOrders } from "./staleOpenJobCleanup.js";
+import { selectMissingOctoberJobDefs, buildMissingOctoberJobRecords } from "./missingOctoberJobs.js";
 import { WORK_ORDER_STATUS } from "./workOrderLifecycle.js";
 import { calculateWorkOrderNetTotal, normalizeLaborAmount, normalizeDiscount } from "./workOrderPricing.js";
 import { db, OWNER_EMAIL } from "./firebase.js";
@@ -1229,7 +1230,11 @@ export async function enrichEdmsJobsWithInvoiceLines(jobs, salesRecords, parts, 
     ...movements.map(({ ref, data }) => ({ ref, data })),
     ...enrichments.map(({ jobId, patch }) => ({
       ref: doc(database, "jobs", jobId),
-      data: { ...patch, enrichedFromEdmsInvoiceAt: now, updatedAt: now },
+      // `plannedFromEdmsAt` (bkz. missingOctoberJobs.js) burada bilerek null
+      // yapılır: iş emri artık GERÇEK bir faturayla zenginleştirildi, bu
+      // yüzden selectEdmsJobsInScope'un normal "zaten zenginleştirilmiş,
+      // tekrar işleme" kuralına geri dönmeli.
+      data: { ...patch, enrichedFromEdmsInvoiceAt: now, plannedFromEdmsAt: null, updatedAt: now },
       merge: true,
     })),
   ];
@@ -1545,4 +1550,35 @@ export async function deleteStaleOpenWorkOrders(jobs, actor, { keepMonthPrefix }
   }
 
   return { deleted: deleted.length, deletedJobs: deleted, failed, warnings };
+}
+
+// Kullanıcının isteğiyle: eDMS'in canlı İş Emri ekranında hâlâ açık olan ama
+// uygulamada hiç karşılığı olmayan Ekim 2026 iş emirlerini (bkz.
+// missingOctoberJobs.js — MISSING_OCTOBER_JOBS app.jsx'te sabit/hardcoded),
+// "Planlanan" parça/işçilik verileriyle birlikte oluşturur. Henüz
+// faturalanmadıkları için `total` 0 bırakılır ve HİÇBİR stok düşülmez —
+// gerçek stok etkisi, ileride gerçek fatura geldiğinde çalışacak olan
+// enrichEdmsJobsWithInvoiceLines'a bırakılır. İdempotenttir: zaten eklenmiş
+// bir iş emri (id eşleşirse) tekrar oluşturulmaz.
+export async function createMissingEdmsJobs(defs, jobs, parts, actor) {
+  const database = requireDatabase();
+  const pendingDefs = selectMissingOctoberJobDefs(defs, jobs);
+  if (!pendingDefs.length) return { created: 0, newParts: 0, warnings: [], jobs: [] };
+
+  const now = new Date().toISOString();
+  const { jobs: newJobs, newParts, warnings } = buildMissingOctoberJobRecords(pendingDefs, parts);
+  const createdJobs = newJobs.map((job) => ({ ...job, importedAt: now, actor: actor || "" }));
+
+  const writes = [
+    ...newParts.map((part) => ({ ref: doc(database, "parts", part.id), data: part })),
+    ...createdJobs.map((job) => ({ ref: doc(database, "jobs", job.id), data: job })),
+  ];
+
+  for (const group of chunk(writes, 400)) {
+    const batch = writeBatch(database);
+    group.forEach(({ ref, data }) => batch.set(ref, data));
+    await batch.commit();
+  }
+
+  return { created: createdJobs.length, newParts: newParts.length, warnings, jobs: createdJobs };
 }

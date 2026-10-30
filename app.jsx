@@ -1,13 +1,14 @@
 import React, { useCallback, useEffect, useState, useRef } from "react";
 import { createRoot } from "react-dom/client";
 import "./style.css";
-import { cancelWorkOrder, completeWorkOrder, correctEdmsEnrichmentStock, createPurchaseInvoice, deletePurchaseInvoice, createStockDraft, createWorkOrder, deleteFitment, deleteManualWorkOrders, deleteStaleOpenWorkOrders, deletePart, deletePersonnel, deleteCustomer, deleteAppointment, deleteNotification, deleteReturnItem, enrichEdmsJobsWithInvoiceLines, fetchServiceData, fixKdvDoublingTotals, fixKnownEdmsInvoiceGaps, getPersonnelPerformance, grantUserAccess, importEdmsPurchaseInvoices, importEdmsWorkOrders, listAppointments, listAuthorizedUsers, listCustomers, listNotifications, listPersonnel, listReturns, markNotificationRead, receiveStockDraft, restorePart, revokeUserAccess, saveAppointment, saveCustomer, saveFitment, savePart, savePersonnel, saveReturnItem, sendChatMessage, subscribeToChat, subscribeToServiceData, togglePartFavorite, updateAppointmentStatus, updateReturnStatus, updateWorkOrder, adjustStock } from "./data.js";
+import { cancelWorkOrder, completeWorkOrder, correctEdmsEnrichmentStock, createMissingEdmsJobs, createPurchaseInvoice, deletePurchaseInvoice, createStockDraft, createWorkOrder, deleteFitment, deleteManualWorkOrders, deleteStaleOpenWorkOrders, deletePart, deletePersonnel, deleteCustomer, deleteAppointment, deleteNotification, deleteReturnItem, enrichEdmsJobsWithInvoiceLines, fetchServiceData, fixKdvDoublingTotals, fixKnownEdmsInvoiceGaps, getPersonnelPerformance, grantUserAccess, importEdmsPurchaseInvoices, importEdmsWorkOrders, listAppointments, listAuthorizedUsers, listCustomers, listNotifications, listPersonnel, listReturns, markNotificationRead, receiveStockDraft, restorePart, revokeUserAccess, saveAppointment, saveCustomer, saveFitment, savePart, savePersonnel, saveReturnItem, sendChatMessage, subscribeToChat, subscribeToServiceData, togglePartFavorite, updateAppointmentStatus, updateReturnStatus, updateWorkOrder, adjustStock } from "./data.js";
 import * as XLSX from "xlsx";
 import { parseEdmsWorkOrderReport, selectEdmsRecordsToImport } from "./edmsImport.js";
 import { parseFaturaRaporuReport, splitFaturaRaporuByType } from "./faturaRaporuImport.js";
 import { buildEdmsJobEnrichments, selectPurchaseInvoicesToImport, buildRetroactiveStockCorrection, buildInvoiceReconciliationReport } from "./edmsInvoiceReconcile.js";
 import { selectManualWorkOrders, summarizeManualWorkOrders } from "./manualJobCleanup.js";
 import { selectStaleOpenWorkOrders, selectOpenWorkOrdersNeedingReview, summarizeStaleOpenWorkOrders } from "./staleOpenJobCleanup.js";
+import { selectMissingOctoberJobDefs, summarizeMissingOctoberJobs, buildMissingOctoberJobRecords } from "./missingOctoberJobs.js";
 import { CinematicCar } from "./carScene.jsx";
 import { GearScene } from "./gearScene.jsx";
 import { LoginStory } from "./loginStory.jsx";
@@ -67,6 +68,65 @@ const KNOWN_KDV_DOUBLING_FIXES = [
   { jobCode: "EDMS-909003", correctTotal: 201.67, label: "Ayhan Bozdoğan · 55AJD693 (2. iş emri) — ekranda ₺290,40 (olması gereken ₺242,00)" },
   { jobCode: "EDMS-912001", correctTotal: 7470.00, label: "Fatih Akçay · 05AK022 — ekranda ₺10.756,80 (olması gereken ₺8.964,00)" },
   { jobCode: "EDMS-925002", correctTotal: 185.83, label: "Demir İnş. Akaryakıt · 34BCF450 — ekranda ₺267,60 (olması gereken ₺223,00; fatura eDMS'te bulunamadı, WDMU050'den hesaplandı)" },
+];
+
+// Kullanıcının isteğiyle: eDMS'in canlı "İş Emri" ekranında (Menü → İş Emri;
+// Fatura Raporu'nun kapsamadığı, henüz faturalanmamış açık kayıtlar) hâlâ
+// açık görünen ama uygulamada hiç karşılığı olmayan 3 Ekim 2026 iş emri,
+// 30.10.2026'da eDMS'teki "YP & İşçilik" ekranından tek tek okunup buraya
+// elle girilmiştir — otomatik/toplu bir tarama DEĞİLDİR. `lines`'daki
+// fiyat/miktar değerleri eDMS'in "Planlanan" (ve 1030001'in 5 parçasından
+// 4'ünde ayrıca "Kullanılan") sütunundan birebir alınmıştır; "Kullanılan"
+// farkı kasıtlı olarak yok sayılır (bkz. missingOctoberJobs.js — stok
+// düşümü burada değil, gerçek fatura geldiğinde yapılır). LTRS200134
+// kodu eDMS'te "(ACC) PLASTİK ONARIM KİTİ" olarak görünüyor; uygulamanın
+// envanterinde aynı kod zaten "BALATA SPREYİ" adıyla kayıtlı (fiyat
+// ₺175,79 birebir eşleşiyor) — buildJobEnrichmentPatch'in yerleşik
+// kuralı gereği var olan kartın adı esas alınır, eDMS'teki isim
+// kullanılmaz (bu isim farkı kullanıcıya ayrıca raporlanmalı). BSG
+// 90-135-011 ("HAVA FİLTRESİ") envanterde hiç yok; 0 stokla yeni kart
+// olarak önerilecek.
+const MISSING_OCTOBER_JOBS = [
+  {
+    externalId: "1026001",
+    header: {
+      plate: "34KAE761", vin: "ZFA2500002Y11828", customer: "DMR YEDEK PARÇA OTOMOTİV PETROL SAN.TİC. A.Ş.",
+      phone: "0(532)133 84 73", make: "FIAT", bodyType: "DUCATO", model: "DUCATO KAMYONET 2800DC 2.2 140 KASALI",
+      modelYear: "2025", date: "2026-10-26", arrivalKm: 71623,
+    },
+    lines: [
+      { kind: "Stok", kod: "LTRS200134", name: "(ACC) PLASTİK ONARIM KİTİ", unitPrice: 175.79, qty: 10, discountPercent: 0 },
+    ],
+  },
+  {
+    externalId: "1028001",
+    header: {
+      plate: "34DGP143", vin: "1888A900000085554", customer: "DMR YEDEK PARÇA OTOMOTİV PETROL SAN.TİC. A.Ş.",
+      phone: "0(532)133 84 73", make: "TOFAS-FIAT", bodyType: "PALIO", model: "PALIO SOLE 1.3 MULTIJET DYNAMIC",
+      modelYear: "2004", date: "2026-10-28", arrivalKm: 252000,
+    },
+    lines: [
+      { kind: "Stok", kod: "LTRS200134", name: "(ACC) PLASTİK ONARIM KİTİ", unitPrice: 175.79, qty: 8, discountPercent: 0 },
+      { kind: "Stok", kod: "75W803L", name: "ŞANZIMAN YAĞ 75W80 3 LİTRE", unitPrice: 542.35, qty: 3, discountPercent: 0 },
+      { kind: "Stok", kod: "LTR1610725580OEM", name: "FREN HİDROLİK YAĞI DOT4 500 ML", unitPrice: 350.00, qty: 1, discountPercent: 0 },
+    ],
+  },
+  {
+    externalId: "1030001",
+    header: {
+      plate: "67AAH484", vin: "WVWZZZ16ZCM142437", customer: "CAN BEKTAŞ",
+      phone: "0(546)644 09 99", make: "VOLKSWAGEN", bodyType: "JETTA", model: "JETTA 1.6 TDI PRIMELINE T.TRONIC DSG 105",
+      modelYear: "2012", date: "2026-10-30", arrivalKm: 234000,
+    },
+    lines: [
+      { kind: "Stok", kod: "BSG 90-145-008", name: "POLEN FİLTRESİ", unitPrice: 163.30, qty: 1, discountPercent: 0 },
+      { kind: "Stok", kod: "BCH F026407023", name: "YAĞ FİLTRESİ", unitPrice: 198.09, qty: 1, discountPercent: 0 },
+      { kind: "Stok", kod: "ERP-5W30", name: "MOTOR YAĞI EUROREPAR 5W30", unitPrice: 305.30, qty: 4, discountPercent: 0 },
+      { kind: "Stok", kod: "BSG 90-135-011", name: "HAVA FİLTRESİ", unitPrice: 211.20, qty: 1, discountPercent: 0 },
+      { kind: "Stok", kod: "LTRS200134", name: "(ACC) PLASTİK ONARIM KİTİ", unitPrice: 175.79, qty: 1, discountPercent: 0 },
+      { kind: "Hizmet", kod: "ERT001", name: "Bakım İşçiliği", unitPrice: 2750.00, qty: 1, discountPercent: 25 },
+    ],
+  },
 ];
 
 const h = React.createElement;
@@ -584,6 +644,14 @@ function App() {
       if (onDone) onDone(result);
     });
   };
+  const persistMissingOctoberJobs = async (onDone) => {
+    await runAction(async () => {
+      const result = await createMissingEdmsJobs(MISSING_OCTOBER_JOBS, data.jobs, data.parts, user.email);
+      await reloadData();
+      setToast(`${result.created} eksik Ekim iş emri eklendi${result.newParts ? `, ${result.newParts} yeni parça kartı oluşturuldu` : ""}.`);
+      if (onDone) onDone(result);
+    });
+  };
   const persistInvoiceGapFixes = async (salesRecords, onDone) => {
     await runAction(async () => {
       const result = await fixKnownEdmsInvoiceGaps(KNOWN_INVOICE_GAPS, data.jobs, data.parts, salesRecords, user.email);
@@ -755,7 +823,7 @@ function App() {
         page === "invoices" ? h(Invoices, { invoices: data.invoices, openModal, removeInvoice, saving }) :
         page === "orders" ? h(Orders, { drafts: data.drafts, lowStock, receiveDraft, createDraft }) :
         page === "stockcompare" ? h(StockCompare, { parts: data.parts, openModal }) :
-        page === "edmsimport" ? h(EdmsImport, { jobs: data.jobs, parts: data.parts, invoices: data.invoices, saving, onImport: persistEdmsImport, onImportFaturaRaporu: persistFaturaRaporuImport, onCleanupManualJobs: persistManualJobCleanup, onCleanupStaleOpenJobs: persistStaleOpenJobCleanup, onCorrectStock: persistStockCorrection, onFixInvoiceGaps: persistInvoiceGapFixes, onFixKdvDoubling: persistKdvDoublingFix }) :
+        page === "edmsimport" ? h(EdmsImport, { jobs: data.jobs, parts: data.parts, invoices: data.invoices, saving, onImport: persistEdmsImport, onImportFaturaRaporu: persistFaturaRaporuImport, onCleanupManualJobs: persistManualJobCleanup, onCleanupStaleOpenJobs: persistStaleOpenJobCleanup, onCreateMissingOctoberJobs: persistMissingOctoberJobs, onCorrectStock: persistStockCorrection, onFixInvoiceGaps: persistInvoiceGapFixes, onFixKdvDoubling: persistKdvDoublingFix }) :
         page === "returns" ? h(ReturnsPage, { returns: data.returns, openModal, saving }) :
         page === "chat" ? h(ChatPage, { messages: chatMessages, user, sendMessage: async (text) => { await sendChatMessage(user.email, user.displayName, text); }, saving, configured: firebaseConfigured }) :
         page === "servicebox" ? h(ServiceBoxPage) :
@@ -2481,6 +2549,83 @@ function StaleOpenJobCleanup({ jobs = [], onCleanup, saving }) {
   );
 }
 
+// Kullanıcının isteğiyle: eDMS'in canlı İş Emri ekranında hâlâ açık ama
+// uygulamada hiç karşılığı olmayan Ekim 2026 iş emirlerini
+// (MISSING_OCTOBER_JOBS), eDMS'teki "Planlanan" parça/işçilik verileriyle
+// birlikte tek seferlik ekler. Stok düşülmez (bkz. missingOctoberJobs.js);
+// bu iş emirleri henüz faturalanmadığı için `total` ₺0 kalır — gerçek fatura
+// geldiğinde normal eDMS zenginleştirme akışı bunu otomatik tamamlayacaktır.
+// Eklenecek kayıt kalmayınca (hepsi zaten eklenmişse) panel kendiliğinden
+// gizlenir.
+function MissingOctoberJobsPanel({ jobs = [], parts = [], onCreate, saving }) {
+  const [result, setResult] = useState(null);
+  const pendingDefs = selectMissingOctoberJobDefs(MISSING_OCTOBER_JOBS, jobs);
+  if (!pendingDefs.length && !result) return null;
+
+  const summary = summarizeMissingOctoberJobs(pendingDefs);
+  const preview = pendingDefs.length ? buildMissingOctoberJobRecords(pendingDefs, parts) : null;
+
+  async function handleCreate() {
+    const confirmed = window.confirm(
+      `${pendingDefs.length} eksik iş emri, eDMS'teki "Planlanan" parça/işçilik verileriyle birlikte eklenecek. Bu iş emirleri henüz faturalanmadığı için tutar ₺0 olarak görünecek ve stok düşülmeyecek. Devam edilsin mi?`
+    );
+    if (!confirmed) return;
+    await onCreate((res) => setResult(res));
+  }
+
+  return h("div", { style: { marginBottom: "28px" } },
+    h("div", { className: "compare-header-row" },
+      h("div", null,
+        h("h2", null, "Eksik Ekim İş Emirlerini Ekle"),
+        h("p", null, "eDMS'in canlı İş Emri ekranında hâlâ açık görünen ama uygulamada hiç kaydı olmayan iş emirleri, eDMS'teki planlanan parça/işçilik satırlarıyla birlikte eklenir. Henüz faturalanmadıkları için tutar ₺0 görünür ve stok düşülmez; gerçek fatura geldiğinde normal eDMS zenginleştirme akışı bunları otomatik tamamlayacaktır.")
+      )
+    ),
+
+    pendingDefs.length > 0 ? h("div", { className: "compare-metrics-grid" },
+      h("div", { className: "compare-metric-card is-missing-system" },
+        h("span", { className: "compare-metric-label" }, "Eklenecek İş Emri"),
+        h("strong", { className: "compare-metric-num" }, summary.count)
+      ),
+      h("div", { className: "compare-metric-card is-diff" },
+        h("span", { className: "compare-metric-label" }, "Parça Kalemi"),
+        h("strong", { className: "compare-metric-num" }, summary.partLineCount)
+      ),
+      h("div", { className: "compare-metric-card is-matched" },
+        h("span", { className: "compare-metric-label" }, "İşçilik Kalemi"),
+        h("strong", { className: "compare-metric-num" }, summary.laborLineCount)
+      )
+    ) : null,
+
+    pendingDefs.length > 0 ? h("div", { className: "table-scroll" },
+      h("table", null,
+        h("thead", null, h("tr", null, ["İŞ EMRİ", "PLAKA", "MÜŞTERİ", "TARİH", "PARÇA", "İŞÇİLİK"].map((label) => h("th", { key: label }, label)))),
+        h("tbody", null, pendingDefs.map((def) =>
+          h("tr", { key: def.externalId },
+            h("td", null, `EDMS-${def.externalId}`),
+            h("td", null, def.header.plate),
+            h("td", null, def.header.customer),
+            h("td", null, def.header.date),
+            h("td", null, def.lines.filter((l) => l.kind === "Stok").length),
+            h("td", null, def.lines.filter((l) => l.kind === "Hizmet").length ? "Var" : "—")
+          )
+        ))
+      )
+    ) : null,
+
+    preview && preview.newParts.length > 0 ? h("div", { className: "paste-result paste-result-error" },
+      h("strong", null, `${preview.newParts.length} parça kodu envanterde bulunamadı, 0 stokla yeni kart olarak eklenecek:`),
+      h("ul", null, preview.newParts.map((p) => h("li", { key: p.id }, `${p.sku} — ${p.name} (₺${Number(p.price).toLocaleString("tr-TR", { minimumFractionDigits: 2 })})`)))
+    ) : null,
+
+    pendingDefs.length > 0 ? h("button", { className: "button button-primary", type: "button", disabled: saving, onClick: handleCreate, style: { marginTop: "12px" } },
+      saving ? "Ekleniyor…" : `${pendingDefs.length} Eksik İş Emrini Ekle`) : null,
+
+    result ? h("p", { className: "form-notice", role: "status" },
+      `${result.created} iş emri eklendi.` + (result.newParts ? ` ${result.newParts} yeni parça kartı oluşturuldu.` : "") + (result.warnings.length ? ` ${result.warnings.length} uyarı oluştu.` : "")
+    ) : null
+  );
+}
+
 // KNOWN_KDV_DOUBLING_FIXES listesindeki, KDV'nin iki kez uygulandığı tespit
 // edilmiş iş emirlerini gösterir ve tek seferlik tutar düzeltmesini
 // başlatır. Düzeltilecek kayıt kalmayınca (tüm iş emirlerinin `total`'ı
@@ -2592,7 +2737,7 @@ function StockCorrectionPanel({ jobs = [], parts = [], onCorrect, saving }) {
   );
 }
 
-function EdmsImport({ jobs = [], parts = [], invoices = [], saving, onImport, onImportFaturaRaporu, onCleanupManualJobs, onCleanupStaleOpenJobs, onCorrectStock, onFixInvoiceGaps, onFixKdvDoubling }) {
+function EdmsImport({ jobs = [], parts = [], invoices = [], saving, onImport, onImportFaturaRaporu, onCleanupManualJobs, onCleanupStaleOpenJobs, onCreateMissingOctoberJobs, onCorrectStock, onFixInvoiceGaps, onFixKdvDoubling }) {
   const [fileName, setFileName] = useState("");
   const [loading, setLoading] = useState(false);
   const [parseErrors, setParseErrors] = useState([]);
@@ -2639,6 +2784,7 @@ function EdmsImport({ jobs = [], parts = [], invoices = [], saving, onImport, on
   return h("section", { className: "stock-compare" },
     h(KdvDoublingFixPanel, { jobs, onFix: onFixKdvDoubling, saving }),
     h(StockCorrectionPanel, { jobs, parts, onCorrect: onCorrectStock, saving }),
+    h(MissingOctoberJobsPanel, { jobs, parts, onCreate: onCreateMissingOctoberJobs, saving }),
     h(StaleOpenJobCleanup, { jobs, onCleanup: onCleanupStaleOpenJobs, saving }),
     h(ManualJobCleanup, { jobs, onCleanup: onCleanupManualJobs, saving }),
     h("hr", { style: { margin: "28px 0" } }),
