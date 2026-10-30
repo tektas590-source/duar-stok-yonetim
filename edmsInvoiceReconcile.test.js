@@ -7,6 +7,8 @@ import {
   buildEdmsJobEnrichments,
   selectPurchaseInvoicesToImport,
   buildPurchaseInvoicePayload,
+  selectJobsNeedingStockCorrection,
+  buildRetroactiveStockCorrection,
 } from "./edmsInvoiceReconcile.js";
 import { WORK_ORDER_STATUS } from "./workOrderLifecycle.js";
 
@@ -171,4 +173,51 @@ test("buildPurchaseInvoicePayload: skips Hizmet lines (purchase invoices only ca
   const { payload, warnings } = buildPurchaseInvoicePayload(invoice, []);
   assert.equal(payload.items.length, 0);
   assert.equal(warnings.length, 1);
+});
+
+test("selectJobsNeedingStockCorrection: only already-enriched eDMS jobs without a prior correction", () => {
+  const jobs = [
+    { id: "1", source: "eDMS", enrichedFromEdmsInvoiceAt: "2026-10-28T10:00:00.000Z" }, // düzeltme gerekiyor
+    { id: "2", source: "eDMS", enrichedFromEdmsInvoiceAt: "2026-10-28T10:00:00.000Z", stockCorrectedAt: "2026-10-29T10:00:00.000Z" }, // zaten düzeltildi
+    { id: "3", source: "eDMS" }, // hiç zenginleştirilmemiş
+    { id: "4" }, // elle girilmiş
+  ];
+  const result = selectJobsNeedingStockCorrection(jobs);
+  assert.deepEqual(result.map((j) => j.id), ["1"]);
+});
+
+test("buildRetroactiveStockCorrection: aggregates sold qty per part across jobs, clamps at 0, flags shortfall", () => {
+  const jobs = [
+    {
+      id: "1", code: "EDMS-917001", source: "eDMS", enrichedFromEdmsInvoiceAt: "2026-10-28T10:00:00.000Z",
+      items: [{ partId: "p1", sku: "SKU1", name: "Parça 1", qty: 3 }],
+    },
+    {
+      id: "2", code: "EDMS-918001", source: "eDMS", enrichedFromEdmsInvoiceAt: "2026-10-28T10:00:00.000Z",
+      items: [{ partId: "p1", sku: "SKU1", name: "Parça 1", qty: 4 }, { partId: "p2", sku: "SKU2", name: "Parça 2", qty: 10 }],
+    },
+    {
+      id: "3", code: "EDMS-919001", source: "eDMS", enrichedFromEdmsInvoiceAt: "2026-10-28T10:00:00.000Z", stockCorrectedAt: "2026-10-29T10:00:00.000Z",
+      items: [{ partId: "p1", sku: "SKU1", name: "Parça 1", qty: 99 }], // zaten düzeltilmiş, dahil edilmemeli
+    },
+  ];
+  const parts = [
+    { id: "p1", sku: "SKU1", name: "Parça 1", stock: 10 },
+    { id: "p2", sku: "SKU2", name: "Parça 2", stock: 2 }, // yetersiz -> 0'da sabitlenip uyarı
+  ];
+  const result = buildRetroactiveStockCorrection(jobs, parts);
+  assert.equal(result.jobCount, 2);
+  assert.deepEqual(result.jobIds.sort(), ["1", "2"]);
+
+  const p1 = result.corrections.find((c) => c.partId === "p1");
+  assert.equal(p1.qty, 7); // 3 + 4
+  assert.equal(p1.stockBefore, 10);
+  assert.equal(p1.stockAfter, 3);
+
+  const p2 = result.corrections.find((c) => c.partId === "p2");
+  assert.equal(p2.qty, 10);
+  assert.equal(p2.stockBefore, 2);
+  assert.equal(p2.stockAfter, 0);
+  assert.equal(result.warnings.length, 1);
+  assert.match(result.warnings[0], /SKU2/);
 });

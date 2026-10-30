@@ -309,3 +309,59 @@ export function buildPurchaseInvoicePayload(invoice, parts) {
     warnings,
   };
 }
+
+// --- 6) Geriye dönük stok düzeltmesi: `enrichEdmsJobsWithInvoiceLines` ilk
+// sürümü (bkz. data.js) satış faturası satırlarını iş emrine eklerken
+// stoktan düşmüyordu — bu, daha sonra düzeltildi. Bu fonksiyon, o eski
+// davranışla zaten zenginleştirilmiş ama hiç stok düşülmemiş iş emirlerini
+// bulur (eDMS kökenli, `enrichedFromEdmsInvoiceAt` dolu, `stockCorrectedAt`
+// henüz yok) ve içlerindeki parçaların toplam miktarını tek seferlik olarak
+// hesaplar. Saf fonksiyon — gerçek stok yazımı/movement kaydı data.js'te.
+export function selectJobsNeedingStockCorrection(jobs) {
+  return (Array.isArray(jobs) ? jobs : []).filter(
+    (job) => job.source === "eDMS" && job.enrichedFromEdmsInvoiceAt && !job.stockCorrectedAt
+  );
+}
+
+export function buildRetroactiveStockCorrection(jobs, parts) {
+  const targets = selectJobsNeedingStockCorrection(jobs);
+  const partById = new Map((Array.isArray(parts) ? parts : []).map((part) => [part.id, part]));
+  const totals = new Map(); // partId -> { qty, name, sku, jobCodes: [] }
+
+  targets.forEach((job) => {
+    (job.items || []).forEach((item) => {
+      if (!item.partId) return;
+      const entry = totals.get(item.partId) || { qty: 0, name: item.name, sku: item.sku, jobCodes: [] };
+      entry.qty += Number(item.qty) || 0;
+      entry.jobCodes.push(job.code || job.id);
+      totals.set(item.partId, entry);
+    });
+  });
+
+  const corrections = [];
+  const warnings = [];
+  totals.forEach((entry, partId) => {
+    const part = partById.get(partId);
+    const stockBefore = Number(part?.stock || 0);
+    const stockAfter = Math.max(0, stockBefore - entry.qty);
+    if (stockBefore - entry.qty < 0) {
+      warnings.push(`${entry.sku || partId} için geçmişte satılan miktar (${entry.qty}) mevcut stoktan (${stockBefore}) fazla; stok 0'da sabitlendi.`);
+    }
+    corrections.push({
+      partId,
+      sku: part?.sku || entry.sku,
+      name: part?.name || entry.name,
+      qty: entry.qty,
+      stockBefore,
+      stockAfter,
+      jobCodes: entry.jobCodes,
+    });
+  });
+
+  return {
+    corrections,
+    warnings,
+    jobIds: targets.map((job) => job.id),
+    jobCount: targets.length,
+  };
+}

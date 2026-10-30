@@ -14,7 +14,7 @@ import {
 import { resolveBusinessDate } from "./businessDate.js";
 import { aggregateWorkOrderQuantities, calculateWorkOrderQuantityDeltas, calculateWorkOrderReversal } from "./workOrderInventory.js";
 import { selectEdmsRecordsToImport } from "./edmsImport.js";
-import { buildEdmsJobEnrichments, selectPurchaseInvoicesToImport, buildPurchaseInvoicePayload } from "./edmsInvoiceReconcile.js";
+import { buildEdmsJobEnrichments, selectPurchaseInvoicesToImport, buildPurchaseInvoicePayload, buildRetroactiveStockCorrection } from "./edmsInvoiceReconcile.js";
 import { selectManualWorkOrders } from "./manualJobCleanup.js";
 import { WORK_ORDER_STATUS } from "./workOrderLifecycle.js";
 import { calculateWorkOrderNetTotal, normalizeLaborAmount, normalizeDiscount } from "./workOrderPricing.js";
@@ -1161,11 +1161,14 @@ export async function importEdmsPurchaseInvoices(purchaseRecords, existingInvoic
 
 // eDMS "Fatura Raporu"ndaki Satış faturalarının parça/işçilik satırlarını,
 // kapsamdaki (kapalı; veya 01.10.2026 sonrası açık) ve henüz zenginleştirilmemiş
-// eDMS iş emirlerine ekler. Sadece `jobs` dokümanını (items/laborAmount/total
-// vb.) ve gerekirse eksik parçalar için 0 stoklu yeni kartları yazar —
-// createWorkOrder/updateWorkOrder'ın stok düşme/transaction mantığını
-// BİLEREK atlar (importEdmsWorkOrders ile aynı prensip: bunlar geçmiş,
-// zaten gerçekleşmiş kayıtlardır, canlı stok hareketi değildir).
+// eDMS iş emirlerine ekler. `jobs` dokümanını (items/laborAmount/total vb.)
+// günceller, gerekirse eksik parçalar için yeni kartlar oluşturur, VE bu
+// satışlarda geçen parçaların stoğunu düşer (gerçekte satılmış, alış
+// faturası içe aktarımıyla artan stoğun karşılığı burada düşülmezse stok
+// olduğundan fazla görünür). createWorkOrder'ın canlı transaction/kilit
+// mantığını BİLEREK atlar (importEdmsWorkOrders ile aynı prensip: bunlar
+// geçmiş, zaten gerçekleşmiş kayıtlardır) — ama stok etkisi aynı şekilde
+// kalıcı olarak uygulanır, sadece toplu (batch) yazılır.
 export async function enrichEdmsJobsWithInvoiceLines(jobs, salesRecords, parts, actor, options = {}) {
   const database = requireDatabase();
   const { enrichments, newParts, warnings, ambiguous, unmatchedInvoices, skippedJobs } = buildEdmsJobEnrichments(jobs, salesRecords, parts, options);
@@ -1174,8 +1177,55 @@ export async function enrichEdmsJobsWithInvoiceLines(jobs, salesRecords, parts, 
   }
 
   const now = new Date().toISOString();
+  const businessDate = resolveBusinessDate(now.slice(0, 10));
+
+  // Bu zenginleştirmede satılan her parçanın toplam miktarını topla (bir
+  // parça birden fazla iş emrinde geçebilir). Yeni oluşturulan kartlar 0
+  // stokla başlar, mevcut kartlar `parts` listesindeki güncel stoktan düşülür.
+  const soldQuantities = new Map(); // partId -> { qty, name, sku, jobCodes: [] }
+  enrichments.forEach(({ job, patch }) => {
+    patch.items.forEach((item) => {
+      if (!item.partId) return;
+      const entry = soldQuantities.get(item.partId) || { qty: 0, name: item.name, sku: item.sku, jobCodes: [] };
+      entry.qty += Number(item.qty) || 0;
+      entry.jobCodes.push(job.code || job.id);
+      soldQuantities.set(item.partId, entry);
+    });
+  });
+
+  const existingPartById = new Map((Array.isArray(parts) ? parts : []).map((part) => [part.id, part]));
+  const newPartById = new Map(newParts.map((part) => [part.id, part]));
+  const stockWarnings = [];
+  const stockUpdates = []; // { ref, data }
+  const movements = [];
+  soldQuantities.forEach((entry, partId) => {
+    const livePart = existingPartById.get(partId) || newPartById.get(partId);
+    const stockBefore = Number(livePart?.stock || 0);
+    const stockAfter = Math.max(0, stockBefore - entry.qty);
+    if (stockBefore - entry.qty < 0) {
+      stockWarnings.push(`${entry.sku || partId} için satılan miktar (${entry.qty}) mevcut stoktan (${stockBefore}) fazla; stok 0'da sabitlendi — bu parçanın alışı içe aktarılan tarih aralığının dışında kalmış olabilir.`);
+    }
+    stockUpdates.push({
+      ref: doc(database, "parts", partId),
+      data: { stock: stockAfter, sold: (Number(livePart?.sold) || 0) + entry.qty },
+    });
+    const movement = movementRecord({ id: partId, name: livePart?.name || entry.name, sku: livePart?.sku || entry.sku }, {
+      qty: -entry.qty,
+      type: "eDMS satış faturası (zenginleştirme)",
+      reference: "job",
+      referenceCode: entry.jobCodes.join(", "),
+      actor,
+      stockBefore,
+      stockAfter,
+      date: businessDate,
+    });
+    movements.push({ ref: doc(database, "parts", partId, "movements", movement.id), data: movement });
+  });
+
   const writes = [
     ...newParts.map((part) => ({ ref: doc(database, "parts", part.id), data: part })),
+    ...stockUpdates.map(({ ref, data }) => ({ ref, data, merge: true })),
+    ...movements.map(({ ref, data }) => ({ ref, data })),
     ...enrichments.map(({ jobId, patch }) => ({
       ref: doc(database, "jobs", jobId),
       data: { ...patch, enrichedFromEdmsInvoiceAt: now, updatedAt: now },
@@ -1192,11 +1242,69 @@ export async function enrichEdmsJobsWithInvoiceLines(jobs, salesRecords, parts, 
   return {
     updated: enrichments.length,
     newParts: newParts.length,
-    warnings,
+    warnings: [...warnings, ...stockWarnings],
     ambiguous,
     unmatchedInvoices,
     skippedJobs,
   };
+}
+
+// Tek seferlik geriye dönük düzeltme: `enrichEdmsJobsWithInvoiceLines`'ın ilk
+// sürümü satış faturası satırlarını iş emrine eklerken stoktan düşmüyordu
+// (bu daha sonra düzeltildi, ama o zamana kadar zenginleştirilmiş iş emirleri
+// için stok hâlâ fazla görünüyor). Bu fonksiyon, `enrichedFromEdmsInvoiceAt`
+// dolu ama `stockCorrectedAt` henüz olmayan iş emirlerini bulur, içlerindeki
+// satılan parçaların stoğunu bir kere düşer (0'ın altına inmez, eksi kalırsa
+// uyarır), parça hareketleri kaydeder ve her iş emrini `stockCorrectedAt` ile
+// işaretleyerek bu düzeltmenin tekrar uygulanmasını engeller.
+export async function correctEdmsEnrichmentStock(jobs, parts, actor) {
+  const database = requireDatabase();
+  const { corrections, warnings, jobIds, jobCount } = buildRetroactiveStockCorrection(jobs, parts);
+  if (!jobCount) {
+    return { correctedJobs: 0, correctedParts: 0, warnings };
+  }
+
+  const now = new Date().toISOString();
+  const businessDate = resolveBusinessDate(now.slice(0, 10));
+
+  const partWrites = corrections.map(({ partId, stockAfter, qty }) => ({
+    ref: doc(database, "parts", partId),
+    data: { stock: stockAfter },
+  }));
+
+  const movementWrites = corrections.map((correction) => {
+    const movement = movementRecord({ id: correction.partId, name: correction.name, sku: correction.sku }, {
+      qty: -correction.qty,
+      type: "eDMS satış faturası (geriye dönük stok düzeltmesi)",
+      reference: "job",
+      referenceCode: correction.jobCodes.join(", "),
+      actor,
+      stockBefore: correction.stockBefore,
+      stockAfter: correction.stockAfter,
+      date: businessDate,
+    });
+    return { ref: doc(database, "parts", correction.partId, "movements", movement.id), data: movement };
+  });
+
+  const jobWrites = jobIds.map((jobId) => ({
+    ref: doc(database, "jobs", jobId),
+    data: { stockCorrectedAt: now, updatedAt: now },
+    merge: true,
+  }));
+
+  const writes = [
+    ...partWrites.map((w) => ({ ...w, merge: true })),
+    ...movementWrites,
+    ...jobWrites,
+  ];
+
+  for (const group of chunk(writes, 400)) {
+    const batch = writeBatch(database);
+    group.forEach(({ ref, data, merge }) => (merge ? batch.set(ref, data, { merge: true }) : batch.set(ref, data)));
+    await batch.commit();
+  }
+
+  return { correctedJobs: jobCount, correctedParts: corrections.length, warnings };
 }
 
 // Kullanıcının kendi ekranından elle girdiği (eDMS kökenli OLMAYAN) iş

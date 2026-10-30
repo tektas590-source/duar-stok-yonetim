@@ -1,11 +1,11 @@
 import React, { useCallback, useEffect, useState, useRef } from "react";
 import { createRoot } from "react-dom/client";
 import "./style.css";
-import { cancelWorkOrder, completeWorkOrder, createPurchaseInvoice, deletePurchaseInvoice, createStockDraft, createWorkOrder, deleteFitment, deleteManualWorkOrders, deletePart, deletePersonnel, deleteCustomer, deleteAppointment, deleteNotification, deleteReturnItem, enrichEdmsJobsWithInvoiceLines, fetchServiceData, getPersonnelPerformance, grantUserAccess, importEdmsPurchaseInvoices, importEdmsWorkOrders, listAppointments, listAuthorizedUsers, listCustomers, listNotifications, listPersonnel, listReturns, markNotificationRead, receiveStockDraft, restorePart, revokeUserAccess, saveAppointment, saveCustomer, saveFitment, savePart, savePersonnel, saveReturnItem, sendChatMessage, subscribeToChat, subscribeToServiceData, togglePartFavorite, updateAppointmentStatus, updateReturnStatus, updateWorkOrder, adjustStock } from "./data.js";
+import { cancelWorkOrder, completeWorkOrder, correctEdmsEnrichmentStock, createPurchaseInvoice, deletePurchaseInvoice, createStockDraft, createWorkOrder, deleteFitment, deleteManualWorkOrders, deletePart, deletePersonnel, deleteCustomer, deleteAppointment, deleteNotification, deleteReturnItem, enrichEdmsJobsWithInvoiceLines, fetchServiceData, getPersonnelPerformance, grantUserAccess, importEdmsPurchaseInvoices, importEdmsWorkOrders, listAppointments, listAuthorizedUsers, listCustomers, listNotifications, listPersonnel, listReturns, markNotificationRead, receiveStockDraft, restorePart, revokeUserAccess, saveAppointment, saveCustomer, saveFitment, savePart, savePersonnel, saveReturnItem, sendChatMessage, subscribeToChat, subscribeToServiceData, togglePartFavorite, updateAppointmentStatus, updateReturnStatus, updateWorkOrder, adjustStock } from "./data.js";
 import * as XLSX from "xlsx";
 import { parseEdmsWorkOrderReport, selectEdmsRecordsToImport } from "./edmsImport.js";
 import { parseFaturaRaporuReport, splitFaturaRaporuByType } from "./faturaRaporuImport.js";
-import { buildEdmsJobEnrichments, selectPurchaseInvoicesToImport } from "./edmsInvoiceReconcile.js";
+import { buildEdmsJobEnrichments, selectPurchaseInvoicesToImport, buildRetroactiveStockCorrection } from "./edmsInvoiceReconcile.js";
 import { selectManualWorkOrders, summarizeManualWorkOrders } from "./manualJobCleanup.js";
 import { CinematicCar } from "./carScene.jsx";
 import { GearScene } from "./gearScene.jsx";
@@ -533,6 +533,16 @@ function App() {
       if (onDone) onDone(result);
     });
   };
+  const persistStockCorrection = async (onDone) => {
+    await runAction(async () => {
+      const result = await correctEdmsEnrichmentStock(data.jobs, data.parts, user.email);
+      await reloadData();
+      setToast(result.correctedJobs
+        ? `${result.correctedJobs} iş emrindeki ${result.correctedParts} parça için stok geriye dönük düzeltildi.`
+        : "Düzeltilecek kayıt bulunamadı (tüm iş emirleri zaten düzeltilmiş).");
+      if (onDone) onDone(result);
+    });
+  };
   async function authenticate(event) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
@@ -672,7 +682,7 @@ function App() {
         page === "invoices" ? h(Invoices, { invoices: data.invoices, openModal, removeInvoice, saving }) :
         page === "orders" ? h(Orders, { drafts: data.drafts, lowStock, receiveDraft, createDraft }) :
         page === "stockcompare" ? h(StockCompare, { parts: data.parts, openModal }) :
-        page === "edmsimport" ? h(EdmsImport, { jobs: data.jobs, parts: data.parts, invoices: data.invoices, saving, onImport: persistEdmsImport, onImportFaturaRaporu: persistFaturaRaporuImport, onCleanupManualJobs: persistManualJobCleanup }) :
+        page === "edmsimport" ? h(EdmsImport, { jobs: data.jobs, parts: data.parts, invoices: data.invoices, saving, onImport: persistEdmsImport, onImportFaturaRaporu: persistFaturaRaporuImport, onCleanupManualJobs: persistManualJobCleanup, onCorrectStock: persistStockCorrection }) :
         page === "returns" ? h(ReturnsPage, { returns: data.returns, openModal, saving }) :
         page === "chat" ? h(ChatPage, { messages: chatMessages, user, sendMessage: async (text) => { await sendChatMessage(user.email, user.displayName, text); }, saving, configured: firebaseConfigured }) :
         page === "servicebox" ? h(ServiceBoxPage) :
@@ -2312,7 +2322,67 @@ function ManualJobCleanup({ jobs = [], onCleanup, saving }) {
   );
 }
 
-function EdmsImport({ jobs = [], parts = [], invoices = [], saving, onImport, onImportFaturaRaporu, onCleanupManualJobs }) {
+// enrichEdmsJobsWithInvoiceLines'ın ilk sürümü stoktan düşmüyordu; bu
+// panel, o dönemde zenginleştirilmiş ama hiç stok düşülmemiş iş emirlerini
+// gösterir ve tek seferlik geriye dönük düzeltmeyi başlatır. Düzeltilecek
+// kayıt kalmayınca (tüm iş emirleri `stockCorrectedAt` ile işaretlenince)
+// panel kendiliğinden gizlenir.
+function StockCorrectionPanel({ jobs = [], parts = [], onCorrect, saving }) {
+  const [result, setResult] = useState(null);
+  const preview = buildRetroactiveStockCorrection(jobs, parts);
+  if (!preview.jobCount && !result) return null;
+
+  async function handleCorrect() {
+    const confirmed = window.confirm(
+      `${preview.jobCount} iş emrindeki ${preview.corrections.length} parça için stok geriye dönük düşülecek. Bu işlem tek seferlik ve geri alınamaz (yeni bir parça hareketi olarak kaydedilir). Devam edilsin mi?`
+    );
+    if (!confirmed) return;
+    await onCorrect((res) => setResult(res));
+  }
+
+  return h("div", { style: { marginBottom: "28px" } },
+    h("div", { className: "compare-header-row" },
+      h("div", null,
+        h("h2", null, "Geriye Dönük Stok Düzeltmesi"),
+        h("p", null, "Fatura Raporu zenginleştirmesinin eski sürümü, iş emrine eklenen satılmış parçaların stoğunu düşmüyordu. Bu panel, henüz düzeltilmemiş iş emirlerindeki parçaların stoğunu bir kerelik olarak düşer.")
+      )
+    ),
+    preview.jobCount > 0 ? h("div", { className: "compare-metrics-grid" },
+      h("div", { className: "compare-metric-card is-unmatched" },
+        h("span", { className: "compare-metric-label" }, "Düzeltilecek İş Emri"),
+        h("strong", { className: "compare-metric-num" }, preview.jobCount)
+      ),
+      h("div", { className: "compare-metric-card is-diff" },
+        h("span", { className: "compare-metric-label" }, "Etkilenecek Parça"),
+        h("strong", { className: "compare-metric-num" }, preview.corrections.length)
+      )
+    ) : null,
+    preview.jobCount > 0 ? h("div", { className: "table-scroll" },
+      h("table", null,
+        h("thead", null, h("tr", null, ["PARÇA", "SKU", "DÜŞÜLECEK ADET", "STOK (ÖNCE → SONRA)", "İŞ EMİRLERİ"].map((label) => h("th", { key: label }, label)))),
+        h("tbody", null, preview.corrections.map((c) =>
+          h("tr", { key: c.partId },
+            h("td", null, c.name),
+            h("td", null, c.sku),
+            h("td", null, c.qty),
+            h("td", null, `${c.stockBefore} → ${c.stockAfter}`),
+            h("td", null, c.jobCodes.join(", "))
+          )
+        ))
+      )
+    ) : null,
+    preview.warnings.length > 0 ? h("div", { className: "paste-result paste-result-error" },
+      preview.warnings.map((w, i) => h("p", { key: i }, w))
+    ) : null,
+    preview.jobCount > 0 ? h("button", { className: "button button-danger", type: "button", disabled: saving, onClick: handleCorrect, style: { marginTop: "12px" } },
+      saving ? "Düzeltiliyor…" : "Stoğu Geriye Dönük Düzelt") : null,
+    result ? h("p", { className: "form-notice", role: "status" },
+      `${result.correctedJobs} iş emrindeki ${result.correctedParts} parça için stok düzeltildi.` + (result.warnings.length ? ` ${result.warnings.length} uyarı oluştu.` : "")
+    ) : null
+  );
+}
+
+function EdmsImport({ jobs = [], parts = [], invoices = [], saving, onImport, onImportFaturaRaporu, onCleanupManualJobs, onCorrectStock }) {
   const [fileName, setFileName] = useState("");
   const [loading, setLoading] = useState(false);
   const [parseErrors, setParseErrors] = useState([]);
@@ -2357,6 +2427,7 @@ function EdmsImport({ jobs = [], parts = [], invoices = [], saving, onImport, on
   }
 
   return h("section", { className: "stock-compare" },
+    h(StockCorrectionPanel, { jobs, parts, onCorrect: onCorrectStock, saving }),
     h(ManualJobCleanup, { jobs, onCleanup: onCleanupManualJobs, saving }),
     h("hr", { style: { margin: "28px 0" } }),
     h("div", { className: "compare-header-row" },
