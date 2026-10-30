@@ -5,7 +5,7 @@ import { cancelWorkOrder, completeWorkOrder, correctEdmsEnrichmentStock, createP
 import * as XLSX from "xlsx";
 import { parseEdmsWorkOrderReport, selectEdmsRecordsToImport } from "./edmsImport.js";
 import { parseFaturaRaporuReport, splitFaturaRaporuByType } from "./faturaRaporuImport.js";
-import { buildEdmsJobEnrichments, selectPurchaseInvoicesToImport, buildRetroactiveStockCorrection } from "./edmsInvoiceReconcile.js";
+import { buildEdmsJobEnrichments, selectPurchaseInvoicesToImport, buildRetroactiveStockCorrection, buildInvoiceReconciliationReport } from "./edmsInvoiceReconcile.js";
 import { selectManualWorkOrders, summarizeManualWorkOrders } from "./manualJobCleanup.js";
 import { CinematicCar } from "./carScene.jsx";
 import { GearScene } from "./gearScene.jsx";
@@ -2626,6 +2626,11 @@ function FaturaRaporuImport({ jobs = [], parts = [], invoices = [], saving, onIm
   // (KNOWN_INVOICE_GAPS) halihazırda uygulanmamış olanları önizle.
   const jobsById = new Set(jobs.map((j) => j.id));
   const jobsByCodeMap = new Map(jobs.map((j) => [j.code, j]));
+  // Zaten zenginleştirilmiş (parça/işçilik satırları girilmiş) eDMS kökenli
+  // iş emirlerini, bu yüklenen dosyadaki KENDİ faturalarıyla yeniden
+  // hesaplayıp karşılaştıran salt-okunur denetim (hiçbir şey yazmaz).
+  const reconciliation = preview ? buildInvoiceReconciliationReport(jobs, preview.salesRecords, parts) : null;
+
   const gapsPending = preview ? KNOWN_INVOICE_GAPS.filter((gap) => {
     if (!preview.salesRecords.some((s) => s.invoiceNo === gap.invoiceNo)) return false;
     if (gap.action === "newJob") return !jobsById.has(`edms-job-${gap.externalId}`);
@@ -2723,6 +2728,38 @@ function FaturaRaporuImport({ jobs = [], parts = [], invoices = [], saving, onIm
           ...warnings.slice(0, 15).map((message, index) => h("li", { key: `w${index}` }, message)),
           ...ambiguous.slice(0, 10).map((a, index) => h("li", { key: `a${index}` }, `${a.job.code || a.job.id}: ${a.reason} (${a.invoices.map((i) => i.invoiceNo).join(", ")})`)),
         ])
+      ) : null,
+
+      reconciliation ? h("div", { style: { marginTop: "28px", borderTop: "1px solid rgba(255,255,255,0.08)", paddingTop: "20px" } },
+        h("h3", null, "Mevcut Kayıtların Yeniden Doğrulanması (parça + işçilik + iskonto)"),
+        h("p", { className: "text-muted" }, "Daha önce zenginleştirilmiş iş emirleri, bu yüklenen dosyadaki kendi faturalarının satırlarıyla yeniden hesaplanıp karşılaştırıldı. Hiçbir şey yazılmadı — sadece karşılaştırma."),
+        h("div", { className: "compare-metrics-grid" },
+          h("div", { className: "compare-metric-card is-matched" },
+            h("span", { className: "compare-metric-label" }, "Uyuşan İş Emri"),
+            h("strong", { className: "compare-metric-num" }, reconciliation.ok.length)
+          ),
+          h("div", { className: "compare-metric-card is-diff" },
+            h("span", { className: "compare-metric-label" }, "Fark Bulunan İş Emri"),
+            h("strong", { className: "compare-metric-num" }, reconciliation.mismatches.length)
+          ),
+          h("div", { className: "compare-metric-card is-unmatched" },
+            h("span", { className: "compare-metric-label" }, "Doğrulanamayan İş Emri"),
+            h("strong", { className: "compare-metric-num" }, reconciliation.unresolved.length),
+            h("span", { className: "compare-metric-sub" }, "Fatura dosyada yok / referans eksik")
+          )
+        ),
+        reconciliation.mismatches.length > 0 ? h("div", { className: "paste-result paste-result-error", style: { marginTop: "12px" } },
+          h("strong", null, `${reconciliation.mismatches.length} iş emrinde fark bulundu`),
+          h("ul", null, reconciliation.mismatches.map((r) => h("li", { key: r.job.id },
+            h("strong", null, `${r.job.code || r.job.id}`), ` (${r.job.customer || ""}): `,
+            h("ul", null, r.diffs.map((d, i) => h("li", { key: i }, d)))
+          )))
+        ) : null,
+        reconciliation.unresolved.length > 0 ? h("div", { className: "paste-result", style: { marginTop: "12px" } },
+          h("strong", null, `${reconciliation.unresolved.length} iş emri doğrulanamadı`),
+          h("ul", null, reconciliation.unresolved.map((r) => h("li", { key: r.job.id }, `${r.job.code || r.job.id} (${r.job.customer || ""}): ${r.message}`)))
+        ) : null,
+        reconciliation.mismatches.length === 0 && reconciliation.unresolved.length === 0 ? h("p", { className: "form-notice", role: "status" }, "Bu dosyadaki tüm faturalarla eşleşen iş emirleri, kayıtlı parça/işçilik/iskonto/toplamla birebir uyuşuyor.") : null
       ) : null,
 
       h("div", { style: { marginTop: "16px" } },

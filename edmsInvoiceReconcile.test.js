@@ -11,6 +11,7 @@ import {
   buildRetroactiveStockCorrection,
   buildJobFromInvoice,
   buildAdditionalInvoicePatch,
+  buildInvoiceReconciliationReport,
 } from "./edmsInvoiceReconcile.js";
 import { WORK_ORDER_STATUS } from "./workOrderLifecycle.js";
 
@@ -274,4 +275,70 @@ test("buildAdditionalInvoicePatch: adds a second invoice's lines onto an already
   assert.equal(patch.edmsInvoiceNo, "5001000013, 5001000016");
   assert.equal(addedItems.length, 1); // sadece bu ikinci faturadan gelen parça
   assert.equal(warnings.length, 1); // 1109.AY envanterde yok
+});
+
+test("buildInvoiceReconciliationReport: flags a job as 'ok' when stored items exactly match the invoice they were built from", () => {
+  const invoice = saleInvoice({ invoiceNo: "5001000013" });
+  const existingJob = job({
+    items: [{ partId: "edms-part-bk31 v254a16 ag5cnd n", sku: "BK31 V254A16 AG5CND N", name: "SURGULU KAPI BANDI SAG", category: "Genel", brand: "", qty: 1, price: 6200, discountType: "none", discountValue: 0 }],
+    laborAmount: 2000,
+    total: 8200,
+    edmsInvoiceNo: "5001000013",
+  });
+  const report = buildInvoiceReconciliationReport([existingJob], [invoice], []);
+  assert.equal(report.rows.length, 1);
+  assert.equal(report.rows[0].status, "ok");
+  assert.equal(report.mismatches.length, 0);
+});
+
+test("buildInvoiceReconciliationReport: flags a mismatch when the stored price/qty/discount differs from the fresh invoice", () => {
+  const invoice = saleInvoice({ invoiceNo: "5001000013" });
+  const existingJob = job({
+    items: [{ partId: "edms-part-bk31 v254a16 ag5cnd n", sku: "BK31 V254A16 AG5CND N", name: "SURGULU KAPI BANDI SAG", category: "Genel", brand: "", qty: 2, price: 6200, discountType: "none", discountValue: 0 }],
+    laborAmount: 2000,
+    total: 14400, // yanlış kurgulanmış: 2 adet üzerinden
+    edmsInvoiceNo: "5001000013",
+  });
+  const report = buildInvoiceReconciliationReport([existingJob], [invoice], []);
+  assert.equal(report.rows[0].status, "mismatch");
+  assert.ok(report.rows[0].diffs.some((d) => d.includes("adet")));
+  assert.ok(report.rows[0].diffs.some((d) => d.includes("toplam")));
+});
+
+test("buildInvoiceReconciliationReport: sums multiple invoices listed in edmsInvoiceNo before comparing", () => {
+  const invoiceA = saleInvoice({ invoiceNo: "5001000013" });
+  const invoiceB = saleInvoice({
+    invoiceNo: "5001000016",
+    items: [
+      { kind: "Hizmet", kod: "ERT001", name: "Bakım İşçiliği", unitPrice: 1500, qty: 1, discountPercent: 0, vatPercent: 20, lineTotal: 1500, discountAmount: 0, vatAmount: 300, grossTotal: 1800 },
+    ],
+  });
+  const existingJob = job({
+    items: [{ partId: "edms-part-bk31 v254a16 ag5cnd n", sku: "BK31 V254A16 AG5CND N", name: "SURGULU KAPI BANDI SAG", category: "Genel", brand: "", qty: 1, price: 6200, discountType: "none", discountValue: 0 }],
+    laborAmount: 3500, // 2000 (A) + 1500 (B)
+    total: 9700, // 6200 + 3500
+    edmsInvoiceNo: "5001000013, 5001000016",
+  });
+  const report = buildInvoiceReconciliationReport([existingJob], [invoiceA, invoiceB], []);
+  assert.equal(report.rows[0].status, "ok");
+});
+
+test("buildInvoiceReconciliationReport: reports missing invoice-in-file instead of silently skipping", () => {
+  const existingJob = job({
+    items: [{ partId: "p1", sku: "X", name: "X", qty: 1, price: 100, discountType: "none", discountValue: 0 }],
+    laborAmount: 0,
+    total: 100,
+    edmsInvoiceNo: "5001099999",
+  });
+  const report = buildInvoiceReconciliationReport([existingJob], [], []);
+  assert.equal(report.rows[0].status, "invoice-not-in-file");
+  assert.equal(report.unresolved.length, 1);
+});
+
+test("buildInvoiceReconciliationReport: flags enriched-looking jobs with no edmsInvoiceNo as unresolved, and skips empty open jobs entirely", () => {
+  const noRef = job({ id: "job-noref", items: [{ partId: "p1", sku: "X", name: "X", qty: 1, price: 100, discountType: "none", discountValue: 0 }], edmsInvoiceNo: undefined });
+  const emptyOpen = job({ id: "job-empty", items: [], laborAmount: 0, total: 0, edmsInvoiceNo: undefined, status: WORK_ORDER_STATUS.IN_PROGRESS });
+  const report = buildInvoiceReconciliationReport([noRef, emptyOpen], [], []);
+  assert.equal(report.rows.length, 1); // emptyOpen tamamen atlanır
+  assert.equal(report.rows[0].status, "no-invoice-ref");
 });

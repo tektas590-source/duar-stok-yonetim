@@ -418,3 +418,126 @@ export function buildAdditionalInvoicePatch(existingJob, invoice, parts) {
     warnings,
   };
 }
+
+// --- 8) Salt-okunur denetim: halihazırda zenginleştirilmiş (veya bilinen-eksik
+// akışıyla oluşturulmuş) eDMS kökenli iş emirlerini, TAZE yüklenen bir Fatura
+// Raporu'ndaki KENDİ faturalarıyla (job.edmsInvoiceNo alanındaki fatura
+// no'larıyla) yeniden hesaplayıp uygulamada SAKLI olan parça/işçilik/iskonto/
+// toplam ile karşılaştırır. Hiçbir Firestore yazımı yapmaz/önermez — sadece
+// fark raporu üretir. Boş (hiç zenginleştirilmemiş açık) iş emirleri kapsam
+// dışıdır; onlar zaten `buildEdmsJobEnrichments` ile ele alınıyor.
+export function buildInvoiceReconciliationReport(jobs, salesInvoices, parts) {
+  const invoiceByNo = new Map((Array.isArray(salesInvoices) ? salesInvoices : []).map((inv) => [inv.invoiceNo, inv]));
+  const rows = [];
+
+  (Array.isArray(jobs) ? jobs : []).forEach((job) => {
+    if (job.source !== "eDMS") return;
+    const invoiceNos = String(job.edmsInvoiceNo || "")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const actualItems = Array.isArray(job.items) ? job.items : [];
+    const actualLabor = roundCurrency(Number(job.laborAmount) || 0);
+    const hasStoredContent = actualItems.length > 0 || actualLabor > 0;
+
+    if (!invoiceNos.length) {
+      if (hasStoredContent) {
+        rows.push({
+          job,
+          status: "no-invoice-ref",
+          diffs: [],
+          message: "İş emrinde parça/işçilik var ama hangi faturadan geldiği (edmsInvoiceNo) kayıtlı değil; bu rapor otomatik doğrulayamadı, elle kontrol edilmeli.",
+        });
+      }
+      return; // henüz zenginleştirilmemiş iş emri — bu denetimin kapsamı dışında
+    }
+
+    const missingInvoices = [];
+    let expectedItems = [];
+    let expectedLabor = 0;
+    let rowWarnings = [];
+
+    invoiceNos.forEach((no) => {
+      const invoice = invoiceByNo.get(no);
+      if (!invoice) {
+        missingInvoices.push(no);
+        return;
+      }
+      const { patch, warnings } = buildJobEnrichmentPatch(null, invoice, parts);
+      expectedItems = [...expectedItems, ...patch.items];
+      expectedLabor = roundCurrency(expectedLabor + patch.laborAmount);
+      rowWarnings = [...rowWarnings, ...warnings];
+    });
+
+    if (missingInvoices.length) {
+      rows.push({
+        job,
+        status: "invoice-not-in-file",
+        diffs: [],
+        message: `Fatura(lar) bu yüklenen dosyada bulunamadı: ${missingInvoices.join(", ")} — tarih aralığı dar olabilir, geniş aralıkla tekrar denenmeli.`,
+      });
+      return;
+    }
+
+    const expectedPartsNet = expectedItems.reduce((sum, item) => {
+      const gross = roundCurrency(item.qty * item.price);
+      const discount = normalizeDiscount({ type: item.discountType, value: item.discountValue });
+      return roundCurrency(sum + roundCurrency(gross - calculateDiscountAmount(gross, discount)));
+    }, 0);
+    const expectedTotal = roundCurrency(expectedPartsNet + expectedLabor);
+    const actualTotal = roundCurrency(Number(job.total) || 0);
+
+    const diffs = [];
+    if (actualItems.length !== expectedItems.length) {
+      diffs.push(`parça satır sayısı: uygulamada ${actualItems.length}, faturada ${expectedItems.length}`);
+    }
+    const actualPool = [...actualItems];
+    expectedItems.forEach((exp) => {
+      const idx = actualPool.findIndex(
+        (a) => (a.partId && exp.partId && a.partId === exp.partId) || (a.sku && exp.sku && normalizeSku(a.sku) === normalizeSku(exp.sku))
+      );
+      if (idx === -1) {
+        diffs.push(`eksik parça: ${exp.name} (${exp.sku}) x${exp.qty} @${exp.price}₺`);
+        return;
+      }
+      const a = actualPool[idx];
+      actualPool.splice(idx, 1);
+      if (Number(a.qty) !== Number(exp.qty)) diffs.push(`${exp.name}: adet uygulamada ${a.qty}, faturada ${exp.qty}`);
+      if (roundCurrency(Number(a.price)) !== roundCurrency(Number(exp.price))) {
+        diffs.push(`${exp.name}: birim fiyat uygulamada ${a.price}₺, faturada ${exp.price}₺`);
+      }
+      const aDiscVal = roundCurrency(Number(a.discountValue) || 0);
+      const eDiscVal = roundCurrency(Number(exp.discountValue) || 0);
+      if ((a.discountType || "none") !== (exp.discountType || "none") || aDiscVal !== eDiscVal) {
+        diffs.push(`${exp.name}: iskonto uygulamada ${a.discountType || "none"}/${aDiscVal}, faturada ${exp.discountType || "none"}/${eDiscVal}`);
+      }
+    });
+    actualPool.forEach((a) => {
+      diffs.push(`uygulamada fazladan parça (faturada yok): ${a.name} (${a.sku}) x${a.qty} @${a.price}₺`);
+    });
+
+    if (Math.abs(actualLabor - expectedLabor) > 1) {
+      diffs.push(`işçilik: uygulamada ${actualLabor}₺, faturada ${expectedLabor}₺`);
+    }
+    if (Math.abs(actualTotal - expectedTotal) > 1) {
+      diffs.push(`toplam (KDV hariç): uygulamada ${actualTotal}₺, faturada ${expectedTotal}₺`);
+    }
+
+    rows.push({
+      job,
+      status: diffs.length ? "mismatch" : "ok",
+      diffs,
+      warnings: rowWarnings,
+      expectedTotal,
+      actualTotal,
+      invoiceNos,
+    });
+  });
+
+  return {
+    rows,
+    mismatches: rows.filter((r) => r.status === "mismatch"),
+    unresolved: rows.filter((r) => r.status === "no-invoice-ref" || r.status === "invoice-not-in-file"),
+    ok: rows.filter((r) => r.status === "ok"),
+  };
+}
