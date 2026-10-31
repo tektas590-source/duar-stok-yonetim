@@ -16,7 +16,7 @@ import { StockCinema, AccentPicker } from "./stockCinema.jsx";
 import { BusinessProvider, useBusiness, saveBusinessSettings } from "./business.js";
 import { WorkOrdersCinema, InvoicesCinema } from "./pageCinema.jsx";
 import { installFitScreen } from "./fitScreen.js";
-import { getOpenWorkOrders, getRevenueEligibleWorkOrders, getWorkOrderStatusClass, WORK_ORDER_STATUS } from "./workOrderLifecycle.js";
+import { computePartSalesFromJobs, getOpenWorkOrders, getRevenueEligibleWorkOrders, getWorkOrderStatusClass, WORK_ORDER_STATUS } from "./workOrderLifecycle.js";
 import { formatFitmentSpec, formatFitmentVehicle, FUEL_TYPES, searchFitments, searchVehiclePartUsage } from "./vehicleCompatibility.js";
 import { parseInvoicePaste } from "./invoiceImport.js";
 import { findPartMatches, parsePastedPartQueries } from "./partSearch.js";
@@ -1309,7 +1309,7 @@ function DashboardJobTable({ jobs, onOpenJob, onEditJob, onOpenVehicle }) {
 function DashboardInsights({ data, setPage, openWorkOrder, onOpenTopPart, onOpenMovement, onOpenInvoice }) {
   const today = new Date();
   const revenueJobs = getRevenueEligibleWorkOrders(data.jobs);
-  const topParts = [...data.parts].sort((first, second) => Number(second.sold || 0) - Number(first.sold || 0)).slice(0, 5);
+  const topParts = [...computePartSalesFromJobs(data.jobs, data.parts)].sort((first, second) => Number(second.sold || 0) - Number(first.sold || 0)).slice(0, 5);
   const maxPartSales = Math.max(...topParts.map((part) => Number(part.sold || 0)), 1);
   const recentDays = Array.from({ length: 7 }, (_, index) => {
     const date = new Date(today);
@@ -1645,7 +1645,7 @@ function PartCompatibility({ jobs, fitments, openModal, removeFitment, saving })
       h("h3", null, fitments.length ? "Aramanızla eşleşen kayıt yok" : "Henüz uyumluluk kaydı yok"),
       h("p", null, fitments.length ? "Marka, model, yakıt, motor veya parça adını değiştirerek tekrar arayın." : "Sağ üstten “Uyumluluk ekle” ile marka, model, Dizel veya Benzin, motor hacmi ve uyumlu parçaları kaydedin.")
     ),
-    query.trim() ? vehicles.length ? h(React.Fragment, null,
+    vehicles.length ? h(React.Fragment, null,
       h("h2", { className: "fitment-usage-heading" }, "Serviste kullanılan parçalar"),
       h("p", { className: "page-hint" }, "Bu bölüm iş emirlerindeki gerçek kullanımdır; katalog kaydı değildir."),
       h("section", { className: "vehicle-fitment-grid" }, vehicles.map((vehicle) =>
@@ -1667,7 +1667,7 @@ function PartCompatibility({ jobs, fitments, openModal, removeFitment, saving })
           ))) : h("p", { className: "empty-state compact-empty" }, "Bu araç için parça kaydı bulunamadı.")
         )
       ))
-    ) : h("section", { className: "panel empty-state compact-empty" }, "Aramanızla eşleşen iş emri aracı bulunamadı.") : null
+    ) : h("section", { className: "panel empty-state compact-empty" }, query.trim() ? "Aramanızla eşleşen iş emri aracı bulunamadı." : "Henüz plakaya bağlı bir iş emri kaydı yok.")
   );
 }
 function normalizeFuelClass(fuel) {
@@ -1765,8 +1765,9 @@ function Orders({ drafts, lowStock, receiveDraft, createDraft }) {
   );
 }
 function Reports({ data, revenue }) {
-  const best = [...data.parts].sort((a, b) => b.sold - a.sold);
-  const total = data.parts.reduce((sum, part) => sum + part.sold, 0);
+  const partsWithSales = computePartSalesFromJobs(data.jobs, data.parts);
+  const best = [...partsWithSales].sort((a, b) => b.sold - a.sold);
+  const total = partsWithSales.reduce((sum, part) => sum + part.sold, 0);
   const cogs = vatIncludedAmount(getRevenueEligibleWorkOrders(data.jobs).reduce((sum, job) => sum + job.items.reduce((subtotal, item) => subtotal + (data.parts.find((part) => part.id === item.partId)?.cost || 0) * item.qty, 0), 0));
   const max = Math.max(...best.map((part) => part.sold), 1);
   return h(React.Fragment, null, h("div", { className: "metric-grid report-metrics" },
