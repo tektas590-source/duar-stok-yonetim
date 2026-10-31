@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState, useRef } from "react";
 import { createRoot } from "react-dom/client";
 import "./style.css";
-import { cancelWorkOrder, completeWorkOrder, correctEdmsEnrichmentStock, createMissingEdmsJobs, createPurchaseInvoice, deletePurchaseInvoice, createStockDraft, createWorkOrder, deleteFitment, deleteManualWorkOrders, deleteStaleOpenWorkOrders, deletePart, deletePersonnel, deleteCustomer, deleteAppointment, deleteNotification, deleteReturnItem, enrichEdmsJobsWithInvoiceLines, fetchServiceData, fixKdvDoublingTotals, fixKnownEdmsInvoiceGaps, getPersonnelPerformance, grantUserAccess, importEdmsPurchaseInvoices, importEdmsWorkOrders, listAppointments, listAuthorizedUsers, listCustomers, listNotifications, listPersonnel, listReturns, markNotificationRead, receiveStockDraft, restorePart, revokeUserAccess, saveAppointment, saveCustomer, saveFitment, savePart, savePersonnel, saveReturnItem, sendChatMessage, subscribeToChat, subscribeToServiceData, togglePartFavorite, updateAppointmentStatus, updateReturnStatus, updateWorkOrder, adjustStock } from "./data.js";
+import { cancelWorkOrder, completeWorkOrder, correctEdmsEnrichmentStock, createMissingEdmsJobs, createPurchaseInvoice, deletePurchaseInvoice, createStockDraft, createWorkOrder, deleteFitment, deleteManualWorkOrders, deleteStaleOpenWorkOrders, deletePart, deletePersonnel, deleteCustomer, deleteAppointment, deleteNotification, deleteReturnItem, enrichEdmsJobsWithInvoiceLines, fetchServiceData, fixKdvDoublingTotals, fixKnownEdmsInvoiceGaps, getPersonnelPerformance, grantUserAccess, importEdmsPurchaseInvoices, importEdmsWorkOrders, listAppointments, listAuthorizedUsers, listCustomers, listNotifications, listPersonnel, listReturns, markNotificationRead, migrateWorkOrderStockPolicy, receiveStockDraft, restorePart, revokeUserAccess, saveAppointment, saveCustomer, saveFitment, savePart, savePersonnel, saveReturnItem, sendChatMessage, subscribeToChat, subscribeToServiceData, togglePartFavorite, updateAppointmentStatus, updateReturnStatus, updateWorkOrder, adjustStock } from "./data.js";
 import * as XLSX from "xlsx";
 import { parseEdmsWorkOrderReport, selectEdmsRecordsToImport } from "./edmsImport.js";
 import { parseFaturaRaporuReport, splitFaturaRaporuByType } from "./faturaRaporuImport.js";
@@ -16,7 +16,7 @@ import { StockCinema, AccentPicker } from "./stockCinema.jsx";
 import { BusinessProvider, useBusiness, saveBusinessSettings } from "./business.js";
 import { WorkOrdersCinema, InvoicesCinema } from "./pageCinema.jsx";
 import { installFitScreen } from "./fitScreen.js";
-import { computePartSalesFromJobs, getOpenWorkOrders, getRevenueEligibleWorkOrders, getWorkOrderStatusClass, WORK_ORDER_STATUS } from "./workOrderLifecycle.js";
+import { buildWorkOrderStockPolicyMigration, computePartSalesFromJobs, getOpenWorkOrders, getRevenueEligibleWorkOrders, getWorkOrderStatusClass, WORK_ORDER_STATUS } from "./workOrderLifecycle.js";
 import { formatFitmentSpec, formatFitmentVehicle, FUEL_TYPES, searchFitments, searchVehiclePartUsage } from "./vehicleCompatibility.js";
 import { parseInvoicePaste } from "./invoiceImport.js";
 import { findPartMatches, parsePastedPartQueries } from "./partSearch.js";
@@ -583,7 +583,9 @@ function App() {
       else await createWorkOrder(job, user.email);
       await reloadData();
       setModal(null);
-    }, isEditing ? "İş emri güncellendi; stok farkları ve hareket kayıtları işlendi." : "İş emri oluşturuldu, stoklar ve hareket geçmişi güncellendi.");
+    }, isEditing
+      ? (job.status === JOB_STATUS_COMPLETED ? "İş emri güncellendi ve tamamlandı; parçalar stoktan düşüldü." : "İş emri güncellendi.")
+      : "İş emri oluşturuldu. İş emri açık kaldığı sürece stok düşülmez; \"Tamamlandı\" olarak işaretlendiğinde parçalar stoktan düşülür.");
   };
   const persistInvoice = async (invoice) => {
     const isEditing = Boolean(invoice.id);
@@ -697,6 +699,16 @@ function App() {
       setToast(result.correctedJobs
         ? `${result.correctedJobs} iş emrindeki ${result.correctedParts} parça için stok geriye dönük düzeltildi.`
         : "Düzeltilecek kayıt bulunamadı (tüm iş emirleri zaten düzeltilmiş).");
+      if (onDone) onDone(result);
+    });
+  };
+  const persistStockPolicyMigration = async (onDone) => {
+    await runAction(async () => {
+      const result = await migrateWorkOrderStockPolicy(data.jobs, data.parts, user.email);
+      await reloadData();
+      setToast(result.restoredJobs || result.flaggedJobs
+        ? `${result.restoredJobs} açık iş emrindeki ${result.restoredParts} parça stoğa geri yatırıldı${result.flaggedJobs ? `, ${result.flaggedJobs} tamamlanmış iş emri işaretlendi` : ""}.`
+        : "Uygulanacak kayıt bulunamadı (tüm iş emirleri zaten yeni politikaya göre işaretli).");
       if (onDone) onDone(result);
     });
   };
@@ -839,7 +851,7 @@ function App() {
         page === "invoices" ? h(Invoices, { invoices: data.invoices, openModal, removeInvoice, saving }) :
         page === "orders" ? h(Orders, { drafts: data.drafts, lowStock, receiveDraft, createDraft }) :
         page === "stockcompare" ? h(StockCompare, { parts: data.parts, openModal }) :
-        page === "edmsimport" ? h(EdmsImport, { jobs: data.jobs, parts: data.parts, invoices: data.invoices, saving, onImport: persistEdmsImport, onImportFaturaRaporu: persistFaturaRaporuImport, onCleanupManualJobs: persistManualJobCleanup, onCleanupStaleOpenJobs: persistStaleOpenJobCleanup, onCreateMissingOctoberJobs: persistMissingOctoberJobs, onCorrectStock: persistStockCorrection, onFixInvoiceGaps: persistInvoiceGapFixes, onFixKdvDoubling: persistKdvDoublingFix }) :
+        page === "edmsimport" ? h(EdmsImport, { jobs: data.jobs, parts: data.parts, invoices: data.invoices, saving, onImport: persistEdmsImport, onImportFaturaRaporu: persistFaturaRaporuImport, onCleanupManualJobs: persistManualJobCleanup, onCleanupStaleOpenJobs: persistStaleOpenJobCleanup, onCreateMissingOctoberJobs: persistMissingOctoberJobs, onCorrectStock: persistStockCorrection, onMigrateStockPolicy: persistStockPolicyMigration, onFixInvoiceGaps: persistInvoiceGapFixes, onFixKdvDoubling: persistKdvDoublingFix }) :
         page === "returns" ? h(ReturnsPage, { returns: data.returns, openModal, saving }) :
         page === "chat" ? h(ChatPage, { messages: chatMessages, user, sendMessage: async (text) => { await sendChatMessage(user.email, user.displayName, text); }, saving, configured: firebaseConfigured }) :
         page === "servicebox" ? h(ServiceBoxPage) :
@@ -2754,7 +2766,66 @@ function StockCorrectionPanel({ jobs = [], parts = [], onCorrect, saving }) {
   );
 }
 
-function EdmsImport({ jobs = [], parts = [], invoices = [], saving, onImport, onImportFaturaRaporu, onCleanupManualJobs, onCleanupStaleOpenJobs, onCreateMissingOctoberJobs, onCorrectStock, onFixInvoiceGaps, onFixKdvDoubling }) {
+// Stok artık bir iş emri "Tamamlandı" olduğunda düşülüyor, "Devam ediyor"
+// haldeyken parça girişinde değil. Bu panel, bu değişiklikten ÖNCE
+// oluşturulmuş ve hâlâ açık olan iş emirlerinin -eski davranışla zaten
+// düşülmüş olan- parçalarını stoğa geri yatıran tek seferlik geçişi
+// başlatır (ayrıca zaten tamamlanmış iş emirlerini yeni politika için
+// geriye dönük işaretler, bunların stoğu değişmez). Uygulanacak kayıt
+// kalmayınca panel kendiliğinden gizlenir.
+function StockPolicyMigrationPanel({ jobs = [], parts = [], onMigrate, saving }) {
+  const [result, setResult] = useState(null);
+  const preview = buildWorkOrderStockPolicyMigration(jobs, parts);
+  if (!preview.restoreJobCount && !preview.flagJobCount && !result) return null;
+
+  async function handleMigrate() {
+    const confirmed = window.confirm(
+      `${preview.restoreJobCount} açık iş emrindeki ${preview.corrections.length} parça stoğa geri yatırılacak${preview.flagJobCount ? `, ${preview.flagJobCount} tamamlanmış iş emri yeni politika için işaretlenecek` : ""}. Bu işlem tek seferlik ve geri alınamaz (yeni bir parça hareketi olarak kaydedilir). Devam edilsin mi?`
+    );
+    if (!confirmed) return;
+    await onMigrate((res) => setResult(res));
+  }
+
+  return h("div", { style: { marginBottom: "28px" } },
+    h("div", { className: "compare-header-row" },
+      h("div", null,
+        h("h2", null, "Açık İş Emirleri İçin Stok Politikası Geçişi"),
+        h("p", null, "Artık açık (\"Devam ediyor\") bir iş emrine parça girmek stoğu etkilemiyor; stok yalnızca iş emri \"Tamamlandı\" olduğunda düşülüyor. Bu panel, bu değişiklikten önce açılmış ve eski davranışla stoğu zaten düşülmüş iş emirlerinin parçalarını bir kerelik olarak stoğa geri yatırır.")
+      )
+    ),
+    preview.restoreJobCount > 0 ? h("div", { className: "compare-metrics-grid" },
+      h("div", { className: "compare-metric-card is-unmatched" },
+        h("span", { className: "compare-metric-label" }, "Geri Yatırılacak Açık İş Emri"),
+        h("strong", { className: "compare-metric-num" }, preview.restoreJobCount)
+      ),
+      h("div", { className: "compare-metric-card is-diff" },
+        h("span", { className: "compare-metric-label" }, "Etkilenecek Parça"),
+        h("strong", { className: "compare-metric-num" }, preview.corrections.length)
+      )
+    ) : null,
+    preview.corrections.length > 0 ? h("div", { className: "table-scroll" },
+      h("table", null,
+        h("thead", null, h("tr", null, ["PARÇA", "SKU", "GERİ YATIRILACAK ADET", "STOK (ÖNCE → SONRA)", "İŞ EMİRLERİ"].map((label) => h("th", { key: label }, label)))),
+        h("tbody", null, preview.corrections.map((c) =>
+          h("tr", { key: c.partId },
+            h("td", null, c.name),
+            h("td", null, c.sku),
+            h("td", null, c.qty),
+            h("td", null, `${c.stockBefore} → ${c.stockAfter}`),
+            h("td", null, c.jobCodes.join(", "))
+          )
+        ))
+      )
+    ) : null,
+    (preview.restoreJobCount > 0 || preview.flagJobCount > 0) ? h("button", { className: "button button-danger", type: "button", disabled: saving, onClick: handleMigrate, style: { marginTop: "12px" } },
+      saving ? "Uygulanıyor…" : "Stok Politikası Geçişini Uygula") : null,
+    result ? h("p", { className: "form-notice", role: "status" },
+      `${result.restoredJobs} açık iş emrindeki ${result.restoredParts} parça stoğa geri yatırıldı.` + (result.flaggedJobs ? ` ${result.flaggedJobs} tamamlanmış iş emri işaretlendi.` : "")
+    ) : null
+  );
+}
+
+function EdmsImport({ jobs = [], parts = [], invoices = [], saving, onImport, onImportFaturaRaporu, onCleanupManualJobs, onCleanupStaleOpenJobs, onCreateMissingOctoberJobs, onCorrectStock, onMigrateStockPolicy, onFixInvoiceGaps, onFixKdvDoubling }) {
   const [fileName, setFileName] = useState("");
   const [loading, setLoading] = useState(false);
   const [parseErrors, setParseErrors] = useState([]);
@@ -2801,6 +2872,7 @@ function EdmsImport({ jobs = [], parts = [], invoices = [], saving, onImport, on
   return h("section", { className: "stock-compare" },
     h(KdvDoublingFixPanel, { jobs, onFix: onFixKdvDoubling, saving }),
     h(StockCorrectionPanel, { jobs, parts, onCorrect: onCorrectStock, saving }),
+    h(StockPolicyMigrationPanel, { jobs, parts, onMigrate: onMigrateStockPolicy, saving }),
     h(MissingOctoberJobsPanel, { jobs, parts, onCreate: onCreateMissingOctoberJobs, saving }),
     h(StaleOpenJobCleanup, { jobs, onCleanup: onCleanupStaleOpenJobs, saving }),
     h(ManualJobCleanup, { jobs, onCleanup: onCleanupManualJobs, saving }),
@@ -3174,6 +3246,10 @@ function Modal({ modal, parts, customers, personnel, onClose, onSavePart, onSave
       ? (modal.item.parts || []).map((item) => ({ partId: item.partId || "", search: `${item.name || ""}${item.sku ? ` · ${item.sku}` : ""}`, name: item.name || "", sku: item.sku || "" }))
     : [{ partId: "", qty: 1, search: "", discountType: "none", discountValue: "0" }]);
   const [status, setStatus] = useState(() => modal.item?.status || JOB_STATUS_IN_PROGRESS);
+  // Stok yalnızca iş emri bu kayıtla "Tamamlandı" olacaksa düşülür (bkz.
+  // data.js'teki politika). Parça satırlarının üst adet sınırı ve stok
+  // yeterlilik kontrolü bu bilgiye göre hesaplanır.
+  const willApplyStock = (modal.item ? status : JOB_STATUS_IN_PROGRESS) === JOB_STATUS_COMPLETED;
   const [businessDate, setBusinessDate] = useState(() => modal.item?.date || dateKey(new Date()));
   const [laborAmount, setLaborAmount] = useState(() => String(modal.item?.laborAmount ?? 0));
   const [externalLabor, setExternalLabor] = useState(() => modal.type === "job" && modal.item?.externalLabor ? modal.item.externalLabor : []);
@@ -3484,12 +3560,20 @@ function Modal({ modal, parts, customers, personnel, onClose, onSavePart, onSave
         setError("İş emri için en az bir parça, işçilik veya harici işçilik girmelisiniz.");
         return;
       }
+      // Stok yalnızca iş emri bu kayıtla "Tamamlandı" olacaksa düşülür
+      // (willApplyStock, yukarıda). Açık kalacaksa rafta görünenden fazla
+      // miktar girilmesin diye ham adede bakılır; tamamlanıyorsa, zaten
+      // tamamlanmış olarak stoğa işlenmiş eski adetler düşülerek gerçek fark
+      // kontrol edilir.
       const previousByPart = new Map();
-      (modal.item?.items || []).forEach((item) => previousByPart.set(item.partId, (previousByPart.get(item.partId) || 0) + Number(item.qty || 0)));
+      if (modal.item?.stockApplied) {
+        (modal.item?.items || []).forEach((item) => previousByPart.set(item.partId, (previousByPart.get(item.partId) || 0) + Number(item.qty || 0)));
+      }
       const requiredByPart = items.reduce((totals, item) => ({ ...totals, [item.partId]: (totals[item.partId] || 0) + item.qty }), {});
       const insufficientPart = Object.entries(requiredByPart).find(([id, qty]) => {
-        const delta = qty - (previousByPart.get(id) || 0);
-        return delta > (parts.find((part) => part.id === id)?.stock ?? 0);
+        const stock = parts.find((part) => part.id === id)?.stock ?? 0;
+        if (willApplyStock) return (qty - (previousByPart.get(id) || 0)) > stock;
+        return qty > stock;
       });
       if (insufficientPart) {
         setError("Eklenen parçalardan en az biri için yeterli stok bulunmuyor.");
@@ -3513,7 +3597,8 @@ function Modal({ modal, parts, customers, personnel, onClose, onSavePart, onSave
         laborDiscountType: normalizedLaborDiscount.type,
         laborDiscountValue: normalizedLaborDiscount.value,
         total,
-        status: modal.item ? status : JOB_STATUS_IN_PROGRESS
+        status: modal.item ? status : JOB_STATUS_IN_PROGRESS,
+        ...(!modal.item ? { code: String(form.get("code") || "").trim() } : {})
       });
     } else {
       const invoiceItemsToSave = [...invoiceItems, ...items];
@@ -3532,7 +3617,7 @@ function Modal({ modal, parts, customers, personnel, onClose, onSavePart, onSave
           matches.length ? h("div", { className: "part-search-results", role: "listbox" }, matches.map((entry) => h("button", { key: entry.id, type: "button", role: "option", disabled: entry.stock < 1, onClick: () => selectPart(index, entry) }, h("span", null, h("strong", null, entry.name), h("small", null, `${entry.sku} · stok ${entry.stock}`)), h("span", { className: entry.stock < 1 ? "part-result-empty" : "part-result-stock" }, entry.stock < 1 ? "Stok yok" : `${entry.stock} adet`)))) :
             line.search && !line.partId ? h("div", { className: "part-search-empty" }, "Eşleşme yok. Kodu, adını veya kodun sonunu deneyin.") : null
         )) : h("label", null, index === 0 ? "Parça" : " ", h("select", { value: line.partId, onChange: (event) => updateLine(index, "partId", event.target.value), required: index === 0 }, h("option", { value: "" }, "Parça seçin"), parts.map((entry) => h("option", { key: entry.id, value: entry.id }, `${entry.name} · ${entry.sku}`)))),
-      h("label", null, index === 0 ? "Adet" : " ", h("input", { type: "number", min: 1, max: type === "job" ? line.archived ? line.originalQty : part ? part.stock + (line.originalQty || 0) : undefined : undefined, value: line.qty, onChange: (event) => updateLine(index, "qty", event.target.value), required: true })),
+      h("label", null, index === 0 ? "Adet" : " ", h("input", { type: "number", min: 1, max: type === "job" ? line.archived ? line.originalQty : part ? part.stock + (willApplyStock && modal.item?.stockApplied ? (line.originalQty || 0) : 0) : undefined : undefined, value: line.qty, onChange: (event) => updateLine(index, "qty", event.target.value), required: true })),
       type === "job" ? h("label", null, index === 0 ? "Birim satış (₺)" : " ", h(CurrencyInput, { value: String(line.price !== undefined && line.price !== null ? line.price : (part?.price ?? "")), onChange: (val) => updateLine(index, "price", val), placeholder: "0,00" })) : null,
       type === "job" && !line.archived ? h("div", { className: "line-discount" },
         h("label", null, index === 0 ? "İskonto" : " ",
@@ -3581,6 +3666,9 @@ function Modal({ modal, parts, customers, personnel, onClose, onSavePart, onSave
           h("label", null, "Marka", h("input", { name: "make", defaultValue: modal.item?.make || "", placeholder: "Örn. Peugeot", required: true })),
           h("label", null, "Model", h("input", { name: "model", defaultValue: modal.item?.model || "", placeholder: "Örn. 3008", required: true })),
           h("label", null, "Telefon", h("input", { name: "phone", type: "tel", defaultValue: modal.item?.phone || "", placeholder: "05xx xxx xx xx" })),
+          !modal.item ? h("label", null, "İş emri no (opsiyonel)",
+            h("input", { name: "code", defaultValue: "", placeholder: "Boş bırakılırsa otomatik numara verilir (örn. eDMS'teki iş emri no'su)" })
+          ) : null,
           modal.item ? h("label", null, "İş emri durumu",
             h("select", {
               name: "status",
