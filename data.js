@@ -18,7 +18,7 @@ import { buildEdmsJobEnrichments, selectPurchaseInvoicesToImport, buildPurchaseI
 import { selectManualWorkOrders } from "./manualJobCleanup.js";
 import { selectStaleOpenWorkOrders } from "./staleOpenJobCleanup.js";
 import { selectMissingOctoberJobDefs, buildMissingOctoberJobRecords } from "./missingOctoberJobs.js";
-import { buildWorkOrderStockPolicyMigration, WORK_ORDER_STATUS } from "./workOrderLifecycle.js";
+import { buildPlannedEdmsJobStockRestorationUndo, buildWorkOrderStockPolicyMigration, WORK_ORDER_STATUS } from "./workOrderLifecycle.js";
 import { calculateWorkOrderNetTotal, normalizeLaborAmount, normalizeDiscount } from "./workOrderPricing.js";
 import { db, OWNER_EMAIL } from "./firebase.js";
 
@@ -1471,6 +1471,62 @@ export async function migrateWorkOrderStockPolicy(jobs, parts, actor) {
   }
 
   return { restoredJobs: restoreJobCount, restoredParts: corrections.length, flaggedJobs: flagJobCount };
+}
+
+// Hata düzeltmesi: migrateWorkOrderStockPolicy'nin ilk sürümü, eDMS'in
+// "Planlanan" ekranından elle aktarılmış (plannedFromEdmsAt), henüz
+// faturalanmamış açık iş emirlerini de yanlışlıkla "eski davranışla stoğu
+// düşülmüş" sayıp parçalarını stoğa geri yatırmıştı — oysa bu kayıtlar
+// (missingOctoberJobs.js) zaten hiç düşülmemişti, yani stoğa hayalet bir
+// miktar eklenmiş oldu (örn. eDMS'teki gerçek stokla karşılaştırıldığında
+// sistemde fazladan görünen MOTOR YAĞI EUROREPAR 5W30, ŞANZIMAN YAĞI, FREN
+// HİDROLİK YAĞI gibi kayıtlar). Bu fonksiyon o hatalı geri yatırmayı geri
+// alır (stoktan tekrar düşer, sold'u geri artırır) ve ilgili iş emirlerini
+// `stockRestorationCorrectedAt` ile işaretleyerek tekrar uygulanmasını
+// engeller.
+export async function undoPlannedEdmsJobStockRestoration(jobs, parts, actor) {
+  const database = requireDatabase();
+  const { corrections, jobIds, jobCount } = buildPlannedEdmsJobStockRestorationUndo(jobs, parts);
+  if (!jobCount) {
+    return { correctedJobs: 0, correctedParts: 0 };
+  }
+
+  const now = new Date().toISOString();
+  const businessDate = resolveBusinessDate(now.slice(0, 10));
+
+  const partWrites = corrections.map((correction) => ({
+    ref: doc(database, "parts", correction.partId),
+    data: { stock: correction.stockAfter, sold: correction.soldAfter },
+  }));
+
+  const movementWrites = corrections.map((correction) => {
+    const movement = movementRecord({ id: correction.partId, name: correction.name, sku: correction.sku }, {
+      qty: -correction.qty,
+      type: "Planlanan eDMS iş emri - hatalı stok iadesi düzeltmesi",
+      reference: "job",
+      referenceCode: correction.jobCodes.join(", "),
+      actor,
+      stockBefore: correction.stockBefore,
+      stockAfter: correction.stockAfter,
+      date: businessDate,
+    });
+    return { ref: doc(database, "parts", correction.partId, "movements", movement.id), data: movement };
+  });
+
+  const jobWrites = jobIds.map((jobId) => ({
+    ref: doc(database, "jobs", jobId),
+    data: { stockRestorationCorrectedAt: now, updatedAt: now },
+  }));
+
+  const writes = [...partWrites, ...movementWrites, ...jobWrites];
+
+  for (const group of chunk(writes, 400)) {
+    const batch = writeBatch(database);
+    group.forEach(({ ref, data }) => batch.set(ref, data, { merge: true }));
+    await batch.commit();
+  }
+
+  return { correctedJobs: jobCount, correctedParts: corrections.length };
 }
 
 // Tek seferlik, el ile doğrulanmış eksik kayıt düzeltmesi: eDMS'in kendi

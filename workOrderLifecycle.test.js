@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  buildPlannedEdmsJobStockRestorationUndo,
   buildWorkOrderStockPolicyMigration,
   computePartSalesFromJobs,
   getOpenWorkOrders,
@@ -67,6 +68,11 @@ test("buildWorkOrderStockPolicyMigration restores stock for open jobs and flags 
     { id: "done-legacy", code: "IS-4", status: WORK_ORDER_STATUS.COMPLETED, items: [{ partId: "brake-pad", qty: 1 }] },
     { id: "done-already-flagged", code: "IS-5", status: WORK_ORDER_STATUS.COMPLETED, stockApplied: true, items: [{ partId: "brake-pad", qty: 1 }] },
     { id: "cancelled", code: "IS-6", status: WORK_ORDER_STATUS.CANCELLED, items: [{ partId: "oil-filter", qty: 50 }] },
+    // eDMS'in "Planlanan" ekranından elle aktarılmış, henüz faturalanmamış
+    // bir iş emri (missingOctoberJobs.js): tasarım gereği hiç stok
+    // düşülmeden oluşturulur, bu yüzden restoreTargets'a dahil EDİLMEMELİ
+    // (aksi halde stoğa hayalet bir miktar eklenir).
+    { id: "planned-edms", code: "EDMS-123", status: WORK_ORDER_STATUS.IN_PROGRESS, plannedFromEdmsAt: "2026-10-20T00:00:00.000Z", items: [{ partId: "oil-filter", qty: 7 }] },
   ];
   const result = buildWorkOrderStockPolicyMigration(jobs, parts);
   assert.deepEqual(result.restoreJobIds, ["open-legacy"]);
@@ -82,5 +88,35 @@ test("buildWorkOrderStockPolicyMigration restores stock for open jobs and flags 
     soldBefore: 5,
     soldAfter: 3,
     jobCodes: ["IS-1"],
+  });
+});
+
+test("buildPlannedEdmsJobStockRestorationUndo reverses the erroneous restoration applied to plannedFromEdmsAt jobs", () => {
+  // Gerçek hata: migrateWorkOrderStockPolicy'nin ilk sürümü, eDMS'in
+  // "Planlanan" ekranından elle aktarılmış (plannedFromEdmsAt) ve tasarım
+  // gereği hiç stok düşülmeden oluşturulmuş iş emirlerini de "eski
+  // davranışla stoğu düşülmüş" sayıp parçalarını stoğa geri yatırmıştı —
+  // bu da stoğa hayalet bir miktar ekledi. Bu fonksiyon o hatayı geri alır.
+  const parts = [{ id: "oil-filter", name: "Yağ filtresi", sku: "OF-1", stock: 12, sold: 3 }];
+  const jobs = [
+    { id: "planned-edms", code: "EDMS-123", status: WORK_ORDER_STATUS.IN_PROGRESS, plannedFromEdmsAt: "2026-10-20T00:00:00.000Z", stockApplied: false, items: [{ partId: "oil-filter", qty: 7 }] },
+    // Zaten düzeltilmiş bir kayıt tekrar işlenmemeli.
+    { id: "planned-edms-fixed", code: "EDMS-456", status: WORK_ORDER_STATUS.IN_PROGRESS, plannedFromEdmsAt: "2026-10-20T00:00:00.000Z", stockApplied: false, stockRestorationCorrectedAt: "2026-10-31T00:00:00.000Z", items: [{ partId: "oil-filter", qty: 3 }] },
+    // Hiç bu geçişten etkilenmemiş (stockApplied set edilmemiş) bir planlanan kayıt da hariç tutulmalı.
+    { id: "planned-edms-untouched", code: "EDMS-789", status: WORK_ORDER_STATUS.IN_PROGRESS, plannedFromEdmsAt: "2026-10-20T00:00:00.000Z", items: [{ partId: "oil-filter", qty: 1 }] },
+  ];
+  const result = buildPlannedEdmsJobStockRestorationUndo(jobs, parts);
+  assert.deepEqual(result.jobIds, ["planned-edms"]);
+  assert.equal(result.corrections.length, 1);
+  assert.deepEqual(result.corrections[0], {
+    partId: "oil-filter",
+    sku: "OF-1",
+    name: "Yağ filtresi",
+    qty: 7,
+    stockBefore: 12,
+    stockAfter: 5,
+    soldBefore: 3,
+    soldAfter: 10,
+    jobCodes: ["EDMS-123"],
   });
 });

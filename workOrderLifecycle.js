@@ -52,7 +52,14 @@ export function computePartSalesFromJobs(jobs, parts) {
 // veya zaten yeni politikayla oluşturulmuş) atlanır.
 export function buildWorkOrderStockPolicyMigration(jobs, parts) {
   const restoreTargets = (jobs || []).filter(
-    (job) => job.status === WORK_ORDER_STATUS.IN_PROGRESS && job.stockApplied !== false && (job.items || []).some((item) => item.partId)
+    // `plannedFromEdmsAt` işaretli kayıtlar (bkz. missingOctoberJobs.js),
+    // eDMS'in "Planlanan" ekranından elle aktarılmış, henüz faturalanmamış
+    // iş emirleridir; bu kayıtlar zaten tasarım gereği stok düşülmeden
+    // oluşturulur (gerçek fatura geldiğinde enrichEdmsJobsWithInvoiceLines
+    // düşecek). Bunları restoreTargets'a dahil etmek, hiç düşülmemiş stoğu
+    // bir kez daha (hayalet olarak) stoğa eklemek anlamına gelir — bu yüzden
+    // burada hariç tutuluyorlar.
+    (job) => job.status === WORK_ORDER_STATUS.IN_PROGRESS && job.stockApplied !== false && !job.plannedFromEdmsAt && (job.items || []).some((item) => item.partId)
   );
   const flagTargets = (jobs || []).filter((job) => job.status === WORK_ORDER_STATUS.COMPLETED && job.stockApplied !== true);
 
@@ -93,6 +100,59 @@ export function buildWorkOrderStockPolicyMigration(jobs, parts) {
     restoreJobCount: restoreTargets.length,
     flagJobIds: flagTargets.map((job) => job.id),
     flagJobCount: flagTargets.length,
+  };
+}
+
+// Hata düzeltmesi: buildWorkOrderStockPolicyMigration'ın ilk sürümü,
+// `plannedFromEdmsAt` işaretli (eDMS'in "Planlanan" ekranından elle
+// aktarılmış, henüz faturalanmamış) açık iş emirlerini de yanlışlıkla
+// "eski davranışla stoğu düşülmüş" sayıp parçalarını stoğa geri yatırmıştı
+// — oysa bu kayıtlar zaten hiç düşülmemişti (missingOctoberJobs.js), yani
+// stoğa HAYALET bir miktar eklenmiş oldu. Bu fonksiyon, o hatalı geri
+// yatırmayı bulur (plannedFromEdmsAt + stockApplied:false işaretli ama
+// henüz düzeltilmemiş iş emirleri) ve tam tersini hesaplar (stoktan tekrar
+// düş, sold'u geri artır). `stockRestorationCorrectedAt` ile işaretlenen
+// kayıtlar tekrar işlenmez.
+export function buildPlannedEdmsJobStockRestorationUndo(jobs, parts) {
+  const undoTargets = (jobs || []).filter(
+    (job) => job.plannedFromEdmsAt && job.stockApplied === false && !job.stockRestorationCorrectedAt && (job.items || []).some((item) => item.partId)
+  );
+
+  const partById = new Map((parts || []).map((part) => [part.id, part]));
+  const totals = new Map(); // partId -> { qty, name, sku, jobCodes: [] }
+
+  undoTargets.forEach((job) => {
+    (job.items || []).forEach((item) => {
+      if (!item.partId) return;
+      const entry = totals.get(item.partId) || { qty: 0, name: item.name, sku: item.sku, jobCodes: [] };
+      entry.qty += Number(item.qty) || 0;
+      entry.jobCodes.push(job.code || job.id);
+      totals.set(item.partId, entry);
+    });
+  });
+
+  const corrections = [];
+  totals.forEach((entry, partId) => {
+    const part = partById.get(partId);
+    const stockBefore = Number(part?.stock || 0);
+    const soldBefore = Number(part?.sold || 0);
+    corrections.push({
+      partId,
+      sku: part?.sku || entry.sku,
+      name: part?.name || entry.name,
+      qty: entry.qty,
+      stockBefore,
+      stockAfter: Math.max(0, stockBefore - entry.qty),
+      soldBefore,
+      soldAfter: soldBefore + entry.qty,
+      jobCodes: entry.jobCodes,
+    });
+  });
+
+  return {
+    corrections,
+    jobIds: undoTargets.map((job) => job.id),
+    jobCount: undoTargets.length,
   };
 }
 

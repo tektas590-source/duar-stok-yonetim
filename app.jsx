@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState, useRef } from "react";
 import { createRoot } from "react-dom/client";
 import "./style.css";
-import { cancelWorkOrder, completeWorkOrder, correctEdmsEnrichmentStock, createMissingEdmsJobs, createPurchaseInvoice, deletePurchaseInvoice, createStockDraft, createWorkOrder, deleteFitment, deleteManualWorkOrders, deleteStaleOpenWorkOrders, deletePart, deletePersonnel, deleteCustomer, deleteAppointment, deleteNotification, deleteReturnItem, enrichEdmsJobsWithInvoiceLines, fetchServiceData, fixKdvDoublingTotals, fixKnownEdmsInvoiceGaps, getPersonnelPerformance, grantUserAccess, importEdmsPurchaseInvoices, importEdmsWorkOrders, listAppointments, listAuthorizedUsers, listCustomers, listNotifications, listPersonnel, listReturns, markNotificationRead, migrateWorkOrderStockPolicy, receiveStockDraft, restorePart, revokeUserAccess, saveAppointment, saveCustomer, saveFitment, savePart, savePersonnel, saveReturnItem, sendChatMessage, subscribeToChat, subscribeToServiceData, togglePartFavorite, updateAppointmentStatus, updateReturnStatus, updateWorkOrder, adjustStock } from "./data.js";
+import { cancelWorkOrder, completeWorkOrder, correctEdmsEnrichmentStock, createMissingEdmsJobs, createPurchaseInvoice, deletePurchaseInvoice, createStockDraft, createWorkOrder, deleteFitment, deleteManualWorkOrders, deleteStaleOpenWorkOrders, deletePart, deletePersonnel, deleteCustomer, deleteAppointment, deleteNotification, deleteReturnItem, enrichEdmsJobsWithInvoiceLines, fetchServiceData, fixKdvDoublingTotals, fixKnownEdmsInvoiceGaps, getPersonnelPerformance, grantUserAccess, importEdmsPurchaseInvoices, importEdmsWorkOrders, listAppointments, listAuthorizedUsers, listCustomers, listNotifications, listPersonnel, listReturns, markNotificationRead, migrateWorkOrderStockPolicy, receiveStockDraft, restorePart, revokeUserAccess, saveAppointment, saveCustomer, saveFitment, savePart, savePersonnel, saveReturnItem, sendChatMessage, subscribeToChat, subscribeToServiceData, togglePartFavorite, undoPlannedEdmsJobStockRestoration, updateAppointmentStatus, updateReturnStatus, updateWorkOrder, adjustStock } from "./data.js";
 import * as XLSX from "xlsx";
 import { parseEdmsWorkOrderReport, selectEdmsRecordsToImport } from "./edmsImport.js";
 import { parseFaturaRaporuReport, splitFaturaRaporuByType } from "./faturaRaporuImport.js";
@@ -16,7 +16,7 @@ import { StockCinema, AccentPicker } from "./stockCinema.jsx";
 import { BusinessProvider, useBusiness, saveBusinessSettings } from "./business.js";
 import { WorkOrdersCinema, InvoicesCinema } from "./pageCinema.jsx";
 import { installFitScreen } from "./fitScreen.js";
-import { buildWorkOrderStockPolicyMigration, computePartSalesFromJobs, getOpenWorkOrders, getRevenueEligibleWorkOrders, getWorkOrderStatusClass, WORK_ORDER_STATUS } from "./workOrderLifecycle.js";
+import { buildPlannedEdmsJobStockRestorationUndo, buildWorkOrderStockPolicyMigration, computePartSalesFromJobs, getOpenWorkOrders, getRevenueEligibleWorkOrders, getWorkOrderStatusClass, WORK_ORDER_STATUS } from "./workOrderLifecycle.js";
 import { formatFitmentSpec, formatFitmentVehicle, FUEL_TYPES, searchFitments, searchVehiclePartUsage } from "./vehicleCompatibility.js";
 import { parseInvoicePaste } from "./invoiceImport.js";
 import { findPartMatches, parsePastedPartQueries } from "./partSearch.js";
@@ -712,6 +712,16 @@ function App() {
       if (onDone) onDone(result);
     });
   };
+  const persistUndoPlannedEdmsRestoration = async (onDone) => {
+    await runAction(async () => {
+      const result = await undoPlannedEdmsJobStockRestoration(data.jobs, data.parts, user.email);
+      await reloadData();
+      setToast(result.correctedJobs
+        ? `${result.correctedJobs} planlanan eDMS iş emrindeki ${result.correctedParts} parça için hatalı stok iadesi geri alındı.`
+        : "Düzeltilecek kayıt bulunamadı.");
+      if (onDone) onDone(result);
+    });
+  };
   async function authenticate(event) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
@@ -851,7 +861,7 @@ function App() {
         page === "invoices" ? h(Invoices, { invoices: data.invoices, openModal, removeInvoice, saving }) :
         page === "orders" ? h(Orders, { drafts: data.drafts, lowStock, receiveDraft, createDraft }) :
         page === "stockcompare" ? h(StockCompare, { parts: data.parts, openModal }) :
-        page === "edmsimport" ? h(EdmsImport, { jobs: data.jobs, parts: data.parts, invoices: data.invoices, saving, onImport: persistEdmsImport, onImportFaturaRaporu: persistFaturaRaporuImport, onCleanupManualJobs: persistManualJobCleanup, onCleanupStaleOpenJobs: persistStaleOpenJobCleanup, onCreateMissingOctoberJobs: persistMissingOctoberJobs, onCorrectStock: persistStockCorrection, onMigrateStockPolicy: persistStockPolicyMigration, onFixInvoiceGaps: persistInvoiceGapFixes, onFixKdvDoubling: persistKdvDoublingFix }) :
+        page === "edmsimport" ? h(EdmsImport, { jobs: data.jobs, parts: data.parts, invoices: data.invoices, saving, onImport: persistEdmsImport, onImportFaturaRaporu: persistFaturaRaporuImport, onCleanupManualJobs: persistManualJobCleanup, onCleanupStaleOpenJobs: persistStaleOpenJobCleanup, onCreateMissingOctoberJobs: persistMissingOctoberJobs, onCorrectStock: persistStockCorrection, onMigrateStockPolicy: persistStockPolicyMigration, onUndoPlannedEdmsRestoration: persistUndoPlannedEdmsRestoration, onFixInvoiceGaps: persistInvoiceGapFixes, onFixKdvDoubling: persistKdvDoublingFix }) :
         page === "returns" ? h(ReturnsPage, { returns: data.returns, openModal, saving }) :
         page === "chat" ? h(ChatPage, { messages: chatMessages, user, sendMessage: async (text) => { await sendChatMessage(user.email, user.displayName, text); }, saving, configured: firebaseConfigured }) :
         page === "servicebox" ? h(ServiceBoxPage) :
@@ -2766,6 +2776,55 @@ function StockCorrectionPanel({ jobs = [], parts = [], onCorrect, saving }) {
   );
 }
 
+// Hata düzeltmesi: StockPolicyMigrationPanel'in ilk sürümü, eDMS'in
+// "Planlanan" ekranından elle aktarılmış (plannedFromEdmsAt), henüz
+// faturalanmamış iş emirlerini de yanlışlıkla "eski davranışla stoğu
+// düşülmüş" sayıp parçalarını stoğa geri yatırmıştı — oysa bu kayıtlar
+// zaten hiç düşülmemişti, yani stoğa hayalet bir miktar eklenmiş oldu. Bu
+// panel o hatayı geri alır. Düzeltilecek kayıt kalmayınca kendiliğinden
+// gizlenir.
+function PlannedEdmsStockRestorationUndoPanel({ jobs = [], parts = [], onUndo, saving }) {
+  const [result, setResult] = useState(null);
+  const preview = buildPlannedEdmsJobStockRestorationUndo(jobs, parts);
+  if (!preview.jobCount && !result) return null;
+
+  async function handleUndo() {
+    const confirmed = window.confirm(
+      `${preview.jobCount} planlanan eDMS iş emrindeki ${preview.corrections.length} parça için hatalı stok iadesi geri alınacak (stoktan tekrar düşülecek). Devam edilsin mi?`
+    );
+    if (!confirmed) return;
+    await onUndo((res) => setResult(res));
+  }
+
+  return h("div", { style: { marginBottom: "28px" } },
+    h("div", { className: "compare-header-row" },
+      h("div", null,
+        h("h2", null, "Hatalı Stok İadesini Geri Al (Planlanan eDMS İş Emirleri)"),
+        h("p", null, "Yukarıdaki stok politikası geçişi, eDMS'in \"Planlanan\" ekranından elle aktarılmış ve zaten hiç stok düşülmemiş iş emirlerini de yanlışlıkla geri yatırmıştı. Bu panel o hatayı düzeltir.")
+      )
+    ),
+    preview.corrections.length > 0 ? h("div", { className: "table-scroll" },
+      h("table", null,
+        h("thead", null, h("tr", null, ["PARÇA", "SKU", "DÜZELTİLECEK ADET", "STOK (ŞU AN → DÜZELTİLMİŞ)", "İŞ EMİRLERİ"].map((label) => h("th", { key: label }, label)))),
+        h("tbody", null, preview.corrections.map((c) =>
+          h("tr", { key: c.partId },
+            h("td", null, c.name),
+            h("td", null, c.sku),
+            h("td", null, c.qty),
+            h("td", null, `${c.stockBefore} → ${c.stockAfter}`),
+            h("td", null, c.jobCodes.join(", "))
+          )
+        ))
+      )
+    ) : null,
+    preview.jobCount > 0 ? h("button", { className: "button button-danger", type: "button", disabled: saving, onClick: handleUndo, style: { marginTop: "12px" } },
+      saving ? "Düzeltiliyor…" : "Hatalı Stok İadesini Geri Al") : null,
+    result ? h("p", { className: "form-notice", role: "status" },
+      `${result.correctedJobs} iş emrindeki ${result.correctedParts} parça için hatalı stok iadesi geri alındı.`
+    ) : null
+  );
+}
+
 // Stok artık bir iş emri "Tamamlandı" olduğunda düşülüyor, "Devam ediyor"
 // haldeyken parça girişinde değil. Bu panel, bu değişiklikten ÖNCE
 // oluşturulmuş ve hâlâ açık olan iş emirlerinin -eski davranışla zaten
@@ -2825,7 +2884,7 @@ function StockPolicyMigrationPanel({ jobs = [], parts = [], onMigrate, saving })
   );
 }
 
-function EdmsImport({ jobs = [], parts = [], invoices = [], saving, onImport, onImportFaturaRaporu, onCleanupManualJobs, onCleanupStaleOpenJobs, onCreateMissingOctoberJobs, onCorrectStock, onMigrateStockPolicy, onFixInvoiceGaps, onFixKdvDoubling }) {
+function EdmsImport({ jobs = [], parts = [], invoices = [], saving, onImport, onImportFaturaRaporu, onCleanupManualJobs, onCleanupStaleOpenJobs, onCreateMissingOctoberJobs, onCorrectStock, onMigrateStockPolicy, onUndoPlannedEdmsRestoration, onFixInvoiceGaps, onFixKdvDoubling }) {
   const [fileName, setFileName] = useState("");
   const [loading, setLoading] = useState(false);
   const [parseErrors, setParseErrors] = useState([]);
@@ -2873,6 +2932,7 @@ function EdmsImport({ jobs = [], parts = [], invoices = [], saving, onImport, on
     h(KdvDoublingFixPanel, { jobs, onFix: onFixKdvDoubling, saving }),
     h(StockCorrectionPanel, { jobs, parts, onCorrect: onCorrectStock, saving }),
     h(StockPolicyMigrationPanel, { jobs, parts, onMigrate: onMigrateStockPolicy, saving }),
+    h(PlannedEdmsStockRestorationUndoPanel, { jobs, parts, onUndo: onUndoPlannedEdmsRestoration, saving }),
     h(MissingOctoberJobsPanel, { jobs, parts, onCreate: onCreateMissingOctoberJobs, saving }),
     h(StaleOpenJobCleanup, { jobs, onCleanup: onCleanupStaleOpenJobs, saving }),
     h(ManualJobCleanup, { jobs, onCleanup: onCleanupManualJobs, saving }),
