@@ -61,8 +61,14 @@ test("searches by make/model and returns separate vehicle histories", () => {
   assert.deepEqual(searchVehiclePartUsage(jobs, "clio").map((vehicle) => vehicle.plate), ["06 XYZ 456"]);
 });
 
-test("returns no vehicles until a search is entered", () => {
-  assert.deepEqual(searchVehiclePartUsage(jobs, "  "), []);
+test("lists all vehicles (sorted by latest service date) until a search is entered", () => {
+  // Araç Uyumluluğu sayfasında "Serviste kullanılan parçalar" bölümü daha
+  // önce arama kutusu boşken hep boş görünüyordu (kullanıcı raporu:
+  // "araç uyumluluğunda hangi araca hangi parça kullanılıyor gözükmüyor").
+  // searchFitments'teki "boş arama = tüm katalog" davranışıyla tutarlı
+  // olacak şekilde artık boş aramada tüm araçlar (iptal edilmiş iş
+  // emirleri hariç) en son servis tarihine göre listeleniyor.
+  assert.deepEqual(searchVehiclePartUsage(jobs, "  ").map((vehicle) => vehicle.plate), ["06 XYZ 456", "34 ABC 123"]);
 });
 
 const fitments = [

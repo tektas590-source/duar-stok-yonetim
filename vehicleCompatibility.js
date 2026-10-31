@@ -47,7 +47,14 @@ function normalizePlate(value) {
 export function searchVehiclePartUsage(jobs, query) {
   const search = normalizeSearchText(query);
   const plateSearch = normalizePlate(query);
-  if (!search) return [];
+  // Not: Daha önce burada `if (!search) return [];` vardı — yani arama kutusu
+  // boşken bu fonksiyon hep boş dizi döndürüyordu ve "Araç Uyumluluğu"
+  // sayfasındaki "Serviste kullanılan parçalar" bölümü hiçbir zaman
+  // görünmüyordu (kullanıcı önce bir plaka/marka/model yazmak zorundaydı,
+  // ama sayfada bunu söyleyen bir ipucu da yoktu). `searchFitments` ile
+  // tutarlı olacak şekilde (orada boş arama = tüm katalog) artık arama boşsa
+  // tüm araçlar döndürülüyor; aşağıdaki filtre zaten boş sorguda her şeyi
+  // (includes("")) eşleştirdiği için ekstra bir dal gerekmiyor.
 
   const vehicles = new Map();
   const sortedJobs = jobs.filter((job) => !isCancelledWorkOrder(job)).sort((first, second) => (second.date || "").localeCompare(first.date || ""));
