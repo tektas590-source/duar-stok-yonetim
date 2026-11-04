@@ -552,3 +552,51 @@ export function buildInvoiceReconciliationReport(jobs, salesInvoices, parts) {
     ok: rows.filter((r) => r.status === "ok"),
   };
 }
+
+// --- 9) Banko (tezgah) satışları: eDMS Fatura Raporu'ndaki "Kaynak: YP Banko"
+// satış faturaları, hiçbir iş emrine/araca bağlı olmadığı için normal
+// zenginleştirme/eşleştirme akışına hiç girmez (bkz. faturaRaporuImport.js:
+// splitSalesByKaynak). Kullanıcının isteğiyle, bu faturalar ayrı bir
+// `bankoSales` koleksiyonunda, fatura no'suna göre tekil (idempotent) olarak
+// saklanır ve Raporlar sayfasındaki Toplam Ciro'ya ayrıca eklenir. Dedup,
+// data.js'teki bankoSales koleksiyonundaki id (= invoiceNo) alanına göre
+// yapılır — burada sadece eşleşmeyenler elenir.
+export function selectBankoSalesToImport(bankoInvoices, existingBankoSales) {
+  const existingNos = new Set((Array.isArray(existingBankoSales) ? existingBankoSales : []).map((s) => String(s.invoiceNo || s.id || "").trim()));
+  const toAdd = [];
+  const alreadyPresent = [];
+  (Array.isArray(bankoInvoices) ? bankoInvoices : []).forEach((invoice) => {
+    if (existingNos.has(invoice.invoiceNo)) alreadyPresent.push(invoice);
+    else toAdd.push(invoice);
+  });
+  return { toAdd, alreadyPresent };
+}
+
+// `grossTotal`, eDMS'in fatura bloğunun kendi toplam satırından (KDV dahil
+// "Fatura Tutarı") okunur — bu, eDMS'in "AYLIK GELİR RAPORU"ndaki "Banko
+// Toplam" rakamıyla birebir doğrulanmıştır (bkz. kullanıcıyla yapılan
+// mutabakat, Kas. 2026). `netTotal`, satır bazında (iskonto düşülerek)
+// kendimiz hesaplanır; `vatTotal` ise bu ikisinin farkı olarak türetilir —
+// satır bazlı KDV sütununa güvenmek yerine, zaten doğrulanmış tek toplam
+// kaynağıyla (grossTotal) tutarlı kalması için.
+export function buildBankoSalePayload(invoice) {
+  const items = (invoice.items || []).map((line) => {
+    const gross = roundCurrency(line.unitPrice * line.qty);
+    const discount = normalizeDiscount({ type: line.discountPercent > 0 ? "percent" : "none", value: line.discountPercent });
+    const discountAmount = calculateDiscountAmount(gross, discount);
+    const net = roundCurrency(gross - discountAmount);
+    return { kind: line.kind, kod: line.kod, name: line.name, qty: line.qty, unitPrice: line.unitPrice, discountPercent: line.discountPercent, net };
+  });
+  const netTotal = roundCurrency(items.reduce((sum, item) => sum + item.net, 0));
+  const grossTotal = roundCurrency(Number(invoice.totalGross) || 0) || netTotal;
+  const vatTotal = roundCurrency(grossTotal - netTotal);
+  return {
+    invoiceNo: invoice.invoiceNo,
+    date: invoice.date,
+    firma: invoice.firma || "",
+    items,
+    netTotal,
+    vatTotal,
+    grossTotal,
+  };
+}

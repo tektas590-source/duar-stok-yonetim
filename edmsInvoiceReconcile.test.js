@@ -12,6 +12,8 @@ import {
   buildJobFromInvoice,
   buildAdditionalInvoicePatch,
   buildInvoiceReconciliationReport,
+  selectBankoSalesToImport,
+  buildBankoSalePayload,
 } from "./edmsInvoiceReconcile.js";
 import { WORK_ORDER_STATUS } from "./workOrderLifecycle.js";
 
@@ -341,4 +343,48 @@ test("buildInvoiceReconciliationReport: flags enriched-looking jobs with no edms
   const report = buildInvoiceReconciliationReport([noRef, emptyOpen], [], []);
   assert.equal(report.rows.length, 1); // emptyOpen tamamen atlanır
   assert.equal(report.rows[0].status, "no-invoice-ref");
+});
+
+test("selectBankoSalesToImport: dedupes by invoiceNo already in the bankoSales collection", () => {
+  const bankoInvoices = [{ invoiceNo: "5000000002" }, { invoiceNo: "5000000003" }];
+  const { toAdd, alreadyPresent } = selectBankoSalesToImport(bankoInvoices, [{ id: "5000000002", invoiceNo: "5000000002" }]);
+  assert.equal(toAdd.length, 1);
+  assert.equal(toAdd[0].invoiceNo, "5000000003");
+  assert.equal(alreadyPresent.length, 1);
+});
+
+test("buildBankoSalePayload: nets out discount per line, derives VAT from the eDMS-reported gross total", () => {
+  // Gerçek senaryo: eDMS'in "AYLIK GELİR RAPORU"ndaki "Banko Toplam" rakamı
+  // (KDV dahil) ile birebir doğrulanmıştır — bu yüzden grossTotal, satır
+  // bazlı Kdv sütununa değil, doğrudan faturanın kendi toplam satırına
+  // (totalGross) dayanır; netTotal satırlardan hesaplanır, vatTotal farktır.
+  const invoice = {
+    invoiceNo: "5000000002",
+    date: "2026-09-15",
+    firma: "DMR YEDEK PARÇA OTOMOTİV PETROL SAN.TİC.LTD.ŞTİ.",
+    totalGross: 2040,
+    items: [
+      { kind: "Stok", kod: "E1005048", name: "RADYATÖR TEMİZLEYİCİ 300 ML", unitPrice: 170, qty: 10, discountPercent: 0, vatAmount: 340, lineTotal: 1700, grossTotal: 2040 },
+    ],
+  };
+  const payload = buildBankoSalePayload(invoice);
+  assert.equal(payload.invoiceNo, "5000000002");
+  assert.equal(payload.netTotal, 1700);
+  assert.equal(payload.vatTotal, 340);
+  assert.equal(payload.grossTotal, 2040);
+  assert.equal(payload.items.length, 1);
+  assert.equal(payload.items[0].net, 1700);
+});
+
+test("buildBankoSalePayload: applies a per-line discount before summing net", () => {
+  const invoice = {
+    invoiceNo: "X",
+    date: "2026-10-01",
+    firma: "Tedarikçi",
+    totalGross: 1080, // 900 net + %20 KDV
+    items: [{ kind: "Stok", kod: "A", name: "A", unitPrice: 100, qty: 10, discountPercent: 10 }],
+  };
+  const payload = buildBankoSalePayload(invoice);
+  assert.equal(payload.netTotal, 900); // (100*10) - %10
+  assert.equal(payload.vatTotal, 180); // grossTotal - netTotal
 });

@@ -29,7 +29,7 @@ service cloud.firestore {
     }
 
     match /{collection}/{document=**} {
-      allow read, write: if collection in ['parts', 'jobs', 'invoices', 'drafts', 'fitments', 'chat', 'customers', 'personnel', 'appointments', 'notifications', 'returns'] && isAuthorized();
+      allow read, write: if collection in ['parts', 'jobs', 'invoices', 'drafts', 'fitments', 'chat', 'customers', 'personnel', 'appointments', 'notifications', 'returns', 'bankoSales'] && isAuthorized();
     }
   }
 }

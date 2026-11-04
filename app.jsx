@@ -1,11 +1,11 @@
 import React, { useCallback, useEffect, useState, useRef } from "react";
 import { createRoot } from "react-dom/client";
 import "./style.css";
-import { cancelWorkOrder, completeWorkOrder, correctEdmsEnrichmentStock, createMissingEdmsJobs, createPurchaseInvoice, deletePurchaseInvoice, createStockDraft, createWorkOrder, deleteFitment, deleteManualWorkOrders, deleteStaleOpenWorkOrders, deletePart, deletePersonnel, deleteCustomer, deleteAppointment, deleteNotification, deleteReturnItem, enrichEdmsJobsWithInvoiceLines, fetchServiceData, fixKdvDoublingTotals, fixKnownEdmsInvoiceGaps, getPersonnelPerformance, grantUserAccess, importEdmsPurchaseInvoices, importEdmsWorkOrders, listAppointments, listAuthorizedUsers, listCustomers, listNotifications, listPersonnel, listReturns, markNotificationRead, migrateWorkOrderStockPolicy, receiveStockDraft, restorePart, revokeUserAccess, saveAppointment, saveCustomer, saveFitment, savePart, savePersonnel, saveReturnItem, sendChatMessage, subscribeToChat, subscribeToServiceData, togglePartFavorite, undoPlannedEdmsJobStockRestoration, updateAppointmentStatus, updateReturnStatus, updateWorkOrder, adjustStock } from "./data.js";
+import { cancelWorkOrder, completeWorkOrder, correctEdmsEnrichmentStock, createMissingEdmsJobs, createPurchaseInvoice, deletePurchaseInvoice, createStockDraft, createWorkOrder, deleteFitment, deleteManualWorkOrders, deleteStaleOpenWorkOrders, deletePart, deletePersonnel, deleteCustomer, deleteAppointment, deleteNotification, deleteReturnItem, enrichEdmsJobsWithInvoiceLines, fetchServiceData, fixKdvDoublingTotals, fixKnownEdmsInvoiceGaps, getPersonnelPerformance, grantUserAccess, importEdmsBankoSales, importEdmsPurchaseInvoices, importEdmsWorkOrders, listAppointments, listAuthorizedUsers, listCustomers, listNotifications, listPersonnel, listReturns, markNotificationRead, migrateWorkOrderStockPolicy, receiveStockDraft, restorePart, revokeUserAccess, saveAppointment, saveCustomer, saveFitment, savePart, savePersonnel, saveReturnItem, sendChatMessage, subscribeToChat, subscribeToServiceData, togglePartFavorite, undoPlannedEdmsJobStockRestoration, updateAppointmentStatus, updateReturnStatus, updateWorkOrder, adjustStock } from "./data.js";
 import * as XLSX from "xlsx";
 import { parseEdmsWorkOrderReport, selectEdmsRecordsToImport } from "./edmsImport.js";
-import { parseFaturaRaporuReport, splitFaturaRaporuByType } from "./faturaRaporuImport.js";
-import { buildEdmsJobEnrichments, selectPurchaseInvoicesToImport, buildRetroactiveStockCorrection, buildInvoiceReconciliationReport } from "./edmsInvoiceReconcile.js";
+import { parseFaturaRaporuReport, splitFaturaRaporuByType, splitSalesByKaynak } from "./faturaRaporuImport.js";
+import { buildEdmsJobEnrichments, selectPurchaseInvoicesToImport, selectBankoSalesToImport, buildRetroactiveStockCorrection, buildInvoiceReconciliationReport } from "./edmsInvoiceReconcile.js";
 import { selectManualWorkOrders, summarizeManualWorkOrders } from "./manualJobCleanup.js";
 import { selectStaleOpenWorkOrders, selectOpenWorkOrdersNeedingReview, summarizeStaleOpenWorkOrders } from "./staleOpenJobCleanup.js";
 import { selectMissingOctoberJobDefs, summarizeMissingOctoberJobs, buildMissingOctoberJobRecords } from "./missingOctoberJobs.js";
@@ -452,7 +452,13 @@ function App() {
 
   const lowStock = data.parts.filter((part) => part.stock <= part.minimum);
   const revenueEligibleJobs = getRevenueEligibleWorkOrders(data.jobs);
-  const revenue = vatIncludedAmount(revenueEligibleJobs.reduce((sum, job) => sum + Number(job.total || 0), 0));
+  // Kullanıcının isteğiyle: iş emri bazlı ciroya, hiçbir iş emrine bağlı
+  // olmayan eDMS Banko (tezgah) satışları da (KDV dahil, bkz. bankoSales
+  // koleksiyonu) eklenir — Toplam Ciro'nun eDMS'in kendi "Genel Toplam"ıyla
+  // uyuşabilmesi için.
+  const bankoRevenue = (data.bankoSales || []).reduce((sum, sale) => sum + Number(sale.grossTotal || 0), 0);
+  const jobRevenue = vatIncludedAmount(revenueEligibleJobs.reduce((sum, job) => sum + Number(job.total || 0), 0));
+  const revenue = jobRevenue + bankoRevenue;
   useEffect(() => { if (toast) { const timer = setTimeout(() => { setToast(""); setToastAction(null); }, toastAction ? 8000 : 3200); return () => clearTimeout(timer); } }, [toast, toastAction]);
 
   const nav = [
@@ -620,7 +626,7 @@ function App() {
       if (onDone) onDone(result);
     });
   };
-  const persistFaturaRaporuImport = async ({ purchaseRecords, salesRecords }, onDone) => {
+  const persistFaturaRaporuImport = async ({ purchaseRecords, salesRecords, bankoRecords }, onDone) => {
     await runAction(async () => {
       const purchaseResult = purchaseRecords.length
         ? await importEdmsPurchaseInvoices(purchaseRecords, data.invoices, data.parts, user.email)
@@ -634,15 +640,20 @@ function App() {
       const enrichResult = salesRecords.length
         ? await enrichEdmsJobsWithInvoiceLines(freshAfterPurchase.jobs, salesRecords, freshAfterPurchase.parts, user.email)
         : { updated: 0, newParts: 0, warnings: [], ambiguous: [], unmatchedInvoices: [], skippedJobs: [] };
+      const bankoResult = bankoRecords && bankoRecords.length
+        ? await importEdmsBankoSales(bankoRecords, freshAfterPurchase.bankoSales, user.email)
+        : { imported: 0, skipped: 0, sales: [] };
       await reloadData();
       const summary = [
         purchaseResult.imported ? `${purchaseResult.imported} alış faturası (stok güncellendi)` : null,
         purchaseResult.skipped ? `${purchaseResult.skipped} alış faturası zaten vardı` : null,
         enrichResult.updated ? `${enrichResult.updated} iş emrine satır eklendi` : null,
         enrichResult.newParts ? `${enrichResult.newParts} yeni stok kartı önerildi` : null,
+        bankoResult.imported ? `${bankoResult.imported} banko satışı eklendi` : null,
+        bankoResult.skipped ? `${bankoResult.skipped} banko satışı zaten vardı` : null,
       ].filter(Boolean).join(", ");
       setToast(summary || "İçe aktarılacak yeni kayıt bulunamadı.");
-      if (onDone) onDone({ purchaseResult, enrichResult });
+      if (onDone) onDone({ purchaseResult, enrichResult, bankoResult });
     });
   };
   const persistManualJobCleanup = async (jobIds, onDone) => {
@@ -861,7 +872,7 @@ function App() {
         page === "invoices" ? h(Invoices, { invoices: data.invoices, openModal, removeInvoice, saving }) :
         page === "orders" ? h(Orders, { drafts: data.drafts, lowStock, receiveDraft, createDraft }) :
         page === "stockcompare" ? h(StockCompare, { parts: data.parts, openModal }) :
-        page === "edmsimport" ? h(EdmsImport, { jobs: data.jobs, parts: data.parts, invoices: data.invoices, saving, onImport: persistEdmsImport, onImportFaturaRaporu: persistFaturaRaporuImport, onCleanupManualJobs: persistManualJobCleanup, onCleanupStaleOpenJobs: persistStaleOpenJobCleanup, onCreateMissingOctoberJobs: persistMissingOctoberJobs, onCorrectStock: persistStockCorrection, onMigrateStockPolicy: persistStockPolicyMigration, onUndoPlannedEdmsRestoration: persistUndoPlannedEdmsRestoration, onFixInvoiceGaps: persistInvoiceGapFixes, onFixKdvDoubling: persistKdvDoublingFix }) :
+        page === "edmsimport" ? h(EdmsImport, { jobs: data.jobs, parts: data.parts, invoices: data.invoices, bankoSales: data.bankoSales, saving, onImport: persistEdmsImport, onImportFaturaRaporu: persistFaturaRaporuImport, onCleanupManualJobs: persistManualJobCleanup, onCleanupStaleOpenJobs: persistStaleOpenJobCleanup, onCreateMissingOctoberJobs: persistMissingOctoberJobs, onCorrectStock: persistStockCorrection, onMigrateStockPolicy: persistStockPolicyMigration, onUndoPlannedEdmsRestoration: persistUndoPlannedEdmsRestoration, onFixInvoiceGaps: persistInvoiceGapFixes, onFixKdvDoubling: persistKdvDoublingFix }) :
         page === "returns" ? h(ReturnsPage, { returns: data.returns, openModal, saving }) :
         page === "chat" ? h(ChatPage, { messages: chatMessages, user, sendMessage: async (text) => { await sendChatMessage(user.email, user.displayName, text); }, saving, configured: firebaseConfigured }) :
         page === "servicebox" ? h(ServiceBoxPage) :
@@ -878,7 +889,7 @@ function App() {
         page === "appointments" ? h(AppointmentsPage, { appointments: data.appointments, customers: data.customers, personnel: data.personnel, jobs: data.jobs, openModal, saving }) :
         page === "notifications" ? h(NotificationsPage, { notifications: data.notifications, openModal, saving }) :
         page === "backup" ? h(BackupPage, { data }) :
-        h(Reports, { data, revenue })
+        h(Reports, { data, revenue, bankoRevenue })
       )
     ),
     globalSearchOpen ? h("div", { className: "global-search-overlay", onClick: () => setGlobalSearchOpen(false) },
@@ -1228,7 +1239,7 @@ function Dashboard({ data, lowStock, revenue, setPage, openModal, createDraft, o
   const openJobs = getOpenWorkOrders(data.jobs).length;
   const recentJobs = [...data.jobs].sort((first, second) => (second.updatedAt || second.date || "").localeCompare(first.updatedAt || first.date || "")).slice(0, 5);
   const metrics = [
-    { label: "Toplam ciro", value: money(revenue), caption: "Parça + işçilik · KDV dahil", onClick: onOpenTotalCiro || (() => setPage("reports")), title: "Ciro raporlarını görüntüle" },
+    { label: "Toplam ciro", value: money(revenue), caption: "Parça + işçilik + banko · KDV dahil", onClick: onOpenTotalCiro || (() => setPage("reports")), title: "Ciro raporlarını görüntüle" },
     { label: "Açık iş emirleri", value: String(openJobs).padStart(2, "0"), caption: "Devam eden işler", onClick: onOpenOpenJobs || openWorkOrderList, title: "Devam eden iş emirlerini listele" },
     { label: "Envanter kalemi", value: String(data.parts.length).padStart(2, "0"), caption: `${data.parts.reduce((sum, part) => sum + Number(part.stock || 0), 0)} toplam adet`, onClick: onOpenInventory || (() => setPage("inventory")), title: "Tüm envanteri görüntüle" },
     { label: "Kritik stok", value: String(lowStock.length).padStart(2, "0"), caption: "Minimum seviyede veya altında", onClick: openCriticalInventory, title: "Kritik stoktaki parçaları filtrele" },
@@ -1786,14 +1797,15 @@ function Orders({ drafts, lowStock, receiveDraft, createDraft }) {
     drafts.length ? h("div", { className: "draft-grid" }, draftCards) : empty
   );
 }
-function Reports({ data, revenue }) {
+function Reports({ data, revenue, bankoRevenue = 0 }) {
   const partsWithSales = computePartSalesFromJobs(data.jobs, data.parts);
   const best = [...partsWithSales].sort((a, b) => b.sold - a.sold);
   const total = partsWithSales.reduce((sum, part) => sum + part.sold, 0);
   const cogs = vatIncludedAmount(getRevenueEligibleWorkOrders(data.jobs).reduce((sum, job) => sum + job.items.reduce((subtotal, item) => subtotal + (data.parts.find((part) => part.id === item.partId)?.cost || 0) * item.qty, 0), 0));
   const max = Math.max(...best.map((part) => part.sold), 1);
   return h(React.Fragment, null, h("div", { className: "metric-grid report-metrics" },
-    h(ReportMetric, { label: "Toplam ciro", value: money(revenue), caption: "KDV dahil · kaydedilen iş emirleri", icon: "chart", color: "green" }),
+    h(ReportMetric, { label: "Toplam ciro", value: money(revenue), caption: "KDV dahil · iş emirleri + banko satışları", icon: "chart", color: "green" }),
+    h(ReportMetric, { label: "Banko satışları", value: money(bankoRevenue), caption: "KDV dahil · iş emrine bağlı olmayan tezgah satışları (eDMS)", icon: "box", color: "orange" }),
     h(ReportMetric, { label: "Parça satış adedi", value: total, caption: "İş emirlerinde kullanılan toplam parça", icon: "box", color: "blue" }),
     h(ReportMetric, { label: "Tahmini parça maliyeti", value: money(cogs), caption: "KDV dahil · güncel alış fiyatları", icon: "receipt", color: "purple" })
   ), h("section", { className: "panel report-panel" }, h("div", { className: "panel-heading" }, h("div", null, h("h2", null, "En çok satan parçalar"), h("p", null, "Satış adetlerine göre sıralama · tüm dönemler")), h("span", { className: "report-period" }, "Tüm dönemler")), h("div", { className: "report-bars" }, best.map((part, index) => h("div", { className: "report-bar-row", key: part.id }, h("span", { className: "rank-number" }, `0${index + 1}`), h("span", { className: "report-part-name" }, part.name), h("div", { className: "bar-track" }, h("div", { className: `bar-fill bar-${index % 4 + 1}`, style: { width: `${Math.max(5, part.sold / max * 100)}%` } })), h("strong", null, `${part.sold} adet`))))), h("section", { className: "report-note" }, h("span", { className: "note-dot" }), "Raporlar, kaydettiğiniz iş emirleri ve envanter hareketlerine göre anlık güncellenir."));
@@ -2884,7 +2896,7 @@ function StockPolicyMigrationPanel({ jobs = [], parts = [], onMigrate, saving })
   );
 }
 
-function EdmsImport({ jobs = [], parts = [], invoices = [], saving, onImport, onImportFaturaRaporu, onCleanupManualJobs, onCleanupStaleOpenJobs, onCreateMissingOctoberJobs, onCorrectStock, onMigrateStockPolicy, onUndoPlannedEdmsRestoration, onFixInvoiceGaps, onFixKdvDoubling }) {
+function EdmsImport({ jobs = [], parts = [], invoices = [], bankoSales = [], saving, onImport, onImportFaturaRaporu, onCleanupManualJobs, onCleanupStaleOpenJobs, onCreateMissingOctoberJobs, onCorrectStock, onMigrateStockPolicy, onUndoPlannedEdmsRestoration, onFixInvoiceGaps, onFixKdvDoubling }) {
   const [fileName, setFileName] = useState("");
   const [loading, setLoading] = useState(false);
   const [parseErrors, setParseErrors] = useState([]);
@@ -3032,14 +3044,14 @@ function EdmsImport({ jobs = [], parts = [], invoices = [], saving, onImport, on
     ) : null,
 
     h("hr", { style: { margin: "28px 0" } }),
-    h(FaturaRaporuImport, { jobs, parts, invoices, saving, onImport: onImportFaturaRaporu, onFixInvoiceGaps })
+    h(FaturaRaporuImport, { jobs, parts, invoices, bankoSales, saving, onImport: onImportFaturaRaporu, onFixInvoiceGaps })
   );
 }
 
 // eDMS "Fatura Raporu" (WDMR010, Form: FATURA RAPORU(DETAY)) Excel çıktısını
 // yükler; Satın Alma faturalarını (stok güncelleyerek) ve Satış faturalarının
 // parça/işçilik satırlarını (kapsamdaki iş emirlerine ekleyerek) önizler.
-function FaturaRaporuImport({ jobs = [], parts = [], invoices = [], saving, onImport, onFixInvoiceGaps }) {
+function FaturaRaporuImport({ jobs = [], parts = [], invoices = [], bankoSales = [], saving, onImport, onFixInvoiceGaps }) {
   const [fileName, setFileName] = useState("");
   const [loading, setLoading] = useState(false);
   const [parseErrors, setParseErrors] = useState([]);
@@ -3063,13 +3075,20 @@ function FaturaRaporuImport({ jobs = [], parts = [], invoices = [], saving, onIm
       const { invoices: parsedInvoices, errors } = parseFaturaRaporuReport(rows);
       setParseErrors(errors);
       const { sales, purchases } = splitFaturaRaporuByType(parsedInvoices);
+      // "Kaynak: YP Banko" olan satışlar hiçbir iş emrine/araca bağlı olmadığı
+      // için normal eşleştirmeye hiç girmez (her zaman "eşleşmeyen" çıkardı);
+      // bunlar ayrı bir akışla (bankoSales koleksiyonu) takip edilir.
+      const { banko, servis } = splitSalesByKaynak(sales);
       const { toAdd: purchasesToAdd, alreadyPresent: purchasesSkipped } = selectPurchaseInvoicesToImport(purchases, invoices);
-      const enrichmentPreview = buildEdmsJobEnrichments(jobs, sales, parts);
+      const { toAdd: bankoToAdd, alreadyPresent: bankoSkipped } = selectBankoSalesToImport(banko, bankoSales);
+      const enrichmentPreview = buildEdmsJobEnrichments(jobs, servis, parts);
       setPreview({
         purchasesToAdd,
         purchasesSkipped,
         enrichmentPreview,
-        salesRecords: sales,
+        salesRecords: servis,
+        bankoToAdd,
+        bankoSkipped,
       });
     } catch (error) {
       console.error("Fatura Raporu Excel okuma hatası:", error);
@@ -3092,7 +3111,7 @@ function FaturaRaporuImport({ jobs = [], parts = [], invoices = [], saving, onIm
     // enrichEdmsJobsWithInvoiceLines (data.js) eşleştirmeyi kendi içinde
     // yeniden çalıştırır; burada sadece ayrıştırılmış ham satış faturası
     // listesinin TAMAMINI iletiyoruz (önizlemedeki eşleşme sonucu değil).
-    await onImport({ purchaseRecords: preview.purchasesToAdd, salesRecords: preview.salesRecords }, (res) => setResult(res));
+    await onImport({ purchaseRecords: preview.purchasesToAdd, salesRecords: preview.salesRecords, bankoRecords: preview.bankoToAdd }, (res) => setResult(res));
   }
 
   async function handleFixGaps() {
@@ -3126,7 +3145,7 @@ function FaturaRaporuImport({ jobs = [], parts = [], invoices = [], saving, onIm
     h("div", { className: "compare-header-row" },
       h("div", null,
         h("h2", null, "Fatura Raporu (Alış + Satış) İçe Aktar"),
-        h("p", null, "EUROREPAR eDMS'teki \"Fatura Raporu\" (WDMR010) çıktısını yükleyin: Satın Alma faturaları stoğu güncelleyerek içe aktarılır; Satış faturalarının parça/işçilik satırları, kapalı iş emirlerine ve 01.10.2026 sonrası açık iş emirlerine eklenir.")
+        h("p", null, "EUROREPAR eDMS'teki \"Fatura Raporu\" (WDMR010) çıktısını yükleyin: Satın Alma faturaları stoğu güncelleyerek içe aktarılır; Satış faturalarının parça/işçilik satırları, kapalı iş emirlerine ve 01.10.2026 sonrası açık iş emirlerine eklenir; \"Kaynak: YP Banko\" olan (iş emrine bağlı olmayan tezgah) satışlar ise ayrıca kaydedilip Raporlar sayfasındaki Toplam Ciro'ya eklenir.")
       ),
       (preview || fileName) ? h("button", {
         className: "button button-secondary button-small",
@@ -3177,6 +3196,16 @@ function FaturaRaporuImport({ jobs = [], parts = [], invoices = [], saving, onIm
           h("span", { className: "compare-metric-label" }, "Eşleşmeyen Satış Faturası"),
           h("strong", { className: "compare-metric-num" }, preview.enrichmentPreview.unmatchedInvoices.length),
           h("span", { className: "compare-metric-sub" }, "İş emriyle ilişkilendirilemedi")
+        ),
+        h("div", { className: "compare-metric-card is-missing-system" },
+          h("span", { className: "compare-metric-label" }, "Eklenecek Banko Satışı"),
+          h("strong", { className: "compare-metric-num" }, preview.bankoToAdd.length),
+          h("span", { className: "compare-metric-sub" }, "İş emrine bağlı değil, Raporlar'a eklenecek")
+        ),
+        h("div", { className: "compare-metric-card is-matched" },
+          h("span", { className: "compare-metric-label" }, "Zaten İçe Aktarılmış Banko"),
+          h("strong", { className: "compare-metric-num" }, preview.bankoSkipped.length),
+          h("span", { className: "compare-metric-sub" }, "Fatura no eşleşti, atlanacak")
         )
       ),
 
@@ -3246,15 +3275,16 @@ function FaturaRaporuImport({ jobs = [], parts = [], invoices = [], saving, onIm
       h("div", { style: { marginTop: "16px" } },
         h("button", {
           className: "button button-primary",
-          disabled: saving || (!preview.purchasesToAdd.length && !preview.enrichmentPreview.enrichments.length),
+          disabled: saving || (!preview.purchasesToAdd.length && !preview.enrichmentPreview.enrichments.length && !preview.bankoToAdd.length),
           type: "button",
           onClick: handleConfirm,
-        }, saving ? "Aktarılıyor…" : "Alış Faturalarını ve İş Emri Satırlarını İçe Aktar")
+        }, saving ? "Aktarılıyor…" : "Alış Faturalarını, İş Emri Satırlarını ve Banko Satışlarını İçe Aktar")
       ),
 
       result ? h("p", { className: "form-notice", role: "status" },
         `${result.purchaseResult.imported} alış faturası içe aktarıldı, ${result.enrichResult.updated} iş emrine satır eklendi` +
-        (result.enrichResult.newParts ? `, ${result.enrichResult.newParts} yeni stok kartı oluşturuldu` : "") + "."
+        (result.enrichResult.newParts ? `, ${result.enrichResult.newParts} yeni stok kartı oluşturuldu` : "") +
+        (result.bankoResult && result.bankoResult.imported ? `, ${result.bankoResult.imported} banko satışı eklendi` : "") + "."
       ) : null,
 
       gapsPending.length > 0 ? h("div", { style: { marginTop: "28px", borderTop: "1px solid rgba(255,255,255,0.08)", paddingTop: "20px" } },

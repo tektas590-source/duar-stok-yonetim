@@ -197,3 +197,19 @@ export function splitFaturaRaporuByType(invoices) {
   });
   return { sales, purchases, returns, other };
 }
+
+// Kullanıcının isteğiyle: satış faturaları arasında "Kaynak: YP Banko" olanlar
+// (eDMS'in kendi "AYLIK GELİR RAPORU"nda da ayrı bir "BANKO" toplamı olarak
+// gösterdiği, hiçbir iş emrine/araca bağlı olmayan tezgah/parça-counter
+// satışları) hiçbir zaman bir iş emriyle eşleşmez — Açıklama alanında şasi/
+// plaka bilgisi taşımazlar. Bunları normal "Servis" kaynaklı satışlardan
+// ayırıp ayrı bir akışla (bankoSales koleksiyonu, bkz. data.js) takip ediyoruz.
+export function splitSalesByKaynak(sales) {
+  const banko = [];
+  const servis = [];
+  (sales || []).forEach((invoice) => {
+    if (String(invoice.kaynak || "").trim() === "YP Banko") banko.push(invoice);
+    else servis.push(invoice);
+  });
+  return { banko, servis };
+}
