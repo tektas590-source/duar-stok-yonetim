@@ -14,7 +14,7 @@ import {
 import { resolveBusinessDate } from "./businessDate.js";
 import { aggregateWorkOrderQuantities, calculateWorkOrderQuantityDeltas, calculateWorkOrderReversal } from "./workOrderInventory.js";
 import { selectEdmsRecordsToImport } from "./edmsImport.js";
-import { buildEdmsJobEnrichments, selectPurchaseInvoicesToImport, buildPurchaseInvoicePayload, buildRetroactiveStockCorrection, buildJobFromInvoice, buildAdditionalInvoicePatch } from "./edmsInvoiceReconcile.js";
+import { buildEdmsJobEnrichments, selectPurchaseInvoicesToImport, buildPurchaseInvoicePayload, buildRetroactiveStockCorrection, buildJobFromInvoice, buildAdditionalInvoicePatch, selectBankoSalesToImport, buildBankoSalePayload } from "./edmsInvoiceReconcile.js";
 import { selectManualWorkOrders } from "./manualJobCleanup.js";
 import { selectStaleOpenWorkOrders } from "./staleOpenJobCleanup.js";
 import { selectMissingOctoberJobDefs, buildMissingOctoberJobRecords } from "./missingOctoberJobs.js";
@@ -23,7 +23,7 @@ import { calculateWorkOrderNetTotal, normalizeLaborAmount, normalizeDiscount } f
 import { db, OWNER_EMAIL } from "./firebase.js";
 
 const COLLECTIONS = ["parts", "jobs", "invoices", "drafts"];
-const OPTIONAL_COLLECTIONS = ["fitments", "chat", "customers", "personnel", "appointments", "notifications", "returns"];
+const OPTIONAL_COLLECTIONS = ["fitments", "chat", "customers", "personnel", "appointments", "notifications", "returns", "bankoSales"];
 
 function requireDatabase() {
   if (!db) throw new Error("Sunucu bağlantısı kurulamadı. Lütfen sayfayı yenileyip tekrar deneyin.");
@@ -1260,6 +1260,28 @@ export async function importEdmsPurchaseInvoices(purchaseRecords, existingInvoic
     }
   }
   return { imported: imported.length, skipped: alreadyPresent.length, failed, warnings, invoices: imported };
+}
+
+// eDMS "Fatura Raporu"ndaki, "Kaynak: YP Banko" olan (hiçbir iş emrine/araca
+// bağlı olmayan tezgah/parça-counter) satış faturalarını `bankoSales`
+// koleksiyonuna yazar. Fatura no (invoiceNo) doküman id'si olarak kullanılır,
+// bu yüzden aynı rapor tekrar yüklenirse hiçbir kayıt ikinci kez eklenmez
+// (idempotent) — iş emri satırlarını güncellemez, stok düşmez.
+export async function importEdmsBankoSales(bankoRecords, existingBankoSales, actor) {
+  const database = requireDatabase();
+  const { toAdd, alreadyPresent } = selectBankoSalesToImport(bankoRecords, existingBankoSales);
+  if (!toAdd.length) return { imported: 0, skipped: alreadyPresent.length, sales: [] };
+  const now = new Date().toISOString();
+  const createdSales = toAdd.map((record) => {
+    const payload = buildBankoSalePayload(record);
+    return { id: payload.invoiceNo, ...payload, importedAt: now, actor: actor || "" };
+  });
+  for (const group of chunk(createdSales, 400)) {
+    const batch = writeBatch(database);
+    group.forEach((sale) => batch.set(doc(database, "bankoSales", sale.id), sale));
+    await batch.commit();
+  }
+  return { imported: createdSales.length, skipped: alreadyPresent.length, sales: createdSales };
 }
 
 // eDMS "Fatura Raporu"ndaki Satış faturalarının parça/işçilik satırlarını,

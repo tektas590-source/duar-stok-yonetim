@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { parseFaturaRaporuReport, splitFaturaRaporuByType } from "./faturaRaporuImport.js";
+import { parseFaturaRaporuReport, splitFaturaRaporuByType, splitSalesByKaynak } from "./faturaRaporuImport.js";
 
 // Aşağıdaki satırlar, gerçek eDMS "Fatura Raporu" (WDMR010) Excel çıktısından
 // (sheet_to_json(sheet, { header: 1 }) formatında) birebir alınmıştır: iki tam
@@ -47,6 +47,20 @@ const PURCHASE_BLOCK_ROWS = [
   ["Stok/Hizmet", null, "Kod", null, null, null, null, "Açıklama", null, null, null, null, "İndex", "Birim Fiyat", null, null, "Miktar", null, "İskonto(%)", "Kdv (%)", null, "Toplam", "İskonto", "Kdv", "Fatura Tutarı", null],
   ["Stok", null, "LTR1610725580OEM", null, null, null, null, "FREN HIDROLIK YAĞI DOT4 500 ML", null, null, null, null, null, "291.67", null, null, "10.0", null, "20.0", "20.0", null, "2916.7", "583.34", "466.67", "2800.0299999999997"],
   [null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, "10.0", null, null, null, null, "2916.7", "583.34", "466.67", "2800.0299999999997"],
+];
+
+// Gerçek eDMS Fatura Raporu'ndan: "Kaynak: YP Banko" olan, hiçbir araç/iş
+// emri bilgisi taşımayan bir tezgah satışı (5000000002).
+const BANKO_SALE_BLOCK_ROWS = [
+  ["Tarih/No:", null, "2026-09-15T00:00:00.000", null, null, "/", "5000000002"],
+  ["Vade:", null, "2026-09-15T00:00:00.000"],
+  ["Firma:", null, "DMR YEDEK PARÇA OTOMOTİV PETROL SAN.TİC.LTD.ŞTİ."],
+  ["Açıklama:", null, null],
+  ["Tip:", null, "Satış"],
+  ["Kaynak:", null, "YP Banko"],
+  ["Stok/Hizmet", null, "Kod", null, null, null, null, "Açıklama", null, null, null, null, "İndex", "Birim Fiyat", null, null, "Miktar", null, "İskonto(%)", "Kdv (%)", null, "Toplam", "İskonto", "Kdv", "Fatura Tutarı", null],
+  ["Stok", null, "E1005048", null, null, null, null, "RADYATÖR TEMİZLEYİCİ 300 ML", null, null, null, null, null, "170.0", null, null, "10.0", null, null, "20.0", null, "1700.0", "0", "340.0", "2040.0"],
+  [null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, "10.0", null, null, null, null, "1700.0", "0.0", "340.0", "2040.0"],
 ];
 
 const NOTE_ONLY_BLOCK_ROWS = [
@@ -143,4 +157,18 @@ test("splitFaturaRaporuByType groups by Tip", () => {
   assert.equal(purchases.length, 1);
   assert.equal(returns.length, 0);
   assert.equal(other.length, 0);
+});
+
+test("splitSalesByKaynak separates YP Banko (tezgah) sales from Servis sales", () => {
+  // Gerçek senaryo: "YP Banko" kaynaklı satışlar hiçbir iş emrine/araca bağlı
+  // değildir (Açıklama alanı boş/şasi-plaka içermez) ve bu yüzden normal
+  // eşleştirmeye hiç girmemeli — ayrı bir akışla (bankoSales) takip edilir.
+  const servisSales = parseFaturaRaporuReport(SALE_BLOCK_ROWS).invoices;
+  const bankoSales = parseFaturaRaporuReport(BANKO_SALE_BLOCK_ROWS).invoices;
+  const { sales } = splitFaturaRaporuByType([...servisSales, ...bankoSales]);
+  const { banko, servis } = splitSalesByKaynak(sales);
+  assert.equal(banko.length, 1);
+  assert.equal(banko[0].invoiceNo, "5000000002");
+  assert.equal(servis.length, 2);
+  assert.deepEqual(servis.map((s) => s.invoiceNo), ["5001000012", "5001000013"]);
 });
