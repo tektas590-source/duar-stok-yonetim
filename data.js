@@ -19,7 +19,7 @@ import { selectManualWorkOrders } from "./manualJobCleanup.js";
 import { selectStaleOpenWorkOrders } from "./staleOpenJobCleanup.js";
 import { selectMissingOctoberJobDefs, buildMissingOctoberJobRecords } from "./missingOctoberJobs.js";
 import { buildPlannedEdmsJobStockRestorationUndo, buildWorkOrderStockPolicyMigration, WORK_ORDER_STATUS } from "./workOrderLifecycle.js";
-import { calculateWorkOrderNetTotal, normalizeLaborAmount, normalizeDiscount } from "./workOrderPricing.js";
+import { calculateWorkOrderNetTotal, calculateWorkOrderPriceBreakdown, normalizeLaborAmount, normalizeDiscount } from "./workOrderPricing.js";
 import { db, OWNER_EMAIL } from "./firebase.js";
 
 const COLLECTIONS = ["parts", "jobs", "invoices", "drafts"];
@@ -1260,6 +1260,116 @@ export async function importEdmsPurchaseInvoices(purchaseRecords, existingInvoic
     }
   }
   return { imported: imported.length, skipped: alreadyPresent.length, failed, warnings, invoices: imported };
+}
+
+// Kullanıcının elle, iş emri açmadan girdiği tek seferlik satış (parça +
+// opsiyonel işçilik). İş emri kayıtlarının aksine "Devam ediyor" durumu
+// yoktur: kaydedildiği anda stok düşülür ve `bankoSales` koleksiyonuna bir
+// kayıt eklenir (Toplam Ciro'ya eDMS Banko satışlarıyla aynı şekilde dahil
+// olur). Hangi araca kullanıldığını not etmek isteyen kullanıcılar için
+// plaka/marka/model alanları opsiyoneldir.
+export async function createManualBankoSale(payload, actor) {
+  const database = requireDatabase();
+  const businessDate = resolveBusinessDate(payload.date);
+  const items = Array.isArray(payload.items) ? payload.items : [];
+  if (!items.length) throw new Error("Satışa en az bir parça eklenmelidir.");
+  items.forEach((item) => {
+    if (!item.partId || !Number.isInteger(Number(item.qty)) || Number(item.qty) <= 0) {
+      throw new Error("Satış satırındaki parça veya adet geçersiz.");
+    }
+  });
+
+  const laborAmount = normalizeLaborAmount(payload.laborAmount);
+  const externalLabor = Array.isArray(payload.externalLabor) ? payload.externalLabor : [];
+  const laborDiscount = normalizeDiscount({ type: payload.laborDiscountType, value: payload.laborDiscountValue });
+
+  const quantities = new Map(); // partId -> toplam adet
+  items.forEach((item) => quantities.set(item.partId, (quantities.get(item.partId) || 0) + Number(item.qty)));
+  const partIds = [...quantities.keys()];
+  const partReferences = partIds.map((id) => doc(database, "parts", id));
+
+  const saleId = makeId();
+  const saleReference = doc(database, "bankoSales", saleId);
+  const code = nextCode("SAT");
+
+  let record;
+  const warnings = [];
+
+  await runTransaction(database, async (transaction) => {
+    const snapshots = await Promise.all(partReferences.map((reference) => transaction.get(reference)));
+    const partsById = new Map(snapshots.map((snapshot) => [snapshot.id, snapshot.exists() ? snapshot.data() : null]));
+    for (const partId of partIds) {
+      if (!partsById.get(partId)) throw new Error("Satıştaki bir parça envanterde bulunamadı.");
+    }
+
+    const savedItems = items.map((item) => {
+      const part = partsById.get(item.partId);
+      const unitPrice = Number.isFinite(Number(item.price)) ? Number(item.price) : Number(part.price) || 0;
+      return {
+        partId: item.partId,
+        sku: part.sku,
+        name: part.name,
+        qty: Number(item.qty),
+        price: unitPrice,
+        discountType: item.discountType || "none",
+        discountValue: Number(item.discountValue) || 0,
+      };
+    });
+
+    const priceItems = savedItems.map((item) => ({ qty: item.qty, price: item.price, discountType: item.discountType, discountValue: item.discountValue }));
+    const externalLaborForPricing = externalLabor.map((el) => ({ cost: Number(el.cost) || 0, price: Number(el.price) || 0 }));
+    let breakdown;
+    try {
+      breakdown = calculateWorkOrderPriceBreakdown(priceItems, laborAmount, externalLaborForPricing, laborDiscount);
+    } catch (pricingError) {
+      throw new Error(pricingError.message || "Satış tutarları geçersiz.");
+    }
+
+    quantities.forEach((qty, partId) => {
+      const part = partsById.get(partId);
+      const stockBefore = Number(part.stock || 0);
+      const stockAfter = Math.max(0, stockBefore - qty);
+      if (stockBefore - qty < 0) {
+        warnings.push(`${part.sku || partId} için satılan miktar (${qty}) mevcut stoktan (${stockBefore}) fazla; stok 0'da sabitlendi.`);
+      }
+      transaction.update(doc(database, "parts", partId), { stock: stockAfter, sold: (Number(part.sold) || 0) + qty });
+      writeMovement(transaction, database, { id: partId, name: part.name, sku: part.sku }, {
+        qty: -qty,
+        type: "Banko satışı",
+        reference: "banko",
+        referenceCode: code,
+        actor,
+        stockBefore,
+        stockAfter,
+        date: businessDate,
+      });
+    });
+
+    record = {
+      id: saleId,
+      invoiceNo: code,
+      code,
+      date: businessDate,
+      firma: String(payload.customer || "").trim(),
+      plate: String(payload.plate || "").trim(),
+      make: String(payload.make || "").trim(),
+      model: String(payload.model || "").trim(),
+      items: savedItems.map((item) => ({ kind: "part", kod: item.sku, name: item.name, qty: item.qty, unitPrice: item.price, discountType: item.discountType, discountValue: item.discountValue })),
+      laborAmount,
+      externalLabor,
+      laborDiscountType: laborDiscount.type,
+      laborDiscountValue: laborDiscount.value,
+      netTotal: breakdown.subtotal,
+      vatTotal: breakdown.vat,
+      grossTotal: breakdown.total,
+      manualEntry: true,
+      actor: actor || "",
+      createdAt: new Date().toISOString(),
+    };
+    transaction.set(saleReference, record);
+  });
+
+  return { sale: record, warnings };
 }
 
 // eDMS "Fatura Raporu"ndaki, "Kaynak: YP Banko" olan (hiçbir iş emrine/araca

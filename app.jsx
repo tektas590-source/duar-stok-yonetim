@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState, useRef } from "react";
 import { createRoot } from "react-dom/client";
 import "./style.css";
-import { cancelWorkOrder, completeWorkOrder, createMissingEdmsJobs, createPurchaseInvoice, deletePurchaseInvoice, createStockDraft, createWorkOrder, deleteFitment, deleteManualWorkOrders, deleteStaleOpenWorkOrders, deletePart, deletePersonnel, deleteCustomer, deleteAppointment, deleteNotification, deleteReturnItem, enrichEdmsJobsWithInvoiceLines, fetchServiceData, fixKdvDoublingTotals, fixKnownEdmsInvoiceGaps, getPersonnelPerformance, grantUserAccess, importEdmsBankoSales, importEdmsPurchaseInvoices, importEdmsWorkOrders, listAppointments, listAuthorizedUsers, listCustomers, listNotifications, listPersonnel, listReturns, markNotificationRead, receiveStockDraft, restorePart, revokeUserAccess, saveAppointment, saveCustomer, saveFitment, savePart, savePersonnel, saveReturnItem, sendChatMessage, subscribeToChat, subscribeToServiceData, togglePartFavorite, undoPlannedEdmsJobStockRestoration, updateAppointmentStatus, updateReturnStatus, updateWorkOrder, adjustStock } from "./data.js";
+import { cancelWorkOrder, completeWorkOrder, createManualBankoSale, createMissingEdmsJobs, createPurchaseInvoice, deletePurchaseInvoice, createStockDraft, createWorkOrder, deleteFitment, deleteManualWorkOrders, deleteStaleOpenWorkOrders, deletePart, deletePersonnel, deleteCustomer, deleteAppointment, deleteNotification, deleteReturnItem, enrichEdmsJobsWithInvoiceLines, fetchServiceData, fixKdvDoublingTotals, fixKnownEdmsInvoiceGaps, getPersonnelPerformance, grantUserAccess, importEdmsBankoSales, importEdmsPurchaseInvoices, importEdmsWorkOrders, listAppointments, listAuthorizedUsers, listCustomers, listNotifications, listPersonnel, listReturns, markNotificationRead, receiveStockDraft, restorePart, revokeUserAccess, saveAppointment, saveCustomer, saveFitment, savePart, savePersonnel, saveReturnItem, sendChatMessage, subscribeToChat, subscribeToServiceData, togglePartFavorite, undoPlannedEdmsJobStockRestoration, updateAppointmentStatus, updateReturnStatus, updateWorkOrder, adjustStock } from "./data.js";
 import * as XLSX from "xlsx";
 import { parseEdmsWorkOrderReport, selectEdmsRecordsToImport } from "./edmsImport.js";
 import { parseFaturaRaporuReport, splitFaturaRaporuByType, splitSalesByKaynak } from "./faturaRaporuImport.js";
@@ -322,6 +322,7 @@ function App() {
   const [authNotice, setAuthNotice] = useState("");
   const [page, setPage] = useState("dashboard");
   const [modal, setModal] = useState(null);
+  const [showSaleModal, setShowSaleModal] = useState(false);
   const [query, setQuery] = useState("");
   const [inventoryFilterIntent, setInventoryFilterIntent] = useState(null);
   const [workOrderSelectionIntent, setWorkOrderSelectionIntent] = useState(null);
@@ -592,6 +593,14 @@ function App() {
       ? (job.status === JOB_STATUS_COMPLETED ? "İş emri güncellendi ve tamamlandı; parçalar stoktan düşüldü." : "İş emri güncellendi.")
       : "İş emri oluşturuldu. İş emri açık kaldığı sürece stok düşülmez; \"Tamamlandı\" olarak işaretlendiğinde parçalar stoktan düşülür.");
   };
+  const persistManualSale = async (sale) => {
+    await runAction(async () => {
+      const result = await createManualBankoSale(sale, user.email);
+      await reloadData();
+      setShowSaleModal(false);
+      setToast(`Satış kaydedildi (${result.sale.code}).` + (result.warnings.length ? ` ${result.warnings.length} uyarı: ${result.warnings[0]}` : ""));
+    });
+  };
   const persistInvoice = async (invoice) => {
     const isEditing = Boolean(invoice.id);
     await runAction(async () => { await createPurchaseInvoice(invoice, user.email, isEditing ? invoice.id : null); await reloadData(); setModal(null); }, isEditing ? "Fatura güncellendi, stok hareketleri düzeltildi." : "Fatura kaydedildi, stoklar ve hareket geçmişi güncellendi.");
@@ -818,7 +827,10 @@ function App() {
       h("section", { className: "page-content", key: page },
         h("div", { className: "page-heading" }, h("div", null, h("p", { className: "eyebrow" }, business.fullName.toLocaleUpperCase("tr")), h("h1", null, titles[page][0]), h("p", { className: "page-subtitle" }, titles[page][1])), h("div", { className: "heading-actions" },
           page === "dashboard" ? h("button", { className: "button button-primary", onClick: () => openModal("job"), disabled: saving }, h(Icon, { name: "plus", size: 16 }), "Yeni iş emri") :
-          page === "inventory" ? h("button", { className: "button button-primary", onClick: () => openModal("part"), disabled: saving }, h(Icon, { name: "plus", size: 16 }), "Parça ekle") :
+          page === "inventory" ? h(React.Fragment, null,
+            h("button", { className: "button button-primary", onClick: () => setShowSaleModal(true), disabled: saving }, h(Icon, { name: "plus", size: 16 }), "Satış"),
+            h("button", { className: "button button-quiet", onClick: () => openModal("part"), disabled: saving }, h(Icon, { name: "plus", size: 16 }), "Parça ekle")
+          ) :
           page === "workorders" ? h("button", { className: "button button-primary", onClick: () => openModal("job"), disabled: saving }, h(Icon, { name: "plus", size: 16 }), "İş emri oluştur") :
           page === "invoices" ? h("button", { className: "button button-primary", onClick: () => openModal("invoice"), disabled: saving }, h(Icon, { name: "plus", size: 16 }), "Fatura ekle") :
           page === "orders" ? h("button", { className: "button button-primary", onClick: createDraft, disabled: saving }, h(Icon, { name: "plus", size: 16 }), "Sipariş taslağı oluştur") :
@@ -912,6 +924,7 @@ function App() {
       )
     ) : null,
     modal ? h(Modal, { modal, parts: data.parts, customers: data.customers, personnel: data.personnel, onClose: () => setModal(null), onSavePart: persistPart, onSaveJob: persistJob, onSaveInvoice: persistInvoice, onSaveFitment: persistFitment, onSaveCustomer: persistCustomer, onSavePersonnel: persistPersonnel, onSaveAppointment: persistAppointment, onSaveNotification: persistNotification, onSaveReturnItem: persistReturnItem, saving }) : null,
+    showSaleModal ? h(SaleModal, { parts: data.parts, onClose: () => setShowSaleModal(false), onSave: persistManualSale, saving }) : null,
     errorMessage ? h("div", { className: "toast toast-error", role: "alert" }, h("span", { className: "toast-check" }, "!"), errorMessage) : toast ? h("div", { className: "toast" }, h("span", { className: "toast-check" }, "✓"), toast, toastAction ? h("button", { className: "toast-action", onClick: () => toastAction.run().catch((error) => { console.error("Geri alma başarısız:", error); setErrorMessage(error.message || "Geri alma tamamlanamadı."); }) }, toastAction.label) : null) : null,
     h(AIAssistant, { personnel: data.personnel, customers: data.customers, appointments: data.appointments, parts: data.parts, jobs: data.jobs })
   );
@@ -3757,6 +3770,187 @@ function Modal({ modal, parts, customers, personnel, onClose, onSavePart, onSave
       h("div", { className: "modal-footer" }, h("button", { className: "button button-quiet", onClick: onClose, type: "button", disabled: saving }, "Vazgeç"), h("button", { className: "button button-primary", type: "submit", disabled: saving }, saving ? "Kaydediliyor..." : modal.type === "part" ? "Kaydet" : modal.type === "job" ? modal.item ? "İş emrini güncelle" : "İş emrini oluştur" : modal.type === "fitment" ? "Uyumluluğu kaydet" : modal.type === "customer" ? "Müşteriyi kaydet" : modal.type === "personnel" ? "Personeli kaydet" : modal.type === "appointment" ? "Randevuyu kaydet" : modal.type === "notification" ? "Bildirimi oluştur" : modal.type === "return" ? "İade parçayı kaydet" : "Faturayı kaydet", saving ? null : h(Icon, { name: "arrow", size: 15 })))
     )
   ));
+}
+
+// İş emri açmadan, Parça Envanteri sayfasındaki "Satış" butonundan girilen
+// tek seferlik satış. Stok, kaydedildiği anda düşülür (iş emrindeki
+// "Devam ediyor" bekleme durumu yoktur). İşçilik, kullanıcının isteğiyle
+// parçalardan ayrı bir sekmede girilir.
+function SaleModal({ parts, onClose, onSave, saving }) {
+  const [activeTab, setActiveTab] = useState("parts");
+  const [businessDate, setBusinessDate] = useState(() => dateKey(new Date()));
+  const [plate, setPlate] = useState("");
+  const [make, setMake] = useState("");
+  const [model, setModel] = useState("");
+  const [customer, setCustomer] = useState("");
+  const emptyLine = () => ({ partId: "", qty: "1", search: "", price: "", discountType: "none", discountValue: "0" });
+  const [lines, setLines] = useState(() => [emptyLine()]);
+  const [laborAmount, setLaborAmount] = useState("0");
+  const [externalLabor, setExternalLabor] = useState([]);
+  const [laborDiscountType, setLaborDiscountType] = useState("none");
+  const [laborDiscountValue, setLaborDiscountValue] = useState("0");
+  const [error, setError] = useState("");
+
+  const updateLine = (index, key, value) => setLines((current) => current.map((line, i) => i === index ? { ...line, [key]: value } : line));
+  const addLine = () => setLines((current) => [...current, emptyLine()]);
+  const removeLine = (index) => setLines((current) => { const next = current.filter((_, i) => i !== index); return next.length ? next : [emptyLine()]; });
+  const selectPart = (index, part) => setLines((current) => current.map((line, i) => i === index ? { ...line, partId: part.id, name: part.name, sku: part.sku, search: `${part.name} · ${part.sku}`, price: line.price !== "" && line.price !== undefined ? line.price : part.price } : line));
+  const updateExternalLabor = (index, key, value) => setExternalLabor((current) => current.map((item, i) => i === index ? { ...item, [key]: value } : item));
+  const addExternalLabor = () => setExternalLabor((current) => [...current, { description: "", cost: "", price: "" }]);
+  const removeExternalLabor = (index) => setExternalLabor((current) => current.filter((_, i) => i !== index));
+
+  const activeLines = lines.filter((line) => line.partId || (line.search && line.search.trim()));
+  const resolvedLines = activeLines.map((line) => {
+    if (line.partId) return line;
+    const trimmed = (line.search || "").trim();
+    const exact = parts.find((p) => p.sku.trim().toLocaleLowerCase("tr") === trimmed.toLocaleLowerCase("tr") || p.name.trim().toLocaleLowerCase("tr") === trimmed.toLocaleLowerCase("tr"));
+    if (exact) return { ...line, partId: exact.id, name: exact.name, sku: exact.sku, price: line.price !== "" && line.price !== undefined ? line.price : exact.price };
+    const matches = findPartMatches(trimmed, parts);
+    if (matches.length === 1) return { ...line, partId: matches[0].id, name: matches[0].name, sku: matches[0].sku, price: line.price !== "" && line.price !== undefined ? line.price : matches[0].price };
+    return line;
+  });
+
+  function buildPriceItems() {
+    return resolvedLines.filter((line) => line.partId).map((line) => {
+      const part = parts.find((p) => p.id === line.partId);
+      const price = parseCurrencyInput(String(line.price ?? ""));
+      return {
+        qty: Number(line.qty),
+        price: Number.isFinite(price) ? price : (part?.price ?? 0),
+        discountType: line.discountType || "none",
+        discountValue: parseCurrencyInput(String(line.discountValue ?? "0")) || 0,
+      };
+    });
+  }
+
+  let breakdown = null;
+  let breakdownError = "";
+  try {
+    const priceItems = buildPriceItems();
+    if (priceItems.length) {
+      breakdown = calculateWorkOrderPriceBreakdown(
+        priceItems,
+        parseCurrencyInput(laborAmount) || 0,
+        externalLabor.map((el) => ({ cost: parseCurrencyInput(el.cost) || 0, price: parseCurrencyInput(el.price) || 0 })),
+        { type: laborDiscountType, value: parseCurrencyInput(laborDiscountValue) || 0 }
+      );
+    }
+  } catch (breakdownException) {
+    breakdownError = breakdownException.message || "Satış tutarlarını kontrol edin.";
+  }
+
+  function handleSubmit(event) {
+    event.preventDefault();
+    if (!resolvedLines.length) {
+      setError("Satışa en az bir parça eklenmelidir.");
+      return;
+    }
+    if (resolvedLines.some((line) => !line.partId)) {
+      setError("Lütfen parça satırlarında arama listesinden bir parça seçin veya boş satırları kaldırın.");
+      return;
+    }
+    if (breakdownError) {
+      setError(breakdownError);
+      return;
+    }
+    const items = resolvedLines.map((line) => {
+      const part = parts.find((p) => p.id === line.partId);
+      const price = parseCurrencyInput(String(line.price ?? ""));
+      return {
+        partId: line.partId,
+        qty: Number(line.qty),
+        price: Number.isFinite(price) ? price : (part?.price ?? 0),
+        discountType: line.discountType || "none",
+        discountValue: parseCurrencyInput(String(line.discountValue ?? "0")) || 0,
+      };
+    });
+    onSave({
+      date: businessDate,
+      plate: plate.trim(),
+      make: make.trim(),
+      model: model.trim(),
+      customer: customer.trim(),
+      items,
+      laborAmount: parseCurrencyInput(laborAmount) || 0,
+      laborDiscountType,
+      laborDiscountValue: parseCurrencyInput(laborDiscountValue) || 0,
+      externalLabor: externalLabor
+        .filter((el) => el.description || el.price || el.cost)
+        .map((el) => ({ description: el.description || "", cost: parseCurrencyInput(el.cost) || 0, price: parseCurrencyInput(el.price) || 0 })),
+    });
+  }
+
+  return h("div", { className: "modal-backdrop", onMouseDown: (event) => { if (event.target === event.currentTarget) onClose(); } },
+    h("section", { className: "modal-card", role: "dialog", "aria-modal": "true", "aria-labelledby": "sale-modal-title" },
+      h("div", { className: "modal-header" }, h("div", null, h("h2", { id: "sale-modal-title" }, "Yeni Satış")), h("button", { className: "icon-button", onClick: onClose, type: "button", title: "Kapat" }, h(Icon, { name: "close" }))),
+      h("form", { onSubmit: handleSubmit, className: "modal-form" },
+        h("div", { className: "form-grid" },
+          h("label", null, "Satış tarihi", h("input", { type: "date", value: businessDate, onChange: (event) => setBusinessDate(event.target.value), required: true })),
+          h("label", null, "Araç plakası (opsiyonel)", h("input", { value: plate, onChange: (event) => setPlate(event.target.value), placeholder: "34 ABC 123" })),
+          h("label", null, "Marka (opsiyonel)", h("input", { value: make, onChange: (event) => setMake(event.target.value), placeholder: "Örn. Peugeot" })),
+          h("label", null, "Model (opsiyonel)", h("input", { value: model, onChange: (event) => setModel(event.target.value), placeholder: "Örn. 3008" })),
+          h("label", null, "Müşteri (opsiyonel)", h("input", { value: customer, onChange: (event) => setCustomer(event.target.value), placeholder: "Ad soyad" }))
+        ),
+        h("div", { style: { display: "flex", gap: "8px", margin: "4px 0 16px" } },
+          h("button", { type: "button", className: `button ${activeTab === "parts" ? "button-primary" : "button-quiet"}`, onClick: () => setActiveTab("parts") }, "Parça"),
+          h("button", { type: "button", className: `button ${activeTab === "labor" ? "button-primary" : "button-quiet"}`, onClick: () => setActiveTab("labor") }, "İşçilik")
+        ),
+        activeTab === "parts" ? h(React.Fragment, null,
+          h("div", { className: "modal-lines" }, lines.map((line, index) => {
+            const part = parts.find((p) => p.id === line.partId);
+            const matches = !line.partId ? findPartMatches(line.search, parts).slice(0, 8) : [];
+            return h("div", { className: "modal-item-line job-item-line", key: index },
+              h("label", { className: "part-search-label" }, index === 0 ? "Parça adı veya kodu" : " ", h("div", { className: "part-search-wrap" },
+                h("input", { type: "search", value: line.search || "", placeholder: "Parça adı, SKU veya sonu…", autoComplete: "off", onChange: (event) => { updateLine(index, "partId", ""); updateLine(index, "search", event.target.value); setError(""); }, "aria-label": `Parça ${index + 1} ara` }),
+                matches.length ? h("div", { className: "part-search-results", role: "listbox" }, matches.map((entry) => h("button", { key: entry.id, type: "button", role: "option", disabled: entry.stock < 1, onClick: () => selectPart(index, entry) }, h("span", null, h("strong", null, entry.name), h("small", null, `${entry.sku} · stok ${entry.stock}`)), h("span", { className: entry.stock < 1 ? "part-result-empty" : "part-result-stock" }, entry.stock < 1 ? "Stok yok" : `${entry.stock} adet`)))) :
+                  line.search && !line.partId ? h("div", { className: "part-search-empty" }, "Eşleşme yok. Kodu, adını veya kodun sonunu deneyin.") : null
+              )),
+              h("label", null, index === 0 ? "Adet" : " ", h("input", { type: "number", min: 1, max: part ? part.stock : undefined, value: line.qty, onChange: (event) => updateLine(index, "qty", event.target.value), required: true })),
+              h("label", null, index === 0 ? "Birim satış (₺)" : " ", h(CurrencyInput, { value: String(line.price !== undefined && line.price !== null && line.price !== "" ? line.price : (part?.price ?? "")), onChange: (val) => updateLine(index, "price", val), placeholder: "0,00" })),
+              h("div", { className: "line-discount" },
+                h("label", null, index === 0 ? "İskonto" : " ",
+                  h("select", { value: line.discountType || "none", "aria-label": `${line.name || part?.name || `Parça ${index + 1}`} iskonto türü`, onChange: (event) => { const val = event.target.value; updateLine(index, "discountType", val); if (val === "none") updateLine(index, "discountValue", "0"); } },
+                    h("option", { value: "none" }, "Yok"),
+                    h("option", { value: "percent" }, "%"),
+                    h("option", { value: "amount" }, "₺")
+                  )),
+                line.discountType && line.discountType !== "none" ? h("label", null, " ", h(CurrencyInput, { value: String(line.discountValue ?? "0"), "aria-label": `${line.name || part?.name || `Parça ${index + 1}`} iskonto tutarı`, onChange: (val) => updateLine(index, "discountValue", val) })) : null
+              ),
+              h("button", { className: "button button-small button-danger job-line-remove", type: "button", onClick: () => removeLine(index), "aria-label": `${line.name || part?.name || `Parça ${index + 1}`} satırını kaldır` }, h(Icon, { name: "close", size: 14 }))
+            );
+          })),
+          h("button", { className: "add-line-button", type: "button", onClick: addLine }, h(Icon, { name: "plus", size: 15 }), "Parça satırı ekle")
+        ) : h(React.Fragment, null,
+          h("div", { className: "labor-amount-field" }, h("label", { htmlFor: "sale-labor-amount" }, "İşçilik tutarı · KDV hariç (₺)"), h(CurrencyInput, { id: "sale-labor-amount", value: laborAmount, onChange: setLaborAmount }), h("small", null, "Boş bırakılırsa 0 ₺ kaydedilir.")),
+          h("div", { className: "modal-section-title" }, "Harici İşçilik", h("span", null, "Dışarıdan yaptırılan işlerin maliyeti ve satış fiyatı")),
+          externalLabor.length ? h("div", { className: "modal-lines" }, externalLabor.map((el, index) => h("div", { className: "modal-item-line external-labor-line", key: index },
+            h("label", null, index === 0 ? "İş açıklaması" : " ", h("input", { value: el.description, onChange: (event) => updateExternalLabor(index, "description", event.target.value), placeholder: "Örn. Kaporta boyası" })),
+            h("label", null, index === 0 ? "Maliyet · KDV hariç (₺)" : " ", h(CurrencyInput, { value: el.cost, onChange: (val) => updateExternalLabor(index, "cost", val), placeholder: "0,00" })),
+            h("label", null, index === 0 ? "Satış fiyatı · KDV hariç (₺)" : " ", h(CurrencyInput, { value: el.price, onChange: (val) => updateExternalLabor(index, "price", val), placeholder: "0,00" })),
+            h("button", { className: "button button-small button-danger job-line-remove", type: "button", onClick: () => removeExternalLabor(index) }, h(Icon, { name: "close", size: 14 }))
+          ))) : null,
+          h("button", { className: "add-line-button", type: "button", onClick: addExternalLabor }, h(Icon, { name: "plus", size: 15 }), "Harici işçilik ekle"),
+          h("div", { className: "modal-section-title" }, "İşçilik İskontosu", h("span", null, "İşçilik tutarı üzerinden, KDV hesaplanmadan önce uygulanır")),
+          h("div", { className: "discount-field" },
+            h("label", { htmlFor: "sale-labor-discount-type" }, "İskonto türü",
+              h("select", { id: "sale-labor-discount-type", value: laborDiscountType, onChange: (event) => { setLaborDiscountType(event.target.value); if (event.target.value === "none") setLaborDiscountValue("0"); } },
+                h("option", { value: "none" }, "Yok"),
+                h("option", { value: "percent" }, "Yüzde (%)"),
+                h("option", { value: "amount" }, "Tutar (₺)")
+              )),
+            laborDiscountType !== "none" ? h("label", { htmlFor: "sale-labor-discount-value" }, laborDiscountType === "percent" ? "İskonto yüzdesi (%)" : "İskonto tutarı · KDV hariç (₺)",
+              h(CurrencyInput, { id: "sale-labor-discount-value", value: laborDiscountValue, onChange: setLaborDiscountValue })) : null
+          )
+        ),
+        breakdown ? h(WorkOrderPriceSummary, { values: breakdown }) : null,
+        error ? h("p", { className: "form-error", role: "alert" }, error) : null,
+        h("div", { className: "modal-footer" },
+          h("button", { className: "button button-quiet", onClick: onClose, type: "button", disabled: saving }, "Vazgeç"),
+          h("button", { className: "button button-primary", type: "submit", disabled: saving }, saving ? "Kaydediliyor..." : "Satışı kaydet", saving ? null : h(Icon, { name: "arrow", size: 15 }))
+        )
+      )
+    )
+  );
 }
 
 installFitScreen();
