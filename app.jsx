@@ -464,7 +464,6 @@ function App() {
   const nav = [
     { id: "dashboard", label: "Genel Bakış", icon: "grid" },
     { id: "inventory", label: "Parça Envanteri", icon: "box", badge: lowStock.length },
-    { id: "workorders", label: "İş Emirleri", icon: "wrench" },
     { id: "vehicles", label: "Araç Geçmişi", icon: "car" },
     { id: "compatibility", label: "Araç Uyumluluğu", icon: "car" },
     { id: "movements", label: "Stok Hareketleri", icon: "receipt" },
