@@ -30,6 +30,9 @@ npm run dev
 - Yönetici, **Yetkili Kullanıcılar** ekranından diğer hesaplara erişim verir veya erişimi kaldırır
 - Firestore kurallarıyla sunucu tarafında yetki kontrolü; yetkili hesaplar farklı cihazlarda aynı servis verilerini kullanır
 - SKU, marka, alış/satış fiyatı, stok ve kritik seviye yönetimi
+- **Stok Takip** sayfası: sinematik stok özeti (adet, alış/satış değeri, stok sağlığı), Tükendi/Kritik/Azalıyor/Yeterli filtreleri, kategori/marka/favori/arşiv filtreleri, sıralama, ABC sınıfı, 90 günlük tüketime göre "kaç gün yeter" hesabı ve parça detay çekmecesi (60 günlük stok grafiği, alış geçmişi, hareket zaman çizelgesi, hızlı stok düzeltme)
+- **eDMS Alış Faturası** sekmesi: eDMS "Fatura Raporu" (WDMR010) Excel çıktısını sürükle-bırak ile yükleyin; yalnızca "Satın Alma" faturaları alınır, her satırın net/KDV tutarı ve fatura toplamı eDMS değerleriyle birebir kontrol edilir, stok kodları sistemdeki kartlarla eşleştirilir (boşluk/tire farkları dahil), zaten kayıtlı faturalar atlanır; onaylanan faturalar stoğa ve hareket geçmişine işlenir
+- **eDMS Sayım Mutabakatı** sekmesi: eDMS stok listesi veya sayım Excel'i ile sistem stoğunu karşılaştırma (eski "Stok Karşılaştır" sayfası bu sekmeye taşındı)
 - Plaka, marka, model ve müşteriyle eşleştirilen iş emirleri; tarihleri düzenlenebilir, tamamlanabilir ve iptal edilebilir. Düzenleme/iptalde stok farkları denetim hareketleriyle atomik uygulanır; iptal kaydı denetim için saklanır
 - Alış faturalarında belge tarihi seçilebilir; tarih, faturaya bağlı stok hareketlerine iş tarihi olarak kaydedilir
 - İş emri parça satırlarında ad, SKU veya kodun sonuyla arama; Excel'den parça kodu satırlarını yapıştırarak toplu eşleştirme
