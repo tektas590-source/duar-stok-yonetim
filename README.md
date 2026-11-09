@@ -1,4 +1,4 @@
-# Demir Eurorepar Car Service
+# Duar Stok Yönetim
 
 Demir Eurorepar Car Service için React tabanlı stok ve servis yönetim uygulaması. E-posta/şifre ile giriş yapar, stok/iş emri/fatura verilerini yetkili kullanıcılarla ortak Firebase Firestore veritabanında saklar. Fatura satırları Excel'den kopyalanıp yapıştırılabilir.
 

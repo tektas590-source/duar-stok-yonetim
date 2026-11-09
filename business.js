@@ -6,10 +6,10 @@ import { db } from "./firebase.js";
 // Sistem başka bir servise satıldığında "İşletme Ayarları" ekranından değiştirilir;
 // kod hiçbir yerde "Demir" adını sabit tutmaz.
 export const defaultBusiness = {
-  fullName: "Demir Eurorepar Car Service",
-  shortName: "Demir Service",
-  brandWord: "DEMİR",
-  tagline: "EUROREPAR CAR SERVICE",
+  fullName: "Duar Stok Yönetim",
+  shortName: "Duar Stok",
+  brandWord: "DUAR",
+  tagline: "STOK YÖNETİM",
   initial: "D",
 };
 

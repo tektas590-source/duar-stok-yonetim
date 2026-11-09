@@ -1,7 +1,7 @@
 {
-  "name": "Demir Service — Servis Yönetimi",
-  "short_name": "Demir Service",
-  "description": "Demir Eurorepar Car Service — stok, iş emri ve servis yönetimi",
+  "name": "Duar Stok Yönetim",
+  "short_name": "Duar Stok",
+  "description": "Duar Stok Yönetim — stok, iş emri ve servis yönetimi",
   "start_url": "/?source=pwa",
   "scope": "/",
   "display": "standalone",
