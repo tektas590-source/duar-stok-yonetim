@@ -4,8 +4,10 @@ import { getAI, getGenerativeModel, GoogleAIBackend, Schema } from "firebase/ai"
 import { app } from "../firebase.js";
 import { runTool, systemPrompt, TOOL_SPECS } from "./tools.js";
 
-const MODELS = ["gemini-2.5-flash", "gemini-flash-latest", "gemini-2.0-flash"];
-let modelIndex = 0;
+// Kasım 2026 itibarıyla bu projede çalıştığı doğrulanan modeller (2.5 serisi kapatıldı).
+const MODELS = ["gemini-3-flash-preview", "gemini-3.1-flash-lite", "gemini-flash-lite-latest"];
+const STORE_KEY = "duar-ai-model";
+let modelIndex = (() => { try { const i = MODELS.indexOf(localStorage.getItem(STORE_KEY)); return i >= 0 ? i : 0; } catch { return 0; } })();
 
 function declarations() {
   return TOOL_SPECS.map((spec) => {
@@ -30,8 +32,7 @@ function makeModel() {
     model: MODELS[modelIndex],
     systemInstruction: systemPrompt(new Date()),
     tools: [{ functionDeclarations: declarations() }],
-    generationConfig: { temperature: 0.2 },
-  });
+  }, { timeout: 60000 });
 }
 
 const TOOL_LABEL = {
@@ -67,10 +68,12 @@ export async function ask(history, question, getData, onStep) {
         });
         result = await chat.sendMessage(responses);
       }
+      try { localStorage.setItem(STORE_KEY, MODELS[modelIndex]); } catch { /* yoksay */ }
       return result.response.text();
     } catch (error) {
       const m = String(error?.message || "");
-      if (/not found|404|is not supported|unsupported model/i.test(m) && modelIndex < MODELS.length - 1) { modelIndex += 1; continue; }
+      const retryable = /not found|404|no longer available|is not supported|unsupported model|timeout|timed out|abort|500|503|overloaded|UNAVAILABLE/i.test(m);
+      if (retryable && attempt < MODELS.length - 1) { modelIndex = (modelIndex + 1) % MODELS.length; continue; }
       throw error;
     }
   }
