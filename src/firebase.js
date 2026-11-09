@@ -21,7 +21,7 @@ const config = {
 };
 
 export const firebaseConfigured = Boolean(config.apiKey && config.projectId);
-const app = firebaseConfigured ? initializeApp(config) : null;
+export const app = firebaseConfigured ? initializeApp(config) : null;
 export const auth = app ? getAuth(app) : null;
 export const db = app ? getFirestore(app) : null;
 

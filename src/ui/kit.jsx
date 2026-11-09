@@ -31,6 +31,7 @@ const PATHS = {
   undo: "M9 14 4 9l5-5 M4 9h11a5 5 0 0 1 0 10h-1",
   receipt: "M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1z M8 8h8 M8 12h8 M8 16h4",
   bolt: "M13 2 3 14h9l-1 8 10-12h-9z",
+  spark: "M12 3v4 M12 17v4 M3 12h4 M17 12h4 M12 8l1.6 2.4L16 12l-2.4 1.6L12 16l-1.6-2.4L8 12l2.4-1.6z M5.6 5.6l1.8 1.8 M16.6 16.6l1.8 1.8 M18.4 5.6l-1.8 1.8 M7.4 16.6l-1.8 1.8",
 };
 
 export function Icon({ name, size = 18, className = "" }) {

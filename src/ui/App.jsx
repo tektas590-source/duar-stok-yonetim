@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { AppContext } from "./context.js";
 import { Icon } from "./kit.jsx";
+import { Assistant } from "./Assistant.jsx";
 import { LoginScreen, NoAccessScreen, SetupScreen, VerifyScreen } from "./Auth.jsx";
 import { DashboardPage, ReportsPage } from "./pages/Overview.jsx";
 import { StockPage } from "./pages/Stock.jsx";
@@ -42,6 +43,7 @@ function Shell({ store, user }) {
   const [toasts, setToasts] = useState([]);
   const [navOpen, setNavOpen] = useState(false);
   const [theme, toggleTheme] = useTheme();
+  const [aiOpen, setAiOpen] = useState(false);
 
   useEffect(() => store.subscribe(setData, (e) => toast(`Veri okunamadı: ${e.message}`, "bad")), [store]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
@@ -79,6 +81,7 @@ function Shell({ store, user }) {
             <span className="brand-mark"><svg viewBox="0 0 32 32" aria-hidden="true"><path d="M7 6h9a10 10 0 0 1 0 20H7z" fill="none" stroke="currentColor" strokeWidth="3" /><path d="M12 12h4a4 4 0 0 1 0 8h-4z" fill="currentColor" /></svg></span>
             <span><strong>DUAR</strong><small>STOK YÖNETİM</small></span>
           </div>
+          <button type="button" className="ai-nav" onClick={() => { setAiOpen(true); setNavOpen(false); }}><Icon name="spark" size={17} /><span>Duar Asistan</span><kbd>Ctrl K</kbd></button>
           <nav>
             {NAV.map(([id, label, icon]) => (
               <button key={id} type="button" className={`nav ${route.page === id ? "active" : ""}`} onClick={() => go(id)}>
@@ -110,6 +113,7 @@ function Shell({ store, user }) {
             </div>
           )}
         </main>
+        {data.ready ? <Assistant open={aiOpen} setOpen={setAiOpen} /> : null}
         <div className="toasts" aria-live="polite">
           {toasts.map((t) => <div key={t.id} className={`toast toast-${t.tone}`}><Icon name={t.tone === "bad" ? "alert" : "check"} size={16} />{t.message}</div>)}
         </div>
