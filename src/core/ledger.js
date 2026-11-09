@@ -142,7 +142,8 @@ export function planIssue(issue, itemsById, { actor, now, makeId, allowNegative 
   if (!no) throw new Error("Belge numarası gerekli.");
   if (!issue.date) throw new Error("Tarih gerekli.");
   const lines = (issue.lines || []).filter((line) => cleanQty(line.qty) > 0);
-  if (!lines.length) throw new Error("En az bir kalem ekleyin.");
+  const services = buildServices(issue.services);
+  if (!lines.length && !services.length) throw new Error("En az bir parça veya işçilik kalemi ekleyin.");
   const items = new Map();
   const movements = [];
   const docLines = [];
@@ -166,9 +167,7 @@ export function planIssue(issue, itemsById, { actor, now, makeId, allowNegative 
     movements.push({ id: makeId(), ...baseMovement({ item, qty: -q, type: MOVE.ISSUE, ref, actor, now, date: issue.date, unitCost: item.cost, unitPrice }), stockBefore: before, stockAfter: after });
     docLines.push({ itemId: id, sku: item.sku, name: line.name || item.name, qty: q, unitPrice, discountPct, vatPct: line.vatPct ?? VAT_RATE * 100, net, cost: round(Number(item.cost || 0) * q, 2) });
   });
-  const totals = lineTotals(docLines, "qty");
-  totals.cost = round(docLines.reduce((s, l) => s + l.cost, 0));
-  totals.profit = round(totals.net - totals.cost);
+  const totals = issueTotals(docLines, services);
   const issueDoc = {
     id: issueId,
     kind: "issue",
@@ -179,6 +178,7 @@ export function planIssue(issue, itemsById, { actor, now, makeId, allowNegative 
     note: String(issue.note || "").trim(),
     source: issue.source || "manual",
     lines: docLines,
+    services,
     totals,
     cancelled: false,
     actor,
@@ -237,4 +237,41 @@ export function planReverse(doc, itemsById, { actor, now, makeId, date }) {
     movements.push({ id: makeId(), ...baseMovement({ item, qty: sign * line.qty, type: MOVE.REVERSAL, ref, actor, now, date, note: `${doc.no} iptali` }), stockBefore: before, stockAfter: after });
   });
   return { doc: { ...doc, cancelled: true, cancelledAt: now, cancelledBy: actor }, items: [...items.values()], movements };
+}
+
+// İşçilik / hizmet ve stok kartı olmayan parça satırları: stoğa dokunmaz,
+// ciroya girer. kind: "labor" (işçilik, kârın tamamı) | "part" (kartsız parça,
+// maliyeti bilinmediği için kâra katılmaz).
+export function buildServices(list) {
+  return (list || []).map((line) => {
+    const q = cleanQty(line.qty ?? 1) || 1;
+    const unitPrice = round(Number(line.unitPrice) || 0, 4);
+    const discountPct = Math.max(0, Number(line.discountPct) || 0);
+    const net = line.net !== undefined && line.net !== null ? round(line.net) : round(unitPrice * q * (1 - discountPct / 100));
+    return { kind: line.kind === "part" ? "part" : "labor", code: String(line.code || "").trim(), name: String(line.name || "İşçilik").trim(), qty: q, unitPrice, discountPct, vatPct: line.vatPct ?? VAT_RATE * 100, net };
+  }).filter((line) => line.net !== 0 || line.name);
+}
+
+export function issueTotals(docLines, services = []) {
+  const partsNet = round(docLines.reduce((s, l) => s + l.net, 0));
+  const laborNet = round(services.filter((l) => l.kind === "labor").reduce((s, l) => s + l.net, 0));
+  const otherNet = round(services.filter((l) => l.kind === "part").reduce((s, l) => s + l.net, 0));
+  const all = [...docLines, ...services];
+  const net = round(partsNet + laborNet + otherNet);
+  const vat = round(all.reduce((s, l) => s + round(l.net * (l.vatPct ?? VAT_RATE * 100) / 100), 0));
+  const cost = round(docLines.reduce((s, l) => s + (l.cost || 0), 0));
+  return {
+    qty: round(docLines.reduce((s, l) => s + l.qty, 0), QTY_DIGITS),
+    partsNet, laborNet, otherNet, net, vat, gross: round(net + vat), cost,
+    profit: round(partsNet - cost + laborNet),
+  };
+}
+
+// Daha önce işçiliksiz kaydedilmiş bir satışa eDMS'teki işçilik satırlarını ekler.
+export function planAddServices(doc, services, { actor, now }) {
+  if (doc.cancelled) throw new Error("İptal edilmiş belgeye işçilik eklenemez.");
+  if ((doc.services || []).length) throw new Error("Bu belgede işçilik zaten var.");
+  const built = buildServices(services);
+  if (!built.length) throw new Error("Eklenecek işçilik yok.");
+  return { ...doc, services: built, totals: issueTotals(doc.lines, built), servicesAddedAt: now, servicesAddedBy: actor };
 }

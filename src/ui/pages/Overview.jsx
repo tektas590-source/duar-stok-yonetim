@@ -59,6 +59,7 @@ export function DashboardPage() {
   const monthIssues = data.issues.filter((d) => !d.cancelled && String(d.date).startsWith(month));
   const monthOut = monthIssues.reduce((s, d) => s + d.totals.net, 0);
   const monthProfit = monthIssues.reduce((s, d) => s + (d.totals.profit || 0), 0);
+  const monthLabor = monthIssues.reduce((s, d) => s + (d.totals.laborNet || 0), 0);
   const critical = data.items.filter((i) => !i.archived && ["out", "critical"].includes(level(i))).sort((a, b) => (Number(a.stock) || 0) - (Number(b.stock) || 0)).slice(0, 7);
   const recent = data.movements.slice(0, 9);
   const hour = new Date().getHours();
@@ -74,7 +75,7 @@ export function DashboardPage() {
       <div className="kpis">
         <Kpi i={0} label="Stok değeri · maliyet" value={summary.costValue} sub={`${summary.total} kart · ${qty(summary.units)} birim`} onClick={() => go("stok")} />
         <Kpi i={1} label="Bu ay alış · KDV hariç" value={monthIn} sub={`${data.invoices.filter((d) => !d.cancelled && String(d.date).startsWith(month)).length} fatura`} onClick={() => go("alis")} />
-        <Kpi i={2} label="Bu ay satış · KDV hariç" value={monthOut} sub={`${monthIssues.length} belge`} onClick={() => go("satis", { tab: "list" })} />
+        <Kpi i={2} label="Bu ay ciro · KDV hariç" value={monthOut} sub={`parça ${moneyShort(monthOut - monthLabor)} · işçilik ${moneyShort(monthLabor)}`} onClick={() => go("satis", { tab: "list" })} />
         <Kpi i={3} label="Bu ay brüt kâr" value={monthProfit} tone={monthProfit >= 0 ? "ok" : "bad"} sub={monthOut ? `marj %${Math.round((monthProfit / monthOut) * 100)}` : "—"} onClick={() => go("rapor")} />
         <Kpi i={4} label="Kritik / tükenen" value={summary.critical + summary.out} tone={summary.critical + summary.out ? "bad" : "ok"} format={(v) => String(Math.round(v))} sub={`${summary.out} tükendi`} onClick={() => go("stok", { lvl: "attention" })} />
       </div>
@@ -141,6 +142,7 @@ export function ReportsPage() {
   }, [data.items]);
   const ready = useReady(100);
   const sales = issues.reduce((s, d) => s + d.totals.net, 0);
+  const laborTotal = issues.reduce((s, d) => s + (d.totals.laborNet || 0), 0);
   const profit = issues.reduce((s, d) => s + (d.totals.profit || 0), 0);
   const maxTop = Math.max(1, ...top.map((t) => t.net));
   const maxSup = Math.max(1, ...suppliers.map((t) => t.net));
@@ -149,9 +151,11 @@ export function ReportsPage() {
       <PageHead eyebrow="ANALİZ" title="Raporlar" text="Satış, kârlılık, tedarikçi ve kategori dağılımı." actions={
         <select value={range} onChange={(e) => setRange(e.target.value)} aria-label="Dönem"><option value="7">Son 7 gün</option><option value="30">Son 30 gün</option><option value="90">Son 90 gün</option><option value="365">Son 1 yıl</option><option value="all">Tüm zamanlar</option></select>} />
       <div className="kpis">
-        <Kpi i={0} label="Satış · KDV hariç" value={sales} sub={`${issues.length} belge`} />
-        <Kpi i={1} label="Brüt kâr" value={profit} tone={profit >= 0 ? "ok" : "bad"} sub={sales ? `marj %${Math.round((profit / sales) * 100)}` : "—"} />
-        <Kpi i={2} label="Alış · KDV hariç" value={invoices.reduce((s, d) => s + d.totals.net, 0)} sub={`${invoices.length} fatura`} />
+        <Kpi i={0} label="Toplam ciro · KDV hariç" value={sales} sub={`${issues.length} belge`} />
+        <Kpi i={1} label="Parça satışı" value={sales - laborTotal} sub="stoktan çıkan parçalar" />
+        <Kpi i={2} label="İşçilik" value={laborTotal} sub={sales ? `cironun %${Math.round((laborTotal / sales) * 100)}'i` : "—"} />
+        <Kpi i={3} label="Brüt kâr" value={profit} tone={profit >= 0 ? "ok" : "bad"} sub={sales ? `marj %${Math.round((profit / sales) * 100)}` : "—"} />
+        <Kpi i={4} label="Alış · KDV hariç" value={invoices.reduce((s, d) => s + d.totals.net, 0)} sub={`${invoices.length} fatura`} />
       </div>
       <div className="dash-grid">
         <section className="panel pad span-2">

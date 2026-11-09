@@ -19,10 +19,11 @@ export function EdmsImport({ defaultTypes = ["purchase"] }) {
   const [results, setResults] = useState(null);
   const inputRef = useRef(null);
 
-  const existing = useMemo(() => new Set([...data.invoices, ...data.issues].map((d) => d.id)), [data.invoices, data.issues]);
+  const existing = useMemo(() => new Map([...data.invoices, ...data.issues].map((d) => [d.id, d])), [data.invoices, data.issues]);
   const analyzed = useMemo(() => (parsed ? parsed.invoices.map((inv) => analyzeInvoice(inv, data.items, existing)) : []), [parsed, data.items, existing]);
   const visible = analyzed.filter((a) => types.has(a.type));
-  const chosen = visible.filter((a) => a.importable && selected.has(a.no));
+  const selectable = (a) => a.importable || a.backfill;
+  const chosen = visible.filter((a) => selectable(a) && selected.has(a.no));
   const counts = analyzed.reduce((acc, a) => { acc[a.type] = (acc[a.type] || 0) + 1; return acc; }, {});
 
   async function read(f) {
@@ -32,7 +33,7 @@ export function EdmsImport({ defaultTypes = ["purchase"] }) {
       const rows = await readSheetRows(f);
       const result = parseFaturaRaporu(rows);
       setParsed(result);
-      const initial = result.invoices.map((inv) => analyzeInvoice(inv, data.items, existing)).filter((a) => a.importable && types.has(a.type) && a.type === "purchase");
+      const initial = result.invoices.map((inv) => analyzeInvoice(inv, data.items, existing)).filter((a) => (a.importable && a.type === "purchase") || a.backfill);
       setSelected(new Set(initial.map((a) => a.no)));
       setOpen(new Set(result.invoices.length === 1 ? [result.invoices[0].no] : []));
     } catch (error) {
@@ -50,7 +51,8 @@ export function EdmsImport({ defaultTypes = ["purchase"] }) {
       const res = await store.importEdms(chosen);
       setResults(res);
       const ok = res.filter((r) => r.ok).length;
-      toast(ok ? `${ok} eDMS faturası stoğa işlendi${res.length - ok ? `, ${res.length - ok} hata` : ""}.` : "Faturalar işlenemedi.", ok ? "ok" : "bad");
+      const filled = res.filter((r) => r.ok && r.backfill).length;
+      toast(ok ? `${ok - filled ? `${ok - filled} fatura işlendi` : ""}${ok - filled && filled ? ", " : ""}${filled ? `${filled} satışa işçilik eklendi` : ""}${res.length - ok ? `, ${res.length - ok} hata` : ""}.` : "Faturalar işlenemedi.", ok ? "ok" : "bad");
       setSelected(new Set());
     } finally { setBusy(false); }
   }
@@ -94,7 +96,7 @@ export function EdmsImport({ defaultTypes = ["purchase"] }) {
         <div className={`result ${results.every((r) => r.ok) ? "" : "has-bad"}`}>
           <Icon name="check" size={22} />
           <div>
-            <strong>{results.filter((r) => r.ok).length} fatura stoğa işlendi</strong>
+            <strong>{results.filter((r) => r.ok && !r.backfill).length} fatura işlendi{results.some((r) => r.backfill) ? ` · ${results.filter((r) => r.ok && r.backfill).length} satışa işçilik eklendi` : ""}</strong>
             {results.filter((r) => !r.ok).map((r) => <span key={r.no}>{r.no}: {r.error}</span>)}
           </div>
         </div>
@@ -102,10 +104,12 @@ export function EdmsImport({ defaultTypes = ["purchase"] }) {
       <div className="stats-row">
         <Stat label="Gösterilen fatura" value={visible.length} style={{ "--i": 0 }} />
         <Stat label="İşlenebilir" value={visible.filter((a) => a.importable).length} tone="ok" style={{ "--i": 1 }} />
+        {visible.some((a) => a.backfill) ? <Stat label="İşçiliği eksik satış" value={visible.filter((a) => a.backfill).length} tone="warn" style={{ "--i": 1 }} /> : null}
         <Stat label="Zaten kayıtlı" value={visible.filter((a) => a.already).length} style={{ "--i": 2 }} />
         <Stat label="Tutar farkı" value={visible.filter((a) => !a.match).length} tone={visible.some((a) => !a.match) ? "bad" : "ok"} style={{ "--i": 3 }} />
         <Stat label="Yeni stok kartı" value={visible.filter((a) => a.type === "purchase").reduce((s, a) => s + a.counts.fresh, 0)} tone="warn" style={{ "--i": 4 }} />
-        <Stat label="Toplam · KDV dahil" value={moneyShort(visible.reduce((s, a) => s + a.totals.gross, 0))} style={{ "--i": 5 }} />
+        {visible.some((a) => a.type === "sale") ? <Stat label="İşçilik · KDV hariç" value={moneyShort(visible.reduce((s, a) => s + (a.totals.laborNet || 0), 0))} style={{ "--i": 5 }} /> : null}
+        <Stat label="Fatura toplamı · KDV dahil" value={moneyShort(visible.reduce((s, a) => s + a.totals.fullGross, 0))} style={{ "--i": 6 }} />
       </div>
       {visible.length ? (
         <div className="invlist">
@@ -114,17 +118,19 @@ export function EdmsImport({ defaultTypes = ["purchase"] }) {
             return (
               <article key={`${a.type}-${a.no}`} className={`inv ${isOpen ? "is-open" : ""} ${a.already ? "is-done" : ""}`} style={{ "--i": Math.min(index, 14) }}>
                 <header>
-                  <input type="checkbox" checked={a.importable && selected.has(a.no)} disabled={!a.importable || busy} onChange={() => toggle(selected, setSelected, a.no)} aria-label={`${a.no} seç`} />
+                  <input type="checkbox" checked={selectable(a) && selected.has(a.no)} disabled={!selectable(a) || busy} onChange={() => toggle(selected, setSelected, a.no)} aria-label={`${a.no} seç`} />
                   <button type="button" className="inv-toggle" onClick={() => toggle(open, setOpen, a.no)} aria-expanded={isOpen}>
                     <div className="inv-id"><strong className="mono">{a.no}</strong><small>{dateLabel(a.date)} · {a.firm || "—"}</small></div>
                     <div className="inv-meta">
                       <span className={`pill ${a.type === "purchase" ? "is-info" : "is-violet"}`}>{TYPE_LABEL[a.type]}</span>
                       {a.already ? <span className="pill">Zaten kayıtlı</span> : null}
+                      {a.backfill ? <span className="pill is-warn">İşçilik eklenecek</span> : null}
+                      {a.totals.laborNet ? <span className="pill is-violet">İşçilik {money(a.totals.laborNet)}</span> : null}
                       <span className={`pill ${a.match ? "is-ok" : "is-bad"}`}><Icon name={a.match ? "check" : "alert"} size={12} />{a.match ? "eDMS ile birebir" : "Tutar farkı"}</span>
                       {a.type === "purchase" && a.counts.fresh ? <span className="pill is-warn">{a.counts.fresh} yeni kart</span> : null}
-                      {a.type === "sale" && a.counts.fresh ? <span className="pill is-warn">{a.counts.fresh} kart yok, atlanır</span> : null}
+                      {a.type === "sale" && a.counts.fresh ? <span className="pill is-warn">{a.counts.fresh} kartsız parça · ciroya girer</span> : null}
                       {a.counts.short ? <span className="pill is-bad">{a.counts.short} kalem stok yetersiz</span> : null}
-                      <span className="inv-total"><strong>{money(a.totals.gross)}</strong><small>{a.counts.stock} kalem · {qty(a.totals.units)} birim{a.counts.service ? ` · ${a.counts.service} hizmet` : ""}</small></span>
+                      <span className="inv-total"><strong>{money(a.totals.fullGross)}</strong><small>{a.counts.stock} parça · {qty(a.totals.units)} birim{a.counts.service ? ` · ${a.counts.service} hizmet` : ""}</small></span>
                       <span className="chev"><Icon name="chevron" /></span>
                     </div>
                   </button>
@@ -138,14 +144,14 @@ export function EdmsImport({ defaultTypes = ["purchase"] }) {
                           {a.lines.map((l) => (
                             <tr key={l.index} className={!l.isStock ? "is-service" : !l.amountOk || l.short ? "is-bad" : ""}>
                               <td className="mono strong">{l.code}</td>
-                              <td>{l.name}{!l.isStock ? <small className="muted"> · hizmet, stoğa girmez</small> : null}</td>
+                              <td>{l.name}{!l.isStock ? <small className="muted"> · {a.type === "sale" ? "işçilik, ciroya girer" : "hizmet, stoğa girmez"}</small> : null}</td>
                               <td className="num">{qty(l.qty)}</td>
                               <td className="num">{money(l.unitPrice)}</td>
                               <td className="num">{l.discountPct ? `%${qty(l.discountPct)}` : "—"}</td>
                               <td className="num strong">{money(l.net)}</td>
                               <td className={`num ${l.amountOk ? "ok" : "bad"}`}>{money(l.edmsNet)} {l.amountOk ? "✓" : "≠"}</td>
                               <td className="num">{money(l.vatAmount)}</td>
-                              <td>{!l.isStock ? "—" : l.match === "new" ? <span className="pill is-warn">{a.type === "purchase" ? "Yeni kart açılır" : "Kart yok"}</span> : <span className="match"><span className={`pill ${l.match === "exact" ? "is-ok" : "is-info"}`}>{l.match === "exact" ? "Birebir" : `≈ ${l.item.sku}`}</span><small>{l.item.name}</small></span>}</td>
+                              <td>{!l.isStock ? (a.type === "sale" ? <span className="pill is-violet">İşçilik</span> : "—") : l.match === "new" ? <span className="pill is-warn">{a.type === "purchase" ? "Yeni kart açılır" : "Kartsız · stoğa dokunmaz"}</span> : <span className="match"><span className={`pill ${l.match === "exact" ? "is-ok" : "is-info"}`}>{l.match === "exact" ? "Birebir" : `≈ ${l.item.sku}`}</span><small>{l.item.name}</small></span>}</td>
                               <td className="num">{l.isStock && (l.item || a.type === "purchase") ? <>{qty(l.stockBefore)} → <strong className={l.short ? "bad" : ""}>{qty(l.stockAfter)}</strong></> : "—"}</td>
                             </tr>
                           ))}
@@ -153,9 +159,9 @@ export function EdmsImport({ defaultTypes = ["purchase"] }) {
                       </table>
                     </div>
                     <footer className="inv-foot">
-                      <span>Net <strong>{money(a.totals.net)}</strong></span>
-                      <span>KDV <strong>{money(a.totals.vat)}</strong></span>
-                      <span>Toplam <strong>{money(a.totals.gross)}</strong></span>
+                      <span>Parça net <strong>{money(a.totals.net)}</strong></span>
+                      {a.counts.service ? <span>{a.type === "sale" ? "İşçilik" : "Hizmet"} net <strong>{money(a.lines.filter((l) => !l.isStock).reduce((s, l) => s + l.net, 0))}</strong></span> : null}
+                      <span>Toplam · KDV dahil <strong>{money(a.totals.fullGross)}</strong></span>
                       <span className={a.match ? "ok" : "bad"}>eDMS Fatura Tutarı <strong>{money(a.reportGross ?? a.totals.edmsGross)}</strong> {a.match ? "✓" : "≠"}</span>
                     </footer>
                   </div>
@@ -165,10 +171,10 @@ export function EdmsImport({ defaultTypes = ["purchase"] }) {
           })}
         </div>
       ) : <Empty icon="receipt" title="Seçili türde fatura yok" text="Yukarıdan Alış / Satış filtresini değiştirin veya başka bir rapor yükleyin." />}
-      {visible.some((a) => a.importable) ? (
+      {visible.some(selectable) ? (
         <div className="commit">
-          <div><strong>{chosen.length} fatura seçildi</strong><span>{qty(sum("units"))} birim · {money(sum("net"))} KDV hariç</span></div>
-          <Button onClick={() => setSelected(new Set(visible.filter((a) => a.importable).map((a) => a.no)))} disabled={busy}>Tümünü seç</Button>
+          <div><strong>{chosen.length} fatura seçildi</strong><span>{qty(chosen.filter((a) => !a.backfill).reduce((s, a) => s + a.totals.units, 0))} birim stoğa işlenecek · {money(sum("fullNet"))} KDV hariç{chosen.some((a) => a.backfill) ? ` · ${chosen.filter((a) => a.backfill).length} satışa yalnızca işçilik eklenecek` : ""}</span></div>
+          <Button onClick={() => setSelected(new Set(visible.filter(selectable).map((a) => a.no)))} disabled={busy}>Tümünü seç</Button>
           <Button variant="primary" icon="check" onClick={commit} disabled={busy || !chosen.length}>{busy ? "İşleniyor…" : "Seçilenleri stoğa işle"}</Button>
         </div>
       ) : null}

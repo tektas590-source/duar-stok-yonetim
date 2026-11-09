@@ -498,3 +498,15 @@ textarea { resize: vertical; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; animation-delay: 0ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; transition-delay: 0ms !important; }
 }
+
+.table tr.is-labor td { background: color-mix(in srgb, var(--violet) 6%, transparent); }
+.services { display: grid; gap: 8px; padding: 14px; border-radius: var(--r); border: 1px dashed color-mix(in srgb, var(--violet) 45%, var(--line-2)); background: color-mix(in srgb, var(--violet) 5%, transparent); }
+.services-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.services-head h4 { margin: 0; font: 650 14px var(--display); display: flex; align-items: center; gap: 8px; }
+.services-head small { color: var(--text-3); }
+.service-row { display: grid; grid-template-columns: 1.6fr 0.9fr 0.6fr 0.9fr auto; gap: 8px; align-items: center; }
+.service-row .num { text-align: right; font-weight: 650; font-variant-numeric: tabular-nums; }
+.quick-labor { display: flex; flex-wrap: wrap; gap: 6px; }
+.quick-labor button { padding: 4px 10px; border-radius: 99px; border: 1px solid var(--line-2); background: var(--surface-2); color: var(--text-2); font-size: 12px; font-weight: 600; }
+.quick-labor button:hover { color: var(--text); border-color: var(--violet); }
+@media (max-width: 860px) { .service-row { grid-template-columns: 1fr 1fr; } }

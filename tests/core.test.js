@@ -169,3 +169,48 @@ test("count sheet: header detection, merge duplicates, compare", () => {
   const rows = compareCount(lines, [{ id: "a", sku: "GDY-301030", name: "Yağ", stock: 7.5 }, { id: "b", sku: "Q", name: "Q", stock: 3 }]);
   assert.deepEqual(rows.map((r) => r.status), ["ok", "missing", "notcounted"]);
 });
+
+test("sale with labor: labor goes to revenue and profit, not stock; totals match eDMS invoice total", () => {
+  const sale = parseFaturaRaporu(ROWS).invoices[1];
+  const items = [{ id: itemIdFromSku("GDY-301030"), sku: "GDY-301030", name: "Yağ", stock: 20, cost: 300 }];
+  const a = analyzeInvoice(sale, items, new Set());
+  assert.ok(a.match);
+  assert.equal(a.totals.laborNet, 2750);
+  assert.equal(a.services.length, 1);
+  assert.equal(a.totals.fullGross, 8099.92);
+  const plan = planIssue(toIssueInput(a), { [items[0].id]: items[0] }, ctx());
+  assert.equal(plan.items[0].stock, 8.5);
+  assert.equal(plan.issueDoc.totals.partsNet, 3999.93);
+  assert.equal(plan.issueDoc.totals.laborNet, 2750);
+  assert.equal(plan.issueDoc.totals.net, 6749.93);
+  assert.equal(plan.issueDoc.totals.gross, 8099.92);
+  assert.equal(plan.issueDoc.totals.profit, round2(3999.93 - 11.5 * 300 + 2750));
+});
+function round2(v) { return Math.round(v * 100) / 100; }
+
+test("labor-only sale and backfill of labor onto an already imported sale", async () => {
+  const { createMemoryStore } = await import("../src/store/memoryStore.js");
+  const store = createMemoryStore();
+  const labor = planIssue({ no: "S-9", date: "2026-11-09", services: [{ name: "Fren bakım işçiliği", unitPrice: 1000 }] }, {}, ctx());
+  assert.equal(labor.issueDoc.totals.net, 1000);
+  assert.equal(labor.issueDoc.totals.profit, 1000);
+  assert.equal(labor.movements.length, 0);
+  // Eski kayıt: işçiliksiz satış
+  const sale = parseFaturaRaporu(ROWS).invoices[1];
+  await store.purchase({ no: "P1", supplier: "x", date: "2026-09-01", lines: [{ sku: "GDY-301030", qty: 20, unitPrice: 300 }] });
+  let st; store.subscribe((x) => { st = x; })();
+  const a0 = analyzeInvoice(sale, st.items, new Set());
+  await store.issue({ ...toIssueInput(a0), services: [] });
+  store.subscribe((x) => { st = x; })();
+  const existing = new Map(st.issues.map((d) => [d.id, d]));
+  const a1 = analyzeInvoice(sale, st.items, existing);
+  assert.ok(a1.already);
+  assert.ok(a1.backfill);
+  const res = await store.importEdms([a1]);
+  assert.ok(res[0].ok && res[0].backfill, res[0].error);
+  store.subscribe((x) => { st = x; })();
+  assert.equal(st.issues[0].totals.laborNet, 2750);
+  assert.equal(st.items[0].stock, 8.5);
+  const a2 = analyzeInvoice(sale, st.items, new Map(st.issues.map((d) => [d.id, d])));
+  assert.equal(a2.backfill, false);
+});

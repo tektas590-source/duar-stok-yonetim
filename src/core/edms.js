@@ -122,6 +122,7 @@ export function analyzeInvoice(inv, items, existingIds) {
   let docId = null;
   try { docId = `${prefix}_${encodeURIComponent(inv.no.toLocaleUpperCase("tr")).replace(/\./g, "%2E")}`; } catch { docId = null; }
   const already = docId ? existingIds.has(docId) : false;
+  const existingDoc = already && typeof existingIds.get === "function" ? existingIds.get(docId) : null;
   let net = 0, vat = 0, edmsGross = 0, units = 0;
   const lines = inv.lines.map((line, index) => {
     const isStock = line.kind === "Stok" && line.code && line.qty > 0;
@@ -143,15 +144,28 @@ export function analyzeInvoice(inv, items, existingIds) {
   net = round(net); vat = round(vat); edmsGross = round(edmsGross);
   const stockLines = lines.filter((l) => l.isStock);
   const hasService = lines.some((l) => !l.isStock);
+  // Satışta stoğa dokunmadan ciroya girecek satırlar: işçilik/hizmet ve kartı olmayan parçalar.
+  const services = inv.type === "sale" ? lines.filter((l) => (!l.isStock && (l.unitPrice || l.total)) || (l.isStock && l.match === "new")).map((l) => ({
+    kind: l.isStock ? "part" : "labor", code: l.code, name: l.name, qty: l.qty || 1, unitPrice: l.unitPrice, discountPct: l.discountPct, vatPct: l.vatPct, net: l.net,
+  })) : [];
+  const laborNet = round(services.filter((x) => x.kind === "labor").reduce((s2, x) => s2 + x.net, 0));
+  const otherNet = round(services.filter((x) => x.kind === "part").reduce((s2, x) => s2 + x.net, 0));
+  const backfill = Boolean(existingDoc && !existingDoc.cancelled && services.length && !(existingDoc.services || []).length);
   const gross = round(net + vat);
-  const totalsOk = Math.abs(gross - edmsGross) <= TOL * Math.max(1, stockLines.length) && (hasService || inv.reportGross === null || Math.abs(inv.reportGross - edmsGross) <= TOL * Math.max(1, stockLines.length));
-  const linesOk = stockLines.every((l) => l.amountOk);
+  // Tüm satırlar (stok + hizmet) dahil fatura toplamı; eDMS "Fatura Tutarı" ile karşılaştırılır.
+  const nonStock = lines.filter((l) => !l.isStock);
+  const fullGross = round(gross + nonStock.reduce((s2, l) => s2 + l.net + l.vatAmount, 0));
+  const tol = TOL * Math.max(1, lines.length);
+  const totalsOk = Math.abs(gross - edmsGross) <= tol && (inv.reportGross === null || Math.abs(inv.reportGross - fullGross) <= tol);
+  const linesOk = lines.every((l) => l.amountOk);
   return {
     ...inv,
     docId,
     already,
     lines,
-    totals: { net, vat, gross, edmsGross, units: round(units, 3) },
+    totals: { net, vat, gross, edmsGross, units: round(units, 3), laborNet, otherNet, fullNet: round(net + laborNet), fullGross },
+    services,
+    backfill,
     match: totalsOk && linesOk,
     counts: {
       stock: stockLines.length,
@@ -161,7 +175,7 @@ export function analyzeInvoice(inv, items, existingIds) {
       service: lines.length - stockLines.length,
       short: stockLines.filter((l) => l.short).length,
     },
-    importable: !already && stockLines.length > 0 && (inv.type === "purchase" || inv.type === "sale"),
+    importable: !already && (inv.type === "purchase" ? stockLines.length > 0 : inv.type === "sale" && (stockLines.some((l) => l.item) || services.length > 0)),
   };
 }
 
@@ -207,6 +221,7 @@ export function toIssueInput(analyzed) {
       vatPct: l.vatPct,
       net: l.net,
     })),
+    services: analyzed.services || [],
   };
 }
 

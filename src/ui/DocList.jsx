@@ -12,7 +12,7 @@ export function DocList({ docs, kind, emptyAction }) {
   const col = kind === "purchase" ? "invoices" : "issues";
   const list = useMemo(() => {
     const n = query.trim().toLocaleLowerCase("tr");
-    return docs.filter((d) => (showCancelled || !d.cancelled) && (!n || `${d.no} ${d.supplier || ""} ${d.customer || ""} ${d.plate || ""} ${d.lines.map((l) => `${l.sku} ${l.name}`).join(" ")}`.toLocaleLowerCase("tr").includes(n)));
+    return docs.filter((d) => (showCancelled || !d.cancelled) && (!n || `${d.no} ${d.supplier || ""} ${d.customer || ""} ${d.plate || ""} ${d.lines.map((l) => `${l.sku} ${l.name}`).join(" ")} ${(d.services || []).map((l) => l.name).join(" ")}`.toLocaleLowerCase("tr").includes(n)));
   }, [docs, query, showCancelled]);
 
   const cancel = (d) => {
@@ -40,8 +40,9 @@ export function DocList({ docs, kind, emptyAction }) {
                     <div className="inv-meta">
                       {d.source === "eDMS" ? <span className="pill is-info">eDMS</span> : <span className="pill">Elle</span>}
                       {d.cancelled ? <span className="pill is-bad">İptal</span> : null}
+                      {kind === "issue" && d.totals.laborNet ? <span className="pill is-violet">İşçilik {money(d.totals.laborNet)}</span> : null}
                       {kind === "issue" && !d.cancelled ? <span className={`pill ${d.totals.profit >= 0 ? "is-ok" : "is-bad"}`}>Kâr {money(d.totals.profit)}</span> : null}
-                      <span className="inv-total"><strong>{money(d.totals.gross)}</strong><small>{d.lines.length} kalem · {qty(d.totals.qty)} birim</small></span>
+                      <span className="inv-total"><strong>{money(d.totals.gross)}</strong><small>{d.lines.length} parça{(d.services || []).length ? ` · ${d.services.length} işçilik` : ""} · {qty(d.totals.qty)} birim</small></span>
                       <span className="chev"><Icon name="chevron" /></span>
                     </div>
                   </button>
@@ -53,11 +54,14 @@ export function DocList({ docs, kind, emptyAction }) {
                         <thead><tr><th>KOD</th><th>PARÇA</th><th className="num">MİKTAR</th><th className="num">BİRİM FİYAT</th><th className="num">İSK.</th><th className="num">NET</th>{kind === "issue" ? <th className="num">MALİYET</th> : null}</tr></thead>
                         <tbody>{d.lines.map((l, k) => (
                           <tr key={k}><td className="mono strong">{l.sku}</td><td>{l.name}{l.isNew ? <span className="pill is-warn sm">yeni kart</span> : null}</td><td className="num">{qty(l.qty)}</td><td className="num">{money(l.unitPrice)}</td><td className="num">{l.discountPct ? `%${qty(l.discountPct)}` : "—"}</td><td className="num strong">{money(l.net)}</td>{kind === "issue" ? <td className="num">{money(l.cost)}</td> : null}</tr>
+                        ))}{(d.services || []).map((l, k) => (
+                          <tr key={`s${k}`} className="is-labor"><td className="mono strong">{l.code || "—"}</td><td>{l.name}<span className={`pill sm ${l.kind === "labor" ? "is-violet" : "is-warn"}`}>{l.kind === "labor" ? "işçilik" : "kartsız parça"}</span></td><td className="num">{qty(l.qty)}</td><td className="num">{money(l.unitPrice)}</td><td className="num">{l.discountPct ? `%${qty(l.discountPct)}` : "—"}</td><td className="num strong">{money(l.net)}</td><td className="num muted">—</td></tr>
                         ))}</tbody>
                       </table>
                     </div>
                     <footer className="inv-foot">
                       {d.note ? <span className="grow">{d.note}</span> : <span className="grow muted">{d.actor}</span>}
+                      {kind === "issue" && d.totals.laborNet ? <><span>Parça <strong>{money(d.totals.partsNet + (d.totals.otherNet || 0))}</strong></span><span>İşçilik <strong>{money(d.totals.laborNet)}</strong></span></> : null}
                       <span>Net <strong>{money(d.totals.net)}</strong></span>
                       <span>KDV <strong>{money(d.totals.vat)}</strong></span>
                       <span>Toplam <strong>{money(d.totals.gross)}</strong></span>

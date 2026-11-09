@@ -28,6 +28,17 @@ export function DocForm({ mode, initialItemId, onDone }) {
   const [lines, setLines] = useState(initLines);
   const [paste, setPaste] = useState("");
   const [showPaste, setShowPaste] = useState(false);
+  const [labor, setLabor] = useState([]);
+  const laborNames = useMemo(() => {
+    const counts = new Map();
+    data.issues.forEach((d) => (d.services || []).forEach((l) => { if (l.kind === "labor") counts.set(l.name, (counts.get(l.name) || 0) + 1); }));
+    return [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([n]) => n).slice(0, 6);
+  }, [data.issues]);
+  const addLabor = (name = "") => setLabor((ls) => [...ls, { key: Math.random().toString(36).slice(2), name, qty: "1", unitPrice: "" }]);
+  const setLaborLine = (key, patch) => setLabor((ls) => ls.map((l) => (l.key === key ? { ...l, ...patch } : l)));
+  const laborComputed = labor.map((l) => ({ ...l, q: toNumber(l.qty) || 1, price: toNumber(l.unitPrice), net: round((toNumber(l.qty) || 1) * toNumber(l.unitPrice)) }));
+  const laborValid = laborComputed.filter((l) => l.name.trim() && l.net > 0);
+  const laborNet = round(laborValid.reduce((s, l) => s + l.net, 0));
   const suppliers = useMemo(() => [...new Set(data.invoices.map((d) => d.supplier).filter(Boolean))], [data.invoices]);
 
   const setLine = (key, patch) => setLines((ls) => ls.map((l) => {
@@ -48,9 +59,10 @@ export function DocForm({ mode, initialItemId, onDone }) {
     return { ...l, item, q, price, net, short: !isPurchase && item && q > Number(item.stock || 0), missing: !isPurchase && l.sku && !item };
   });
   const valid = computed.filter((l) => l.sku.trim() && l.q > 0);
-  const net = round(valid.reduce((s, l) => s + l.net, 0));
+  const partsNet = round(valid.reduce((s, l) => s + l.net, 0));
+  const net = round(partsNet + (isPurchase ? 0 : laborNet));
   const vat = round(net * VAT_RATE);
-  const blocked = !valid.length || computed.some((l) => l.missing || l.short) || (isPurchase && (!head.no.trim() || !head.supplier.trim()));
+  const blocked = (!valid.length && (isPurchase || !laborValid.length)) || computed.some((l) => l.missing || l.short) || (isPurchase && (!head.no.trim() || !head.supplier.trim()));
 
   function applyPaste() {
     const parsed = paste.split(/\r?\n/).map((row) => row.split(/\t|;/).map((c) => c.trim())).filter((r) => r[0]);
@@ -72,9 +84,9 @@ export function DocForm({ mode, initialItemId, onDone }) {
     if (blocked) return;
     const payload = isPurchase
       ? { no: head.no, supplier: head.supplier, date: head.date, source: "manual", lines: valid.map((l) => ({ sku: l.item ? l.item.sku : l.sku.trim(), name: l.name || l.sku, qty: l.q, unitPrice: l.price, discountPct: toNumber(l.discountPct), vatPct: 20 })) }
-      : { no: head.no, customer: head.customer, plate: head.plate, note: head.note, date: head.date, source: "manual", lines: valid.map((l) => ({ itemId: l.item.id, sku: l.item.sku, name: l.item.name, qty: l.q, unitPrice: l.price, discountPct: toNumber(l.discountPct), vatPct: 20 })) };
-    const ok = await run(() => (isPurchase ? store.purchase(payload) : store.issue(payload)), isPurchase ? `${payload.no} faturası stoğa işlendi.` : `${payload.no} çıkışı kaydedildi, stok düşüldü.`);
-    if (ok !== false) { setLines([emptyLine()]); setHead({ ...head, no: isPurchase ? "" : `S-${String(Number(head.no.slice(2) || 0) + 1).padStart(5, "0")}`, supplier: isPurchase ? head.supplier : "", customer: "", plate: "", note: "" }); onDone?.(); }
+      : { no: head.no, customer: head.customer, plate: head.plate, note: head.note, date: head.date, source: "manual", lines: valid.map((l) => ({ itemId: l.item.id, sku: l.item.sku, name: l.item.name, qty: l.q, unitPrice: l.price, discountPct: toNumber(l.discountPct), vatPct: 20 })), services: laborValid.map((l) => ({ kind: "labor", name: l.name.trim(), qty: l.q, unitPrice: l.price, vatPct: 20 })) };
+    const ok = await run(() => (isPurchase ? store.purchase(payload) : store.issue(payload)), isPurchase ? `${payload.no} faturası stoğa işlendi.` : `${payload.no} kaydedildi${valid.length ? ", stok düşüldü" : ""}.`);
+    if (ok !== false) { setLines([emptyLine()]); setLabor([]); setHead({ ...head, no: isPurchase ? "" : `S-${String(Number(head.no.slice(2) || 0) + 1).padStart(5, "0")}`, supplier: isPurchase ? head.supplier : "", customer: "", plate: "", note: "" }); onDone?.(); }
   }
 
   return (
@@ -117,14 +129,37 @@ export function DocForm({ mode, initialItemId, onDone }) {
           <Button variant="primary" onClick={applyPaste} disabled={!paste.trim()}>Satırlara ekle</Button>
         </div>
       ) : null}
+      {!isPurchase ? (
+        <div className="services">
+          <div className="services-head">
+            <h4><Icon name="bolt" size={16} />İşçilik / hizmet</h4>
+            <small>Stoğa dokunmaz; ciroya ve kâra eklenir.</small>
+          </div>
+          {laborComputed.map((l) => (
+            <div key={l.key} className="service-row">
+              <input value={l.name} onChange={(e) => setLaborLine(l.key, { name: e.target.value })} placeholder="Örn. Periyodik bakım işçiliği" aria-label="İşçilik açıklaması" list="labor-list" />
+              <input type="number" min="0" step="0.01" value={l.unitPrice} onChange={(e) => setLaborLine(l.key, { unitPrice: e.target.value })} placeholder="Tutar (KDV hariç)" aria-label="İşçilik tutarı" />
+              <input type="number" min="0" step="any" value={l.qty} onChange={(e) => setLaborLine(l.key, { qty: e.target.value })} aria-label="Saat / adet" title="Saat veya adet" />
+              <span className="num">{money(l.net)}</span>
+              <button type="button" className="icon-btn sm danger" onClick={() => setLabor((ls) => ls.filter((x) => x.key !== l.key))} aria-label="İşçiliği sil"><Icon name="close" size={14} /></button>
+            </div>
+          ))}
+          <datalist id="labor-list">{laborNames.map((n) => <option key={n} value={n} />)}</datalist>
+          <div className="quick-labor">
+            <Button icon="plus" onClick={() => addLabor()}>İşçilik ekle</Button>
+            {laborNames.slice(0, 4).map((n) => <button key={n} type="button" onClick={() => addLabor(n)}>+ {n}</button>)}
+          </div>
+        </div>
+      ) : null}
       {!isPurchase ? <Field label="Not"><input value={head.note} onChange={(e) => setHead({ ...head, note: e.target.value })} placeholder="İsteğe bağlı" /></Field> : null}
       <div className="docform-foot">
         <div className="totals">
+          {!isPurchase && laborNet ? <><span>Parça <strong>{money(partsNet)}</strong></span><span>İşçilik <strong>{money(laborNet)}</strong></span></> : null}
           <span>Ara toplam <strong>{money(net)}</strong></span>
           <span>KDV %20 <strong>{money(vat)}</strong></span>
           <span className="grand">Genel toplam <strong>{money(net + vat)}</strong></span>
         </div>
-        <Button variant="primary" icon="check" type="submit" disabled={blocked}>{isPurchase ? "Faturayı stoğa işle" : "Çıkışı kaydet"}</Button>
+        <Button variant="primary" icon="check" type="submit" disabled={blocked}>{isPurchase ? "Faturayı stoğa işle" : "Satışı kaydet"}</Button>
       </div>
     </form>
   );

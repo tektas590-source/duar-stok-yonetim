@@ -26,6 +26,7 @@ function monthStats(docs) {
     count: live.length,
     monthCount: thisMonth.length,
     monthNet: thisMonth.reduce((s, d) => s + d.totals.net, 0),
+    monthLabor: thisMonth.reduce((s, d) => s + (d.totals.laborNet || 0), 0),
     monthProfit: thisMonth.reduce((s, d) => s + (d.totals.profit || 0), 0),
     edms: live.filter((d) => d.source === "eDMS").length,
   };
@@ -60,14 +61,14 @@ export function IssuesPage({ params }) {
   const s = useMemo(() => monthStats(data.issues), [data.issues]);
   return (
     <div className="page">
-      <PageHead eyebrow="ÇIKIŞ" title="Satış / stok çıkışı" text="Tezgah satışı, servise verilen parça veya eDMS satış faturaları — stok anında düşer, kâr hesaplanır." />
+      <PageHead eyebrow="ÇIKIŞ" title="Satış / stok çıkışı" text="Parça satışı ve işçilik — stok anında düşer, işçilik ciroya eklenir, kâr hesaplanır. eDMS satış faturaları işçilikleriyle birlikte alınır." />
       <div className="stats-row">
         <Stat label="Toplam belge" value={s.count} style={{ "--i": 0 }} />
         <Stat label="Bu ay çıkış" value={s.monthCount} style={{ "--i": 1 }} />
-        <Stat label="Bu ay satış · KDV hariç" value={moneyShort(s.monthNet)} style={{ "--i": 2 }} />
+        <Stat label="Bu ay ciro · KDV hariç" value={moneyShort(s.monthNet)} sub={`parça ${moneyShort(s.monthNet - s.monthLabor)} · işçilik ${moneyShort(s.monthLabor)}`} style={{ "--i": 2 }} />
         <Stat label="Bu ay brüt kâr" value={moneyShort(s.monthProfit)} tone={s.monthProfit >= 0 ? "ok" : "bad"} style={{ "--i": 3 }} />
       </div>
-      <Tabs tab={tab} setTab={setTab} tabs={[["new", "Yeni çıkış", "out"], ["list", "Belgeler", "receipt", s.count], ["edms", "eDMS satış faturası", "upload"]]} />
+      <Tabs tab={tab} setTab={setTab} tabs={[["new", "Yeni satış", "out"], ["list", "Belgeler", "receipt", s.count], ["edms", "eDMS satış faturası", "upload"]]} />
       <div className="stage" key={tab}>
         {tab === "new" ? <DocForm mode="issue" initialItemId={params?.itemId} onDone={() => setTab("list")} />
           : tab === "list" ? <DocList docs={data.issues} kind="issue" emptyAction={<Button variant="primary" icon="out" onClick={() => setTab("new")}>İlk çıkışı yap</Button>} />
