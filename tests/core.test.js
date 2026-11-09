@@ -214,3 +214,18 @@ test("labor-only sale and backfill of labor onto an already imported sale", asyn
   const a2 = analyzeInvoice(sale, st.items, new Map(st.issues.map((d) => [d.id, d])));
   assert.equal(a2.backfill, false);
 });
+
+test("eDMS sale with short stock is kept: available qty from stock, rest as uncarded revenue", () => {
+  const sale = parseFaturaRaporu(ROWS).invoices[1];
+  const items = [{ id: itemIdFromSku("GDY-301030"), sku: "GDY-301030", name: "Yağ", stock: 4, cost: 300 }];
+  const a = analyzeInvoice(sale, items, new Set());
+  const input = toIssueInput(a);
+  assert.throws(() => planIssue(input, { [items[0].id]: items[0] }, ctx()), /çıkılamaz/);
+  const plan = planIssue(input, { [items[0].id]: items[0] }, { ...ctx(), clampShort: true });
+  assert.equal(plan.items[0].stock, 0);
+  assert.equal(plan.movements[0].qty, -4);
+  assert.equal(plan.issueDoc.shortages[0].missing, 7.5);
+  assert.equal(plan.issueDoc.totals.net, 6749.93);
+  assert.equal(plan.issueDoc.totals.gross, 8099.92);
+  assert.equal(plan.issueDoc.edmsGross, 8099.92);
+});

@@ -137,12 +137,15 @@ export function planPurchase(invoice, itemsById, { actor, now, makeId }) {
 }
 
 // Satış / stok çıkışı. Stok yetersizse hata verir (allowNegative ile esnetilebilir).
-export function planIssue(issue, itemsById, { actor, now, makeId, allowNegative = false }) {
+// clampShort: (eDMS satışları için) stok yetmezse eldeki kadar düşülür, kalan miktar
+// "kartsız parça" olarak ciroya yazılır; stok eksiye düşmez, satış kaybolmaz.
+export function planIssue(issue, itemsById, { actor, now, makeId, allowNegative = false, clampShort = false }) {
   const no = String(issue.no || "").trim();
   if (!no) throw new Error("Belge numarası gerekli.");
   if (!issue.date) throw new Error("Tarih gerekli.");
   const lines = (issue.lines || []).filter((line) => cleanQty(line.qty) > 0);
   const services = buildServices(issue.services);
+  const shortages = [];
   if (!lines.length && !services.length) throw new Error("En az bir parça veya işçilik kalemi ekleyin.");
   const items = new Map();
   const movements = [];
@@ -154,13 +157,23 @@ export function planIssue(issue, itemsById, { actor, now, makeId, allowNegative 
     const current = items.get(id) || itemsById[id];
     if (!current) throw new Error(`${line.sku || id} stok kartı bulunamadı.`);
     const item = { ...current };
-    const q = cleanQty(line.qty);
+    const fullQty = cleanQty(line.qty);
     const before = cleanQty(item.stock);
-    const after = cleanQty(before - q);
-    if (after < 0 && !allowNegative) throw new Error(`${item.sku} · ${item.name}: stokta ${before} var, ${q} çıkılamaz.`);
     const unitPrice = round(Number(line.unitPrice ?? item.price ?? 0), 4);
     const discountPct = Math.max(0, Number(line.discountPct) || 0);
-    const net = line.net !== undefined ? round(line.net) : round(unitPrice * q * (1 - discountPct / 100));
+    const fullNet = line.net !== undefined ? round(line.net) : round(unitPrice * fullQty * (1 - discountPct / 100));
+    let q = fullQty;
+    let net = fullNet;
+    if (before - fullQty < 0 && clampShort) {
+      q = Math.max(0, before);
+      net = round(fullNet * (q / fullQty));
+      const restQty = cleanQty(fullQty - q);
+      services.push(...buildServices([{ kind: "part", code: item.sku, name: `${line.name || item.name} (stokta yoktu)`, qty: restQty, unitPrice, discountPct, vatPct: line.vatPct, net: round(fullNet - net) }]));
+      shortages.push({ sku: item.sku, name: item.name, missing: restQty });
+      if (q <= 0) return;
+    }
+    const after = cleanQty(before - q);
+    if (after < 0 && !allowNegative) throw new Error(`${item.sku} · ${item.name}: stokta ${before} var, ${q} çıkılamaz.`);
     item.stock = after;
     item.updatedAt = now;
     items.set(id, item);
@@ -180,6 +193,8 @@ export function planIssue(issue, itemsById, { actor, now, makeId, allowNegative 
     lines: docLines,
     services,
     totals,
+    shortages,
+    edmsGross: issue.edmsGross ?? null,
     cancelled: false,
     actor,
     createdAt: now,

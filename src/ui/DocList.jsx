@@ -26,6 +26,12 @@ export function DocList({ docs, kind, emptyAction }) {
       <div className="toolbar">
         <label className="search"><Icon name="search" size={16} /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={kind === "purchase" ? "Fatura no, tedarikçi, stok kodu ara…" : "Belge no, müşteri, plaka, stok kodu ara…"} aria-label="Belge ara" /></label>
         <button type="button" className={`toggle ${showCancelled ? "on" : ""}`} aria-pressed={showCancelled} onClick={() => setShowCancelled(!showCancelled)}>İptalleri göster</button>
+        {(() => {
+          const live = docs.filter((d) => !d.cancelled && d.source === "eDMS");
+          const stamped = live.filter((d) => d.edmsGross !== null && d.edmsGross !== undefined);
+          const ok = stamped.filter((d) => Math.abs(d.edmsGross - d.totals.gross) < 0.1).length;
+          return live.length ? <span className={`pill ${ok === live.length ? "is-ok" : stamped.length < live.length ? "is-warn" : "is-bad"}`}>eDMS birebir {ok}/{live.length}{stamped.length < live.length ? ` · ${live.length - stamped.length} doğrulanmadı` : ""}</span> : null;
+        })()}
         <span className="count"><b>{list.length}</b> belge</span>
       </div>
       {list.length ? (
@@ -40,6 +46,8 @@ export function DocList({ docs, kind, emptyAction }) {
                     <div className="inv-meta">
                       {d.source === "eDMS" ? <span className="pill is-info">eDMS</span> : <span className="pill">Elle</span>}
                       {d.cancelled ? <span className="pill is-bad">İptal</span> : null}
+                      {d.edmsGross !== null && d.edmsGross !== undefined && !d.cancelled ? (Math.abs(d.edmsGross - d.totals.gross) < 0.1 ? <span className="pill is-ok">eDMS ✓</span> : <span className="pill is-bad">eDMS farkı {money(d.totals.gross - d.edmsGross)}</span>) : null}
+                      {(d.shortages || []).length ? <span className="pill is-warn" title={d.shortages.map((x) => `${x.sku}: ${x.missing} stokta yoktu`).join("\n")}>{d.shortages.length} kalem stokta yoktu</span> : null}
                       {kind === "issue" && d.totals.laborNet ? <span className="pill is-violet">İşçilik {money(d.totals.laborNet)}</span> : null}
                       {kind === "issue" && !d.cancelled ? <span className={`pill ${d.totals.profit >= 0 ? "is-ok" : "is-bad"}`}>Kâr {money(d.totals.profit)}</span> : null}
                       <span className="inv-total"><strong>{money(d.totals.gross)}</strong><small>{d.lines.length} parça{(d.services || []).length ? ` · ${d.services.length} işçilik` : ""} · {qty(d.totals.qty)} birim</small></span>

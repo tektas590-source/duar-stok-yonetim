@@ -150,7 +150,10 @@ export function analyzeInvoice(inv, items, existingIds) {
   })) : [];
   const laborNet = round(services.filter((x) => x.kind === "labor").reduce((s2, x) => s2 + x.net, 0));
   const otherNet = round(services.filter((x) => x.kind === "part").reduce((s2, x) => s2 + x.net, 0));
-  const backfill = Boolean(existingDoc && !existingDoc.cancelled && services.length && !(existingDoc.services || []).length);
+  // Kayıtlı satışa eksik işçiliği ve/veya eDMS fatura tutarını (doğrulama için) ekle.
+  const needsServices = Boolean(existingDoc && services.length && !(existingDoc.services || []).length);
+  const needsStamp = Boolean(existingDoc && inv.type === "sale" && (existingDoc.edmsGross === null || existingDoc.edmsGross === undefined));
+  const backfill = Boolean(existingDoc && !existingDoc.cancelled && (needsServices || needsStamp));
   const gross = round(net + vat);
   // Tüm satırlar (stok + hizmet) dahil fatura toplamı; eDMS "Fatura Tutarı" ile karşılaştırılır.
   const nonStock = lines.filter((l) => !l.isStock);
@@ -166,6 +169,7 @@ export function analyzeInvoice(inv, items, existingIds) {
     totals: { net, vat, gross, edmsGross, units: round(units, 3), laborNet, otherNet, fullNet: round(net + laborNet), fullGross },
     services,
     backfill,
+    needsServices,
     match: totalsOk && linesOk,
     counts: {
       stock: stockLines.length,
@@ -222,6 +226,7 @@ export function toIssueInput(analyzed) {
       net: l.net,
     })),
     services: analyzed.services || [],
+    edmsGross: analyzed.reportGross ?? analyzed.totals.fullGross,
   };
 }
 

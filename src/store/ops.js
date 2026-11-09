@@ -117,11 +117,12 @@ export function createOps(runTx, getActor) {
       });
     },
 
-    async addServices(docId, services) {
+    async addServices(docId, services, edmsGross = null) {
       return runTx(async (tx) => {
         const doc = await tx.get("issues", docId);
         if (!doc) throw new Error("Belge bulunamadı.");
-        const next = planAddServices(doc, services, meta());
+        const next = (doc.services || []).length || !(services || []).length ? { ...doc } : planAddServices(doc, services, meta());
+        if (edmsGross) next.edmsGross = edmsGross;
         tx.set("issues", docId, next);
         return next;
       });
@@ -134,11 +135,11 @@ export function createOps(runTx, getActor) {
       for (const a of analyzedList) {
         try {
           if (a.backfill) {
-            const doc = await this.addServices(a.docId, a.services);
+            const doc = await this.addServices(a.docId, a.services, a.reportGross ?? a.totals.fullGross);
             results.push({ no: a.no, ok: true, doc, backfill: true });
             continue;
           }
-          const doc = a.type === "purchase" ? await this.purchase(toPurchaseInput(a)) : await this.issue(toIssueInput(a), { allowNegative });
+          const doc = a.type === "purchase" ? await this.purchase(toPurchaseInput(a)) : await this.issue(toIssueInput(a), { allowNegative, clampShort: true });
           results.push({ no: a.no, ok: true, doc });
         } catch (error) {
           results.push({ no: a.no, ok: false, error: error.message || String(error) });

@@ -52,7 +52,7 @@ export function EdmsImport({ defaultTypes = ["purchase"] }) {
       setResults(res);
       const ok = res.filter((r) => r.ok).length;
       const filled = res.filter((r) => r.ok && r.backfill).length;
-      toast(ok ? `${ok - filled ? `${ok - filled} fatura işlendi` : ""}${ok - filled && filled ? ", " : ""}${filled ? `${filled} satışa işçilik eklendi` : ""}${res.length - ok ? `, ${res.length - ok} hata` : ""}.` : "Faturalar işlenemedi.", ok ? "ok" : "bad");
+      toast(ok ? `${ok - filled ? `${ok - filled} fatura işlendi` : ""}${ok - filled && filled ? ", " : ""}${filled ? `${filled} kayıtlı satış güncellendi` : ""}${res.length - ok ? `, ${res.length - ok} hata` : ""}.` : "Faturalar işlenemedi.", ok ? "ok" : "bad");
       setSelected(new Set());
     } finally { setBusy(false); }
   }
@@ -96,7 +96,7 @@ export function EdmsImport({ defaultTypes = ["purchase"] }) {
         <div className={`result ${results.every((r) => r.ok) ? "" : "has-bad"}`}>
           <Icon name="check" size={22} />
           <div>
-            <strong>{results.filter((r) => r.ok && !r.backfill).length} fatura işlendi{results.some((r) => r.backfill) ? ` · ${results.filter((r) => r.ok && r.backfill).length} satışa işçilik eklendi` : ""}</strong>
+            <strong>{results.filter((r) => r.ok && !r.backfill).length} fatura işlendi{results.some((r) => r.backfill) ? ` · ${results.filter((r) => r.ok && r.backfill).length} kayıtlı satış güncellendi` : ""}</strong>
             {results.filter((r) => !r.ok).map((r) => <span key={r.no}>{r.no}: {r.error}</span>)}
           </div>
         </div>
@@ -104,7 +104,7 @@ export function EdmsImport({ defaultTypes = ["purchase"] }) {
       <div className="stats-row">
         <Stat label="Gösterilen fatura" value={visible.length} style={{ "--i": 0 }} />
         <Stat label="İşlenebilir" value={visible.filter((a) => a.importable).length} tone="ok" style={{ "--i": 1 }} />
-        {visible.some((a) => a.backfill) ? <Stat label="İşçiliği eksik satış" value={visible.filter((a) => a.backfill).length} tone="warn" style={{ "--i": 1 }} /> : null}
+        {visible.some((a) => a.backfill) ? <Stat label="Güncellenecek kayıtlı satış" value={visible.filter((a) => a.backfill).length} tone="warn" style={{ "--i": 1 }} /> : null}
         <Stat label="Zaten kayıtlı" value={visible.filter((a) => a.already).length} style={{ "--i": 2 }} />
         <Stat label="Tutar farkı" value={visible.filter((a) => !a.match).length} tone={visible.some((a) => !a.match) ? "bad" : "ok"} style={{ "--i": 3 }} />
         <Stat label="Yeni stok kartı" value={visible.filter((a) => a.type === "purchase").reduce((s, a) => s + a.counts.fresh, 0)} tone="warn" style={{ "--i": 4 }} />
@@ -124,7 +124,7 @@ export function EdmsImport({ defaultTypes = ["purchase"] }) {
                     <div className="inv-meta">
                       <span className={`pill ${a.type === "purchase" ? "is-info" : "is-violet"}`}>{TYPE_LABEL[a.type]}</span>
                       {a.already ? <span className="pill">Zaten kayıtlı</span> : null}
-                      {a.backfill ? <span className="pill is-warn">İşçilik eklenecek</span> : null}
+                      {a.backfill ? <span className="pill is-warn">{a.needsServices ? "İşçilik eklenecek" : "eDMS tutarı işlenecek"}</span> : null}
                       {a.totals.laborNet ? <span className="pill is-violet">İşçilik {money(a.totals.laborNet)}</span> : null}
                       <span className={`pill ${a.match ? "is-ok" : "is-bad"}`}><Icon name={a.match ? "check" : "alert"} size={12} />{a.match ? "eDMS ile birebir" : "Tutar farkı"}</span>
                       {a.type === "purchase" && a.counts.fresh ? <span className="pill is-warn">{a.counts.fresh} yeni kart</span> : null}
@@ -173,7 +173,7 @@ export function EdmsImport({ defaultTypes = ["purchase"] }) {
       ) : <Empty icon="receipt" title="Seçili türde fatura yok" text="Yukarıdan Alış / Satış filtresini değiştirin veya başka bir rapor yükleyin." />}
       {visible.some(selectable) ? (
         <div className="commit">
-          <div><strong>{chosen.length} fatura seçildi</strong><span>{qty(chosen.filter((a) => !a.backfill).reduce((s, a) => s + a.totals.units, 0))} birim stoğa işlenecek · {money(sum("fullNet"))} KDV hariç{chosen.some((a) => a.backfill) ? ` · ${chosen.filter((a) => a.backfill).length} satışa yalnızca işçilik eklenecek` : ""}</span></div>
+          <div><strong>{chosen.length} fatura seçildi</strong><span>{qty(chosen.filter((a) => !a.backfill).reduce((s, a) => s + a.totals.units, 0))} birim stoğa işlenecek · {money(sum("fullNet"))} KDV hariç{chosen.some((a) => a.backfill) ? ` · ${chosen.filter((a) => a.backfill).length} kayıtlı satış güncellenecek (stok değişmez)` : ""}</span></div>
           <Button onClick={() => setSelected(new Set(visible.filter(selectable).map((a) => a.no)))} disabled={busy}>Tümünü seç</Button>
           <Button variant="primary" icon="check" onClick={commit} disabled={busy || !chosen.length}>{busy ? "İşleniyor…" : "Seçilenleri stoğa işle"}</Button>
         </div>
