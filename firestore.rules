@@ -1,35 +1,27 @@
 rules_version = '2';
+// Duar Stok Yönetim — Firestore güvenlik kuralları.
+// Yalnızca e-postası doğrulanmış yönetici veya yöneticinin eklediği
+// kullanıcılar veri okuyup yazabilir. Stok hareketleri değiştirilemez/silinemez.
 service cloud.firestore {
   match /databases/{database}/documents {
     function signedIn() {
       return request.auth != null && request.auth.token.email_verified == true;
     }
-
-    function isOwner() {
+    function owner() {
       return signedIn() && request.auth.token.email == 'tektas590@gmail.com';
     }
-
-    function isAuthorized() {
-      return isOwner() ||
-        (signedIn() && exists(/databases/$(database)/documents/authorizedUsers/$(request.auth.token.email)));
+    function member() {
+      return owner() || (signedIn() && exists(/databases/$(database)/documents/allowedUsers/$(request.auth.token.email)));
     }
 
-    match /authorizedUsers/{email} {
-      allow get: if signedIn() && (isOwner() || request.auth.token.email == email);
-      allow list: if isOwner();
-      allow create, update: if isOwner() && request.resource.data.email == email;
-      allow delete: if isOwner() && email != 'tektas590@gmail.com';
+    match /allowedUsers/{email} {
+      allow read: if owner() || (signedIn() && request.auth.token.email == email);
+      allow write: if owner();
     }
-
-    // İşletme adı/logo/slogan: giriş ekranında oturum açılmadan önce de gösterilir,
-    // bu yüzden herkese okunabilir; değiştirmek yalnızca yöneticiye açıktır.
-    match /settings/business {
-      allow read: if true;
-      allow write: if isOwner();
-    }
-
-    match /{collection}/{document=**} {
-      allow read, write: if collection in ['parts', 'jobs', 'invoices', 'drafts', 'fitments', 'chat', 'customers', 'personnel', 'appointments', 'notifications', 'returns', 'bankoSales'] && isAuthorized();
-    }
+    match /items/{id} { allow read, write: if member(); }
+    match /invoices/{id} { allow read, create, update: if member(); }
+    match /issues/{id} { allow read, create, update: if member(); }
+    match /counts/{id} { allow read, create: if member(); }
+    match /movements/{id} { allow read, create: if member(); }
   }
 }
