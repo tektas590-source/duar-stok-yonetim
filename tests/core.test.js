@@ -229,3 +229,14 @@ test("eDMS sale with short stock is kept: available qty from stock, rest as unca
   assert.equal(plan.issueDoc.totals.gross, 8099.92);
   assert.equal(plan.issueDoc.edmsGross, 8099.92);
 });
+
+test("count sheet: eDMS WDMR002 Stok Mevcut Raporu columns", () => {
+  const { lines, detected } = parseCountSheet([
+    ["DEMİR İNŞ. MİMARLIK"], ["STOK MEVCUT RAPORU"],
+    ["Stok Kodu", "Stok Adı", "Stok Grubu", "Ambar", "İşyeri", "Fiili Miktar", "Birim", "Min.Stok", "Maks.Stok", "Lokasyon"],
+    ["GDY 301030", "MOTOR YAĞI", "YAĞ", "YEDEK PARÇA AMBARI", "DEMİR", "48,50", "LİTRE", null, null, null],
+    ["0164.88ALT", "CONTA", "SARF", "YEDEK PARÇA AMBARI", "DEMİR", "90,00", "ADET", null, null, null],
+  ]);
+  assert.ok(detected);
+  assert.deepEqual(lines.map((l) => [l.sku, l.qty]), [["GDY 301030", 48.5], ["0164.88ALT", 90]]);
+});

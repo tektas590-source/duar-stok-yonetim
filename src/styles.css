@@ -510,3 +510,6 @@ textarea { resize: vertical; }
 .quick-labor button { padding: 4px 10px; border-radius: 99px; border: 1px solid var(--line-2); background: var(--surface-2); color: var(--text-2); font-size: 12px; font-weight: 600; }
 .quick-labor button:hover { color: var(--text); border-color: var(--violet); }
 @media (max-width: 860px) { .service-row { grid-template-columns: 1fr 1fr; } }
+.check-line { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 13px; color: var(--text-2); cursor: pointer; }
+.check-line input { width: 16px; height: 16px; min-height: 0; accent-color: var(--accent); }
+.check-line small { color: var(--text-3); }

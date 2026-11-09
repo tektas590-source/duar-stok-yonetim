@@ -69,7 +69,9 @@ export function CountPage() {
   const [filter, setFilter] = useState("diff");
   const [manual, setManual] = useState({});
   const [drag, setDrag] = useState(false);
+  const [zeroMissing, setZeroMissing] = useState(true);
   const inputRef = useRef(null);
+  const fromFile = file && file !== "Elle sayım";
 
   async function read(f) {
     if (!f) return;
@@ -84,6 +86,7 @@ export function CountPage() {
     setFilter("all");
   };
   const effective = (rows || []).map((r) => {
+    if (fromFile && zeroMissing && r.status === "notcounted" && manual[r.sku] === undefined) return { ...r, counted: 0, diff: -r.system, status: "diff", zeroed: true };
     const m = manual[r.sku];
     if (m === undefined || m === "" || !r.item) return r;
     const counted = Number(m);
@@ -110,15 +113,18 @@ export function CountPage() {
           <label className={`drop ${drag ? "is-drag" : ""}`} onDragOver={(e) => { e.preventDefault(); setDrag(true); }} onDragLeave={() => setDrag(false)} onDrop={(e) => { e.preventDefault(); setDrag(false); read(e.dataTransfer.files?.[0]); }}>
             <input ref={inputRef} type="file" accept=".xlsx,.xls,.csv" onChange={(e) => read(e.target.files?.[0])} />
             <span className="drop-orb"><Icon name="clipboard" size={30} /></span>
-            <strong>Sayım / stok listesi Excel'ini bırakın</strong>
-            <span>Stok kodu ve miktar sütunları otomatik bulunur (Stok Kodu, Miktar, Bakiye, Sayılan…)</span>
+            <strong>eDMS Stok Mevcut Raporu veya sayım Excel'ini bırakın</strong>
+            <span>eDMS → Yedek Parça → Raporlar → Stok Mevcut Raporu (WDMR002) → Excel'e aktar. Stok kodu ve miktar (Fiili Miktar, Bakiye, Sayılan…) otomatik bulunur.</span>
           </label>
           <div className="center"><Button icon="edit" onClick={startManual}>Ya da ekranda elle sayım yap</Button></div>
         </div>
       ) : (
         <>
           <div className="edms-head">
-            <div><p className="eyebrow"><i />{file}</p><h2>{effective.length} satır karşılaştırıldı</h2></div>
+            <div>
+              <p className="eyebrow"><i />{file}</p><h2>{effective.length} satır karşılaştırıldı</h2>
+              {fromFile ? <label className="check-line"><input type="checkbox" checked={zeroMissing} onChange={(e) => setZeroMissing(e.target.checked)} />Dosyada olmayan kartları 0 say <small>(eDMS Stok Mevcut Raporu yalnızca stoğu olanları listeler)</small></label> : null}
+            </div>
             <div className="joined-btns">
               <Button icon="close" onClick={() => { setRows(null); setManual({}); }}>Vazgeç</Button>
               <Button variant="primary" icon="check" onClick={apply} disabled={!groups.diff.length}>{groups.diff.length} farkı stoğa işle</Button>
@@ -138,7 +144,7 @@ export function CountPage() {
                   <tbody>{shown.slice(0, 400).map((r, i) => (
                     <tr key={`${r.sku}-${i}`} className={`row cnt-${r.status}`} style={{ "--d": `${Math.min(i, 25) * 15}ms` }}>
                       <td className="mono strong">{r.sku}</td>
-                      <td className="stack"><span>{r.name || "—"}</span>{r.item?.location ? <small>Raf {r.item.location}</small> : null}</td>
+                      <td className="stack"><span>{r.name || "—"}</span>{r.zeroed ? <small>Dosyada yok → 0</small> : r.item?.location ? <small>Raf {r.item.location}</small> : null}</td>
                       <td className="num">{r.system === null ? "—" : qty(r.system)}</td>
                       <td className="num">{r.item ? <input className="count-input" type="number" min="0" step="any" value={manual[r.sku] ?? (r.counted ?? "")} onChange={(e) => setManual({ ...manual, [r.sku]: e.target.value })} aria-label={`${r.sku} sayılan`} /> : qty(r.counted)}</td>
                       <td className={`num strong ${r.diff > 0 ? "pos" : r.diff < 0 ? "neg" : ""}`}>{r.diff === null ? "—" : `${r.diff > 0 ? "+" : ""}${qty(r.diff)}`}</td>
