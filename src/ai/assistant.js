@@ -43,7 +43,9 @@ const TOOL_LABEL = {
 
 export function friendlyError(error) {
   const m = String(error?.message || error || "");
-  if (/api.*not.*enabled|SERVICE_DISABLED|firebasevertexai|AI Logic|PERMISSION_DENIED/i.test(m)) return "Yapay zekâ servisi Firebase projesinde henüz açık değil.";
+  if (/App Check/i.test(m)) return "Yapay zekâ isteği Firebase App Check (Uygulama Kontrolü) tarafından engellendi. Firebase → Uygulama Kontrolü → Firebase Yapay Zeka Mantığı ayarını kontrol edin.";
+  if (/SERVICE_DISABLED|has not been used|is disabled|API_NOT_ENABLED|not been enabled/i.test(m)) return "Yapay zekâ servisi Firebase projesinde henüz açık değil.";
+  if (/PERMISSION_DENIED|403/i.test(m)) return "Yapay zekâ servisine erişim izni yok (403).";
   if (/quota|RESOURCE_EXHAUSTED|429/i.test(m)) return "Ücretsiz yapay zekâ kotası şu an dolu; bir dakika sonra tekrar deneyin.";
   if (/network|fetch|Failed to fetch/i.test(m)) return "İnternet bağlantısı kurulamadı.";
   return `Asistan yanıt veremedi: ${m.slice(0, 160)}`;
