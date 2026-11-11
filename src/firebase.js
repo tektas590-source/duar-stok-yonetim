@@ -2,6 +2,7 @@
 // İstemci yapılandırma değerleri gizli anahtar değildir; gerçek yetki
 // firestore.rules içindeki kurallarla sunucuda denetlenir.
 import { initializeApp } from "firebase/app";
+import { initializeAppCheck, ReCaptchaEnterpriseProvider } from "firebase/app-check";
 import {
   createUserWithEmailAndPassword, getAuth, onAuthStateChanged, sendEmailVerification,
   sendPasswordResetEmail, signInWithEmailAndPassword, signOut,
@@ -22,6 +23,12 @@ const config = {
 
 export const firebaseConfigured = Boolean(config.apiKey && config.projectId);
 export const app = firebaseConfigured ? initializeApp(config) : null;
+// App Check: Yapay zekâ (AI Logic) isteklerinin bu siteden geldiğini kanıtlar.
+// Site anahtarı herkese açık bir kimliktir, gizli değildir.
+export const RECAPTCHA_SITE_KEY = env.VITE_RECAPTCHA_SITE_KEY || "6LdQGxsuAAAAAKlECsua19ATKWaKBFvsNT5Gs2a2";
+export const appCheck = app && typeof window !== "undefined" && RECAPTCHA_SITE_KEY
+  ? initializeAppCheck(app, { provider: new ReCaptchaEnterpriseProvider(RECAPTCHA_SITE_KEY), isTokenAutoRefreshEnabled: true })
+  : null;
 export const auth = app ? getAuth(app) : null;
 export const db = app ? getFirestore(app) : null;
 
