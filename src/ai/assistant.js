@@ -3,6 +3,7 @@
 import { getAI, getGenerativeModel, GoogleAIBackend, Schema } from "firebase/ai";
 import { app } from "../firebase.js";
 import { runTool, systemPrompt, TOOL_SPECS } from "./tools.js";
+import { cleanHistory } from "./history.js";
 
 // Kasım 2026 itibarıyla bu projede çalıştığı doğrulanan modeller (2.5 serisi kapatıldı).
 const MODELS = ["gemini-3-flash-preview", "gemini-3.1-flash-lite", "gemini-flash-lite-latest"];
@@ -87,7 +88,7 @@ export async function ask(history, question, getData, onStep, onDelta) {
     let streamed = false;
     try {
       const chat = makeModel().startChat({
-        history: history.filter((h) => h.text).map((h) => ({ role: h.role === "user" ? "user" : "model", parts: [{ text: h.text }] })),
+        history: cleanHistory(history),
       });
       let answer = "";
       const emit = (t) => { streamed = true; answer += t; onDelta?.(t); };

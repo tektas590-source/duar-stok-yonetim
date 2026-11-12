@@ -57,3 +57,16 @@ test("flexible query: filter, search, group, sort, errors", async () => {
   assert.ok(q({ koleksiyon: "parcalar", filtre: "fiyatt>3" }).alanlar);
   assert.throws(() => q({ koleksiyon: "parcalar", filtre: "saçma" }));
 });
+
+test("history is cleaned into strict user/model order", async () => {
+  const { cleanHistory } = await import("../src/ai/history.js");
+  const h = cleanHistory([
+    { role: "model", text: "selam" },
+    { role: "user", text: "a" }, { role: "model", text: "hata", error: true },
+    { role: "user", text: "b" }, { role: "model", text: "cevap" },
+    { role: "user", text: "c" },
+  ]);
+  assert.deepEqual(h.map((x) => x.role), ["user", "model"]);
+  assert.equal(h[0].parts[0].text, "a\n\nb");
+  assert.deepEqual(cleanHistory([{ role: "user", text: "x" }]), []);
+});
