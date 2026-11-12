@@ -109,7 +109,7 @@ export async function ask(history, question, getData, onStep, onDelta) {
       return answer.trim() || turn.text;
     } catch (error) {
       const m = String(error?.message || "");
-      const retryable = /not found|404|no longer available|is not supported|unsupported model|timeout|timed out|abort|500|503|overloaded|UNAVAILABLE/i.test(m);
+      const retryable = /quota|RESOURCE_EXHAUSTED|429|not found|404|no longer available|is not supported|unsupported model|timeout|timed out|abort|500|503|overloaded|UNAVAILABLE/i.test(m);
       if (retryable && !streamed && attempt < MODELS.length - 1) { modelIndex = (modelIndex + 1) % MODELS.length; continue; }
       throw error;
     }
