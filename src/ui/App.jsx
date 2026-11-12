@@ -23,6 +23,21 @@ const NAV = [
 ];
 const PAGES = { genel: DashboardPage, stok: StockPage, alis: PurchasesPage, satis: IssuesPage, hareket: MovementsPage, sayim: CountPage, siparis: OrdersPage, rapor: ReportsPage, ayarlar: SettingsPage };
 
+// Sinematik sayfa geçişi: perde açılır, ışık çizgisi süpürür, sayfa adı
+// büyük harflerle belirip kaybolur. Tıklamaları engellemez.
+function RouteFx({ page }) {
+  const index = NAV.findIndex(([id]) => id === page);
+  const label = index >= 0 ? NAV[index][1] : "";
+  return (
+    <div className="route-fx" aria-hidden="true">
+      <i className="fx-shutter fx-top" />
+      <i className="fx-shutter fx-bottom" />
+      <i className="fx-beam" />
+      <span className="fx-title"><small>DUAR · {String(index + 1).padStart(2, "0")}</small>{label}</span>
+    </div>
+  );
+}
+
 function readRoute() {
   const r = window.location.hash.replace(/^#\/?/, "").split("?")[0];
   return PAGES[r] ? r : "genel";
@@ -108,9 +123,12 @@ function Shell({ store, user }) {
             <button type="button" className="icon-btn" onClick={toggleTheme} aria-label="Tema"><Icon name={theme === "dark" ? "sun" : "moon"} size={16} /></button>
           </header>
           {!data.ready ? <div className="loading"><span className="loader" />Veriler yükleniyor…</div> : (
-            <div className="route" key={`${route.page}-${route.n}`}>
-              <Page params={route.params} />
-            </div>
+            <>
+              <RouteFx key={`fx-${route.page}-${route.n}`} page={route.page} />
+              <div className="route" key={`${route.page}-${route.n}`}>
+                <Page params={route.params} />
+              </div>
+            </>
           )}
         </main>
         {data.ready ? <Assistant open={aiOpen} setOpen={setAiOpen} /> : null}

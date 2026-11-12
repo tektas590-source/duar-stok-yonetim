@@ -90,8 +90,28 @@ textarea { resize: vertical; }
 .main { min-width: 0; padding: 26px 32px 60px; }
 .mobilebar { display: none; }
 .nav-scrim { display: none; }
-.route { animation: routeIn 0.6s var(--ease) both; }
-@keyframes routeIn { from { opacity: 0; transform: translateY(16px); filter: blur(8px); } to { opacity: 1; transform: none; filter: none; } }
+/* Sinematik sayfa geçişi */
+.route { animation: routeIn 0.9s var(--ease) 0.28s both; transform-origin: 50% 0; }
+.route > * > * { animation: routeChild 0.8s var(--ease) both; }
+.route > * > *:nth-child(1) { animation-delay: 0.34s; }
+.route > * > *:nth-child(2) { animation-delay: 0.42s; }
+.route > * > *:nth-child(3) { animation-delay: 0.5s; }
+.route > * > *:nth-child(4) { animation-delay: 0.58s; }
+.route > * > *:nth-child(n+5) { animation-delay: 0.66s; }
+@keyframes routeIn { from { opacity: 0; transform: perspective(1400px) translateY(28px) rotateX(4deg) scale(0.985); filter: blur(14px) saturate(0.4); } to { opacity: 1; transform: none; filter: none; } }
+@keyframes routeChild { from { opacity: 0; transform: translateY(22px); } }
+.route-fx { position: fixed; top: 0; bottom: 0; left: 248px; right: 0; z-index: 25; pointer-events: none; overflow: hidden; animation: fxGone 0s linear 1.25s forwards; }
+.fx-shutter { position: absolute; left: 0; right: 0; height: 50.5%; background: linear-gradient(180deg, var(--bg-2), var(--bg)); }
+.fx-top { top: 0; animation: shutterUp 0.95s cubic-bezier(0.76, 0, 0.24, 1) 0.18s both; box-shadow: 0 1px 0 var(--line); }
+.fx-bottom { bottom: 0; animation: shutterDown 0.95s cubic-bezier(0.76, 0, 0.24, 1) 0.18s both; }
+.fx-beam { position: absolute; left: 0; right: 0; top: 50%; height: 2px; margin-top: -1px; background: linear-gradient(90deg, transparent, var(--accent) 30%, var(--accent-2) 50%, var(--accent) 70%, transparent); box-shadow: 0 0 18px 2px var(--accent-glow), 0 0 60px 8px var(--accent-glow); transform-origin: 50% 50%; animation: beam 1s var(--ease) both; }
+.fx-title { position: absolute; left: 50%; top: 50%; display: grid; justify-items: center; gap: 10px; transform: translate(-50%, -50%); font: 800 clamp(28px, 5.2vw, 64px)/1 var(--display); letter-spacing: 0.08em; text-transform: uppercase; color: var(--text); white-space: nowrap; animation: fxTitle 0.95s var(--ease) both; }
+.fx-title small { font: 700 11px var(--font); letter-spacing: 0.42em; color: var(--accent); }
+@keyframes shutterUp { to { transform: translateY(-102%); } }
+@keyframes shutterDown { to { transform: translateY(102%); } }
+@keyframes beam { 0% { transform: scaleX(0); opacity: 1; } 35% { transform: scaleX(1); opacity: 1; } 100% { transform: scaleX(1) scaleY(0.2); opacity: 0; } }
+@keyframes fxTitle { 0% { opacity: 0; letter-spacing: 0.3em; filter: blur(10px); transform: translate(-50%, calc(-50% - 22px)); } 30% { opacity: 1; letter-spacing: 0.08em; filter: none; transform: translate(-50%, calc(-50% - 22px)); } 70% { opacity: 1; filter: none; } 100% { opacity: 0; filter: blur(8px); transform: translate(-50%, calc(-50% - 60px)) scale(1.06); } }
+@keyframes fxGone { to { visibility: hidden; } }
 .loading, .splash { display: flex; align-items: center; justify-content: center; gap: 12px; min-height: 60vh; color: var(--text-3); }
 .splash { min-height: 100vh; flex-direction: column; font: 800 20px var(--display); letter-spacing: 0.3em; color: var(--text-2); }
 .loader { width: 28px; height: 28px; border-radius: 50%; border: 3px solid var(--line-2); border-top-color: var(--accent); animation: spin 0.8s linear infinite; }
@@ -483,6 +503,7 @@ textarea { resize: vertical; }
   .mobilebar { position: sticky; top: 0; z-index: 20; display: flex; align-items: center; justify-content: space-between; margin: -26px -16px 14px; padding: 10px 12px; background: color-mix(in srgb, var(--bg) 85%, transparent); backdrop-filter: blur(14px); border-bottom: 1px solid var(--line); }
   .mobilebar strong { font: 800 15px var(--display); letter-spacing: 0.2em; }
   .main { padding: 26px 16px 60px; }
+  .route-fx { left: 0; }
   .hero { padding: 20px 16px 16px; }
   .hero-body { flex-direction: column-reverse; align-items: flex-start; }
   .dash-grid, .form-grid, .form-grid.cols-4, .howto { grid-template-columns: 1fr; }
