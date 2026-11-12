@@ -576,3 +576,18 @@ textarea { resize: vertical; }
 .ai-send { display: grid; place-items: center; flex: 0 0 44px; height: 44px; border: 0; border-radius: 50%; color: #fff; background: linear-gradient(135deg, var(--violet), var(--accent)); }
 .toasts { bottom: 96px; }
 @media (max-width: 860px) { .ai-panel { right: 12px; left: 12px; width: auto; bottom: 86px; height: calc(100vh - 110px); } .ai-fab { right: 14px; bottom: 14px; } }
+
+/* En çok satanlar: tam liste */
+.top-head { flex-wrap: wrap; }
+.top-head h3 small { margin-left: 6px; font: 500 12px var(--font); color: var(--text-3); }
+.top-tools { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.top-tools input { width: 170px; height: 32px; padding: 0 10px; font-size: 12.5px; }
+.top-tools select { height: 32px; padding: 0 8px; font-size: 12.5px; }
+.hbar-label strong { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.rank { flex: 0 0 auto; min-width: 22px; font: 700 11px var(--display); color: var(--text-3); font-variant-numeric: tabular-nums; }
+.link-btn { padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.link-btn:hover { color: var(--accent); }
+.show-all { display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; margin-top: 14px; padding: 10px; border: 1px dashed var(--line-2); border-radius: var(--r-sm); background: none; color: var(--text-2); font-weight: 600; font-size: 13px; transition: color 0.2s, border-color 0.2s, background 0.2s; }
+.show-all:hover { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+.rot-down { transform: rotate(90deg); } .rot-up { transform: rotate(-90deg); }
+@media (max-width: 860px) { .top-tools, .top-tools input { width: 100%; } .top-tools input { flex: 1; } }

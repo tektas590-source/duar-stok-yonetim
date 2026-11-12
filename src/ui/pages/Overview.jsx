@@ -3,7 +3,8 @@ import { Button, Empty, Icon, PageHead, Ring, useCountUp, useReady } from "../ki
 import { useApp } from "../context.js";
 import { flowSeries, level, LEVEL_LABEL, summarize } from "../../core/stock.js";
 import { MOVE_LABEL } from "../../core/ledger.js";
-import { dateLabel, money, moneyShort, qty, round, timeLabel } from "../../core/format.js";
+import { dateLabel, money, moneyShort, qty, round, timeLabel, todayKey } from "../../core/format.js";
+import { downloadRows } from "../excel.js";
 
 function FlowChart({ series }) {
   const ready = useReady(150);
@@ -114,21 +115,33 @@ export function DashboardPage() {
   );
 }
 
+const TOP_PREVIEW = 12;
+const TOP_SORT = { net: "Ciroya göre", qty: "Adede göre", profit: "Kâra göre" };
+
 export function ReportsPage() {
-  const { data } = useApp();
+  const { data, go } = useApp();
   const [range, setRange] = useState("30");
+  const [showAll, setShowAll] = useState(false);
+  const [topSort, setTopSort] = useState("net");
+  const [topQuery, setTopQuery] = useState("");
   const cutoff = range === "all" ? "" : new Date(Date.now() - Number(range) * 86400000).toISOString().slice(0, 10);
   const issues = data.issues.filter((d) => !d.cancelled && (!cutoff || d.date >= cutoff));
   const invoices = data.invoices.filter((d) => !d.cancelled && (!cutoff || d.date >= cutoff));
   const top = useMemo(() => {
     const map = new Map();
     issues.forEach((d) => d.lines.forEach((l) => {
-      const row = map.get(l.itemId) || { sku: l.sku, name: l.name, qty: 0, net: 0, cost: 0 };
-      row.qty += l.qty; row.net += l.net; row.cost += l.cost || 0;
+      const row = map.get(l.itemId) || { itemId: l.itemId, sku: l.sku, name: l.name, qty: 0, net: 0, cost: 0, docs: 0 };
+      row.qty += l.qty; row.net += l.net; row.cost += l.cost || 0; row.docs += 1;
       map.set(l.itemId, row);
     }));
-    return [...map.values()].map((r) => ({ ...r, profit: round(r.net - r.cost) })).sort((a, b) => b.net - a.net).slice(0, 12);
-  }, [issues]);
+    return [...map.values()].map((r) => ({ ...r, qty: round(r.qty, 3), net: round(r.net), profit: round(r.net - r.cost) })).sort((a, b) => b[topSort] - a[topSort]);
+  }, [issues, topSort]);
+  const topFiltered = useMemo(() => {
+    const q = topQuery.trim().toLocaleLowerCase("tr");
+    return q ? top.filter((t) => `${t.sku} ${t.name}`.toLocaleLowerCase("tr").includes(q)) : top;
+  }, [top, topQuery]);
+  const topShown = showAll || topQuery ? topFiltered : topFiltered.slice(0, TOP_PREVIEW);
+  const exportTop = () => downloadRows(`duar-en-cok-satanlar-${todayKey()}.xlsx`, "En çok satanlar", topFiltered.map((t, i) => ({ Sıra: i + 1, "Stok Kodu": t.sku, "Parça Adı": t.name, "Satış Adedi": t.qty, "Belge Sayısı": t.docs, "Ciro (KDV hariç)": t.net, Maliyet: round(t.cost), "Brüt Kâr": t.profit })), [6, 20, 42, 12, 12, 16, 12, 12]);
   const suppliers = useMemo(() => {
     const map = new Map();
     invoices.forEach((d) => { const r = map.get(d.supplier) || { name: d.supplier, count: 0, net: 0 }; r.count += 1; r.net += d.totals.net; map.set(d.supplier, r); });
@@ -144,7 +157,7 @@ export function ReportsPage() {
   const sales = issues.reduce((s, d) => s + d.totals.net, 0);
   const laborTotal = issues.reduce((s, d) => s + (d.totals.laborNet || 0), 0);
   const profit = issues.reduce((s, d) => s + (d.totals.profit || 0), 0);
-  const maxTop = Math.max(1, ...top.map((t) => t.net));
+  const maxTop = Math.max(1, ...top.map((t) => Math.max(0, t[topSort])));
   const maxSup = Math.max(1, ...suppliers.map((t) => t.net));
   return (
     <div className="page">
@@ -159,14 +172,26 @@ export function ReportsPage() {
       </div>
       <div className="dash-grid">
         <section className="panel pad span-2">
-          <div className="panel-head"><h3>En çok satan parçalar</h3></div>
-          {top.length ? <ul className="hbars">{top.map((t, i) => (
-            <li key={t.sku} style={{ "--i": i }}>
-              <div className="hbar-label"><strong>{t.name}</strong><small className="mono">{t.sku} · {qty(t.qty)} birim · kâr {moneyShort(t.profit)}</small></div>
-              <div className="hbar"><u style={{ width: ready ? `${(t.net / maxTop) * 100}%` : 0, transitionDelay: `${i * 50}ms` }} /></div>
-              <b>{moneyShort(t.net)}</b>
+          <div className="panel-head top-head">
+            <h3>En çok satan parçalar <small className="muted">{topFiltered.length} parça</small></h3>
+            <div className="top-tools">
+              <input type="search" value={topQuery} onChange={(e) => setTopQuery(e.target.value)} placeholder="Parça ara…" aria-label="En çok satanlarda ara" />
+              <select value={topSort} onChange={(e) => setTopSort(e.target.value)} aria-label="Sıralama">{Object.entries(TOP_SORT).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select>
+              <Button icon="download" onClick={exportTop} disabled={!topFiltered.length}>Excel</Button>
+            </div>
+          </div>
+          {topShown.length ? <ul className="hbars">{topShown.map((t, i) => (
+            <li key={t.itemId || t.sku} style={{ "--i": Math.min(i, TOP_PREVIEW) }}>
+              <div className="hbar-label"><strong><span className="rank">{top.indexOf(t) + 1}</span><button type="button" className="link-btn" onClick={() => go("stok", { itemId: t.itemId })}>{t.name}</button></strong><small className="mono">{t.sku} · {qty(t.qty)} birim · {t.docs} belge · kâr {moneyShort(t.profit)}</small></div>
+              <div className="hbar"><u style={{ width: ready ? `${(Math.max(0, t[topSort]) / maxTop) * 100}%` : 0, transitionDelay: `${Math.min(i, TOP_PREVIEW) * 50}ms` }} /></div>
+              <b>{topSort === "qty" ? `${qty(t.qty)} birim` : moneyShort(topSort === "profit" ? t.profit : t.net)}</b>
             </li>
-          ))}</ul> : <Empty icon="chart" title="Bu dönemde satış yok" />}
+          ))}</ul> : <Empty icon="chart" title={topQuery ? "Aramaya uyan parça yok" : "Bu dönemde satış yok"} />}
+          {!topQuery && topFiltered.length > TOP_PREVIEW ? (
+            <button type="button" className="show-all" onClick={() => setShowAll(!showAll)}>
+              {showAll ? "Daha az göster" : `Tümünü göster (${topFiltered.length - TOP_PREVIEW} parça daha)`}<Icon name="chevron" size={14} className={showAll ? "rot-up" : "rot-down"} />
+            </button>
+          ) : null}
         </section>
         <section className="panel pad">
           <div className="panel-head"><h3>Kategoriye göre stok değeri</h3></div>
