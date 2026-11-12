@@ -39,3 +39,21 @@ test("overview, search, detail, sales, purchases, critical, dead stock", async (
   assert.equal(runTool("hareketler", { tur: "satis" }, data, NOW).adet, 2);
   assert.ok(runTool("yok", {}, data, NOW).hata);
 });
+
+test("flexible query: filter, search, group, sort, errors", async () => {
+  const data = await seed();
+  const q = (a) => runTool("veri_sorgula", a, data, NOW);
+  assert.equal(q({ koleksiyon: "parcalar", filtre: "stok>2" }).eslesenKayit, 2);
+  assert.equal(q({ koleksiyon: "parcalar", filtre: "ad~filtre" }).kayitlar[0].sku, "1609414480");
+  assert.equal(q({ koleksiyon: "satis_kalemleri", ara: "gdy301030" }).toplamlar.net, 1800);
+  const g = q({ koleksiyon: "satis_kalemleri", grupla: "musteri" });
+  assert.equal(g.gruplar[0].musteri, "Ahmet");
+  assert.equal(g.gruplar[0].net, 2380);
+  assert.equal(q({ koleksiyon: "iscilikler", filtre: "plaka~55 abc" }).toplamlar.net, 1500);
+  assert.equal(q({ koleksiyon: "alis_kalemleri", sirala: "net asc" }).kayitlar[0].sku, "1609414480");
+  assert.equal(q({ koleksiyon: "satis_belgeleri", grupla: "ay" }).gruplar[0].ciro, 3880);
+  assert.equal(q({ koleksiyon: "hareketler", filtre: "islem~satış", baslangic: "2026-11-05" }).eslesenKayit, 2);
+  assert.ok(q({ koleksiyon: "yok" }).hata);
+  assert.ok(q({ koleksiyon: "parcalar", filtre: "fiyatt>3" }).alanlar);
+  assert.throws(() => q({ koleksiyon: "parcalar", filtre: "saçma" }));
+});

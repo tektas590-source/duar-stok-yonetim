@@ -39,6 +39,7 @@ const TOOL_LABEL = {
   genel_durum: "Genel durum okunuyor", parca_ara: "Parça aranıyor", parca_detay: "Parça detayı inceleniyor", kritik_stoklar: "Kritik stoklar taranıyor",
   satis_raporu: "Satışlar hesaplanıyor", alis_raporu: "Alışlar hesaplanıyor", belge_ara: "Belgeler aranıyor", hareketler: "Hareketler okunuyor",
   en_cok_satanlar: "En çok satanlar sıralanıyor", olu_stok: "Ölü stok taranıyor", kategori_dagilimi: "Kategori dağılımı hesaplanıyor",
+  veri_sorgula: "Veri analiz ediliyor",
 };
 
 export function friendlyError(error) {
@@ -51,31 +52,64 @@ export function friendlyError(error) {
   return `Asistan yanıt veremedi: ${m.slice(0, 160)}`;
 }
 
+function stepLabel(call) {
+  if (call.name !== "veri_sorgula") return TOOL_LABEL[call.name] || call.name;
+  const a = call.args || {};
+  const what = { parcalar: "parçalar", satis_belgeleri: "satışlar", satis_kalemleri: "satılan parçalar", iscilikler: "işçilikler", alis_faturalari: "alış faturaları", alis_kalemleri: "alınan parçalar", hareketler: "stok hareketleri", iptaller: "iptaller" }[a.koleksiyon] || "veri";
+  return `${what[0].toLocaleUpperCase("tr")}${what.slice(1)} ${a.grupla ? `${a.grupla} bazında gruplanıyor` : "inceleniyor"}`;
+}
+
+function safeText(response) {
+  try { return response.text() || ""; } catch { return ""; }
+}
+
+// Bir mesajı akış hâlinde gönderir; metin parçalarını onDelta ile iletir.
+async function streamTurn(chat, message, onDelta) {
+  if (typeof chat.sendMessageStream !== "function") {
+    const r = await chat.sendMessage(message);
+    const t = safeText(r.response); if (t) onDelta?.(t);
+    return { response: r.response, text: t };
+  }
+  const r = await chat.sendMessageStream(message);
+  let text = "";
+  for await (const chunk of r.stream) {
+    const t = safeText(chunk);
+    if (t) { text += t; onDelta?.(t); }
+  }
+  const response = await r.response;
+  return { response, text: text || safeText(response) };
+}
+
 // history: [{ role: "user" | "model", text }]; getData(): uygulamanın güncel verisi.
-export async function ask(history, question, getData, onStep) {
+// onStep(etiket): araç çalışırken; onDelta(metin): yanıt yazılırken.
+export async function ask(history, question, getData, onStep, onDelta) {
   for (let attempt = 0; attempt < MODELS.length; attempt += 1) {
+    let streamed = false;
     try {
       const chat = makeModel().startChat({
         history: history.filter((h) => h.text).map((h) => ({ role: h.role === "user" ? "user" : "model", parts: [{ text: h.text }] })),
       });
-      let result = await chat.sendMessage(question);
-      for (let round = 0; round < 6; round += 1) {
-        const calls = result.response.functionCalls?.() || [];
+      let answer = "";
+      const emit = (t) => { streamed = true; answer += t; onDelta?.(t); };
+      let turn = await streamTurn(chat, question, emit);
+      for (let round = 0; round < 10; round += 1) {
+        const calls = turn.response.functionCalls?.() || [];
         if (!calls.length) break;
+        if (answer) emit("\n\n");
         const responses = calls.map((call) => {
-          onStep?.(TOOL_LABEL[call.name] || call.name);
+          onStep?.(stepLabel(call));
           let output;
           try { output = runTool(call.name, call.args || {}, getData()); } catch (error) { output = { hata: error.message }; }
           return { functionResponse: { name: call.name, response: { sonuc: output } } };
         });
-        result = await chat.sendMessage(responses);
+        turn = await streamTurn(chat, responses, emit);
       }
       try { localStorage.setItem(STORE_KEY, MODELS[modelIndex]); } catch { /* yoksay */ }
-      return result.response.text();
+      return answer.trim() || turn.text;
     } catch (error) {
       const m = String(error?.message || "");
       const retryable = /not found|404|no longer available|is not supported|unsupported model|timeout|timed out|abort|500|503|overloaded|UNAVAILABLE/i.test(m);
-      if (retryable && attempt < MODELS.length - 1) { modelIndex = (modelIndex + 1) % MODELS.length; continue; }
+      if (retryable && !streamed && attempt < MODELS.length - 1) { modelIndex = (modelIndex + 1) % MODELS.length; continue; }
       throw error;
     }
   }

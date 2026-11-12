@@ -4,14 +4,6 @@ import { Icon } from "./kit.jsx";
 import { useApp } from "./context.js";
 import { itemIdFromSku } from "../core/format.js";
 
-const SUGGESTIONS = [
-  "Bu ay ciro, işçilik ve kâr ne kadar?",
-  "Kritik stoklar neler, ne sipariş etmeliyim?",
-  "Bu ay en çok satan parçalar hangileri?",
-  "90 gündür satılmayan ölü stoklar neler?",
-  "Tedarikçilere göre bu ayki alışlar",
-  "Deponun genel durumunu özetle",
-];
 
 // Basit, güvenli biçimlendirme: **kalın**, `stok kodu`, - liste, satır sonu.
 function Rich({ text, onSku }) {
@@ -41,13 +33,14 @@ export function Assistant({ open, setOpen }) {
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [step, setStep] = useState("");
+  const [draft, setDraft] = useState("");
   const dataRef = useRef(data);
   const listRef = useRef(null);
   const inputRef = useRef(null);
   dataRef.current = data;
 
   useEffect(() => { try { sessionStorage.setItem("duar-ai", JSON.stringify(messages.slice(-30))); } catch { /* yoksay */ } }, [messages]);
-  useEffect(() => { listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: "smooth" }); }, [messages, step]);
+  useEffect(() => { listRef.current?.scrollTo({ top: listRef.current.scrollHeight, behavior: draft ? "auto" : "smooth" }); }, [messages, step, draft]);
   useEffect(() => { if (open) setTimeout(() => inputRef.current?.focus(), 250); }, [open]);
   useEffect(() => {
     const onKey = (e) => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") { e.preventDefault(); setOpen(!open); } if (e.key === "Escape" && open) setOpen(false); };
@@ -59,18 +52,18 @@ export function Assistant({ open, setOpen }) {
     const q = String(text || input).trim();
     if (!q || busy) return;
     setInput("");
-    const history = messages.filter((m) => !m.error).slice(-12);
+    const history = messages.filter((m) => !m.error).slice(-20);
     setMessages((m) => [...m, { role: "user", text: q }]);
-    setBusy(true); setStep("Düşünüyor");
+    setBusy(true); setStep("Düşünüyor"); setDraft("");
     try {
       const { ask } = await import("../ai/assistant.js");
-      const answer = await ask(history, q, () => dataRef.current, (s) => setStep(s));
+      const answer = await ask(history, q, () => dataRef.current, (s) => setStep(s), (t) => { setStep("Yazıyor"); setDraft((d) => d + t); });
       setMessages((m) => [...m, { role: "model", text: answer || "Bir yanıt üretemedim, soruyu farklı sorar mısın?" }]);
     } catch (error) {
       console.error(error);
       const { friendlyError } = await import("../ai/assistant.js").catch(() => ({ friendlyError: (e) => e.message }));
       setMessages((m) => [...m, { role: "model", text: friendlyError(error), error: true }]);
-    } finally { setBusy(false); setStep(""); }
+    } finally { setBusy(false); setStep(""); setDraft(""); }
   }
 
   const openSku = (sku) => {
@@ -96,18 +89,18 @@ export function Assistant({ open, setOpen }) {
             <div className="ai-welcome">
               <span className="ai-orb big" aria-hidden="true"><Icon name="spark" size={28} /></span>
               <h3>Merhaba, ben Duar Asistan.</h3>
-              <p>Uygulamadaki gerçek verilere bakarak cevap veririm: stoklar, ciro, işçilik, kâr, faturalar, tedarikçiler, hareketler…</p>
-              <div className="ai-suggest">{SUGGESTIONS.map((s, i) => <button key={s} type="button" style={{ "--i": i }} onClick={() => send(s)}>{s}</button>)}</div>
+              <p>Aklına ne gelirse kendi cümlelerinle yaz. Deponun, satışların, işçiliğin ve faturaların tamamına bakıp araştırırım; araç arızası, parça muadili, fiyatlandırma ya da müşteriye yazılacak mesaj gibi konularda da yardımcı olurum.</p>
             </div>
           ) : messages.map((m, i) => (
             <div key={i} className={`ai-msg ai-${m.role} ${m.error ? "is-error" : ""}`}>
               {m.role === "user" ? <p>{m.text}</p> : <Rich text={m.text} onSku={openSku} />}
             </div>
           ))}
+          {busy && draft ? <div className="ai-msg ai-model is-streaming"><Rich text={draft} onSku={openSku} /></div> : null}
           {busy ? <div className="ai-msg ai-model ai-thinking"><span className="dots"><i /><i /><i /></span>{step}…</div> : null}
         </div>
         <form className="ai-input" onSubmit={(e) => { e.preventDefault(); send(); }}>
-          <textarea ref={inputRef} rows={1} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }} placeholder="Örn: GDY 301030 stokta kaç litre var?" aria-label="Asistana sor" disabled={busy} />
+          <textarea ref={inputRef} rows={1} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }} placeholder="Bir şey sor ya da yaz…" aria-label="Asistana sor" disabled={busy} />
           <button type="submit" className="ai-send" disabled={busy || !input.trim()} aria-label="Gönder"><Icon name="chevron" size={18} /></button>
         </form>
       </section>

@@ -52,7 +52,116 @@ function salesAgg(issues, rng) {
   return { t, docs };
 }
 
+
+// ---- Esnek sorgu motoru: modelin önceden tanımlanmamış her soruyu verinin
+// kendisi üzerinde süzüp gruplayarak yanıtlayabilmesi için. ----
+function datasets(data, usage) {
+  const items = (data.items || []).filter((i) => !i.archived);
+  const sales = live(data.issues);
+  const buys = live(data.invoices);
+  return {
+    parcalar: () => items.map((i) => itemBrief(i, usage)),
+    satis_belgeleri: () => sales.map((d) => ({ no: d.no, tarih: d.date, ay: String(d.date).slice(0, 7), musteri: d.customer || "Tezgah", plaka: d.plate || null, arac: d.vehicle || null, kaynak: d.source || null, ciro: r2(d.totals.net), parca: r2(d.totals.partsNet ?? d.totals.net), iscilik: r2(d.totals.laborNet || 0), kartsizParca: r2(d.totals.otherNet || 0), kdvDahil: r2(d.totals.gross), maliyet: r2(d.totals.cost || 0), kar: r2(d.totals.profit || 0), kalemSayisi: d.lines.length })),
+    satis_kalemleri: () => sales.flatMap((d) => d.lines.map((l) => ({ tarih: d.date, ay: String(d.date).slice(0, 7), belge: d.no, musteri: d.customer || "Tezgah", plaka: d.plate || null, sku: l.sku, ad: l.name, adet: r2(l.qty), birimFiyat: r2(l.unitPrice), iskonto: l.discountPct || 0, net: r2(l.net), maliyet: r2(l.cost || 0), kar: r2(l.net - (l.cost || 0)) }))),
+    iscilikler: () => sales.flatMap((d) => (d.services || []).map((l) => ({ tarih: d.date, ay: String(d.date).slice(0, 7), belge: d.no, musteri: d.customer || "Tezgah", plaka: d.plate || null, tur: l.kind === "labor" ? "işçilik" : "kartsız parça", kod: l.code || null, ad: l.name, adet: r2(l.qty), net: r2(l.net) }))),
+    alis_faturalari: () => buys.map((d) => ({ no: d.no, tarih: d.date, ay: String(d.date).slice(0, 7), tedarikci: d.supplier, kdvHaric: r2(d.totals.net), kdv: r2(d.totals.vat), kdvDahil: r2(d.totals.gross), kalemSayisi: d.lines.length, edmsTutari: d.edmsGross ?? null })),
+    alis_kalemleri: () => buys.flatMap((d) => d.lines.map((l) => ({ tarih: d.date, ay: String(d.date).slice(0, 7), fatura: d.no, tedarikci: d.supplier, sku: l.sku, ad: l.name, adet: r2(l.qty), birimFiyat: r2(l.unitPrice), iskonto: l.discountPct || 0, net: r2(l.net), birimMaliyet: r2(l.qty ? l.net / l.qty : 0) }))),
+    hareketler: () => (data.movements || []).map((m) => ({ tarih: m.date, ay: String(m.date).slice(0, 7), sku: m.sku, ad: m.name, islem: MOVE_LABEL[m.type] || m.type, miktar: r2(m.qty), once: m.stockBefore, sonra: m.stockAfter, belge: m.refNo || null, not: m.note || null, kullanici: m.actor || null })),
+    iptaller: () => [...(data.invoices || []).filter((d) => d.cancelled).map((d) => ({ tur: "alış", no: d.no, tarih: d.date, kim: d.supplier, kdvHaric: r2(d.totals.net) })), ...(data.issues || []).filter((d) => d.cancelled).map((d) => ({ tur: "satış", no: d.no, tarih: d.date, kim: d.customer || "Tezgah", kdvHaric: r2(d.totals.net) }))],
+  };
+}
+
+const norm = (v) => String(v ?? "").toLocaleLowerCase("tr");
+const isNum = (v) => v !== null && v !== "" && v !== undefined && Number.isFinite(Number(v));
+
+function parseFilters(text) {
+  return String(text || "").split(/;|\s+ve\s+|&&/i).map((part) => part.trim()).filter(Boolean).map((part) => {
+    const m = part.match(/^([\wçğıöşüÇĞİÖŞÜ]+)\s*(>=|<=|!=|=|>|<|~|!~)\s*(.*)$/);
+    if (!m) throw new Error(`Filtre anlaşılamadı: "${part}". Biçim: alan=değer; alan>sayı; alan~metin`);
+    return { field: m[1], op: m[2], value: m[3].trim().replace(/^["']|["']$/g, "") };
+  });
+}
+
+function matches(row, f) {
+  const v = row[f.field];
+  if (f.op === "~") return norm(v).includes(norm(f.value)) || looseKey(v).includes(looseKey(f.value));
+  if (f.op === "!~") return !norm(v).includes(norm(f.value));
+  const both = isNum(v) && isNum(f.value);
+  const a = both ? Number(v) : norm(v);
+  const b = both ? Number(f.value) : norm(f.value === "boş" || f.value === "null" ? "" : f.value);
+  switch (f.op) {
+    case "=": return a === b;
+    case "!=": return a !== b;
+    case ">": return a > b;
+    case "<": return a < b;
+    case ">=": return a >= b;
+    default: return a <= b;
+  }
+}
+
+export function queryData(args, data, now = Date.now()) {
+  const items = (data.items || []).filter((i) => !i.archived);
+  const sets = datasets(data, usageMap(items, data.movements, { now }));
+  const name = String(args.koleksiyon || "").trim();
+  if (!sets[name]) return { hata: `Koleksiyon yok: ${name}`, koleksiyonlar: Object.keys(sets) };
+  let rows = sets[name]();
+  const fields = rows.length ? Object.keys(rows[0]) : [];
+  const filters = parseFilters(args.filtre);
+  const bad = filters.find((f) => rows.length && !fields.includes(f.field));
+  if (bad) return { hata: `"${bad.field}" alanı ${name} içinde yok`, alanlar: fields };
+  if (args.baslangic) rows = rows.filter((r) => !r.tarih || String(r.tarih) >= args.baslangic);
+  if (args.bitis) rows = rows.filter((r) => !r.tarih || String(r.tarih) <= args.bitis);
+  if (args.ara) {
+    const words = norm(args.ara).split(/\s+/).filter(Boolean);
+    rows = rows.filter((r) => { const hay = norm(Object.values(r).join(" ")); const lk = looseKey(Object.values(r).join(" ")); return words.every((w) => hay.includes(w) || lk.includes(looseKey(w))); });
+  }
+  rows = rows.filter((r) => filters.every((f) => matches(r, f)));
+  const numeric = fields.filter((k) => rows.some((r) => typeof r[k] === "number") && !["once", "sonra", "kritik", "iskonto", "kalemSayisi"].includes(k));
+  const sumFields = args.topla ? String(args.topla).split(",").map((x) => x.trim()).filter((k) => fields.includes(k)) : numeric;
+  const totals = Object.fromEntries(sumFields.map((k) => [k, r2(rows.reduce((x, r) => x + (Number(r[k]) || 0), 0))]));
+  const limit = Math.min(150, Math.max(1, Number(args.limit) || 30));
+  const [sortKey, sortDir] = String(args.sirala || "").trim().split(/\s+/);
+  const desc = !/^(asc|artan|kucukten)/i.test(sortDir || "");
+  const sorter = (k) => (x, y) => {
+    const a = x[k]; const b = y[k];
+    const c = isNum(a) && isNum(b) ? Number(a) - Number(b) : norm(a).localeCompare(norm(b), "tr");
+    return desc ? -c : c;
+  };
+  if (args.grupla) {
+    const keys = String(args.grupla).split(",").map((x) => x.trim());
+    const badKey = keys.find((k) => !fields.includes(k));
+    if (badKey && rows.length) return { hata: `"${badKey}" ile gruplanamaz`, alanlar: fields };
+    const groups = new Map();
+    rows.forEach((r) => {
+      const id = keys.map((k) => r[k] ?? "—").join(" | ");
+      const g = groups.get(id) || { ...Object.fromEntries(keys.map((k) => [k, r[k] ?? "—"])), kayit: 0, ...Object.fromEntries(sumFields.map((k) => [k, 0])) };
+      g.kayit += 1; sumFields.forEach((k) => { g[k] += Number(r[k]) || 0; });
+      groups.set(id, g);
+    });
+    let list = [...groups.values()].map((g) => { sumFields.forEach((k) => { g[k] = r2(g[k]); }); return g; });
+    const k = sortKey && (sortKey === "kayit" || sumFields.includes(sortKey) || keys.includes(sortKey)) ? sortKey : (sumFields.includes("net") ? "net" : sumFields.includes("ciro") ? "ciro" : "kayit");
+    list = list.sort(sorter(k));
+    return { koleksiyon: name, eslesenKayit: rows.length, grupSayisi: list.length, toplamlar: totals, gruplar: list.slice(0, limit), ...(list.length > limit ? { not: `İlk ${limit} grup gösterildi` } : {}) };
+  }
+  if (sortKey && fields.includes(sortKey)) rows = [...rows].sort(sorter(sortKey));
+  const pick = args.alanlar ? String(args.alanlar).split(",").map((x) => x.trim()).filter((k) => fields.includes(k)) : null;
+  const shown = rows.slice(0, limit).map((r) => (pick?.length ? Object.fromEntries(pick.map((k) => [k, r[k]])) : r));
+  return { koleksiyon: name, eslesenKayit: rows.length, toplamlar: totals, kayitlar: shown, ...(rows.length > limit ? { not: `${rows.length} kayıttan ilk ${limit} tanesi gösterildi; daha fazlası için grupla veya filtre kullan` } : {}) };
+}
+
+export const COLLECTION_FIELDS = {
+  parcalar: "sku, ad, stok, birim, kritik, durum (Tükendi/Kritik/Azalıyor/Yeterli), ortMaliyet, sonAlis, satisFiyati, stokDegeri, raf, kategori, marka, gun90Cikis, kacGunYeter",
+  satis_belgeleri: "no, tarih, ay, musteri, plaka, arac, kaynak, ciro (KDV hariç), parca, iscilik, kartsizParca, kdvDahil, maliyet, kar, kalemSayisi",
+  satis_kalemleri: "tarih, ay, belge, musteri, plaka, sku, ad, adet, birimFiyat, iskonto, net, maliyet, kar",
+  iscilikler: "tarih, ay, belge, musteri, plaka, tur (işçilik/kartsız parça), kod, ad, adet, net",
+  alis_faturalari: "no, tarih, ay, tedarikci, kdvHaric, kdv, kdvDahil, kalemSayisi, edmsTutari",
+  alis_kalemleri: "tarih, ay, fatura, tedarikci, sku, ad, adet, birimFiyat, iskonto, net, birimMaliyet",
+  hareketler: "tarih, ay, sku, ad, islem (Alış faturası / Satış / çıkış / Düzeltme / Sayım / İptal…), miktar, once, sonra, belge, not, kullanici",
+  iptaller: "tur, no, tarih, kim, kdvHaric",
+};
+
 export const TOOL_SPECS = [
+  { name: "veri_sorgula", description: `Uygulamadaki TÜM veride esnek sorgu: herhangi bir soruyu süzme, gruplama, toplama ve sıralamayla yanıtla. Diğer araçların kapsamadığı her soru için bunu kullan. Koleksiyonlar ve alanları:\n${Object.entries(COLLECTION_FIELDS).map(([k, v]) => `- ${k}: ${v}`).join("\n")}`, params: { koleksiyon: { type: "string", description: Object.keys(COLLECTION_FIELDS).join(", ") }, filtre: { type: "string", description: "Noktalı virgülle koşullar. İşleçler = != > < >= <= ~ (içerir) !~ (içermez). Ör: 'stok>0; marka~fiat' veya 'musteri~ahmet; iscilik>1000'" }, ara: { type: "string", description: "Tüm alanlarda serbest metin araması" }, baslangic: { type: "string", description: "YYYY-AA-GG" }, bitis: { type: "string", description: "YYYY-AA-GG" }, grupla: { type: "string", description: "Gruplanacak alan(lar), virgülle. Ör: 'ay', 'tedarikci', 'musteri', 'sku,ad'" }, topla: { type: "string", description: "Toplanacak sayısal alanlar, virgülle (boşsa hepsi)" }, sirala: { type: "string", description: "'alan desc' veya 'alan asc'" }, alanlar: { type: "string", description: "Sadece bu alanları döndür, virgülle" }, limit: { type: "number", description: "En fazla kaç satır (varsayılan 30, en çok 150)" } }, required: ["koleksiyon"] },
   { name: "genel_durum", description: "Deponun ve işletmenin genel özeti: stok değeri, kart sayıları, kritik/tükenen sayısı, bu ayın cirosu, işçilik, kâr ve alışları.", params: {} },
   { name: "parca_ara", description: "Stok kodu, parça adı, marka, kategori veya raf ile parça arar; stok, maliyet, fiyat ve durumunu verir.", params: { sorgu: { type: "string", description: "Stok kodu veya parça adından kelimeler" } }, required: ["sorgu"] },
   { name: "parca_detay", description: "Tek bir parçanın tüm detayı: stok, maliyet, son hareketler, alış geçmişi, satışları, kaç gün yeteceği.", params: { sku: { type: "string", description: "Stok kodu" } }, required: ["sku"] },
@@ -178,23 +287,33 @@ export function runTool(name, args, data, now = Date.now()) {
       const fmt = (m) => [...m.entries()].map(([k, v]) => ({ ad: k, stokDegeri: r2(v) })).sort((x, y) => y.stokDegeri - x.stokDegeri).slice(0, 15);
       return { kategoriler: fmt(cat), markalar: fmt(brand) };
     }
+    case "veri_sorgula":
+      return queryData(a, data, now);
     default:
       return { hata: `Bilinmeyen araç: ${name}` };
   }
 }
 
 export function systemPrompt(now = new Date()) {
-  return `Sen "Duar Asistan"sın: Samsun'daki bir oto servisin yedek parça deposu için kullanılan Duar Stok Yönetim uygulamasının yapay zekâ asistanısın.
-Bugün: ${todayKey(now)}.
-Görevin: kullanıcının stok, parça, satış, ciro, işçilik, kâr, alış faturası, tedarikçi, hareket ve sipariş sorularını uygulamanın GERÇEK verisiyle yanıtlamak.
-Kurallar:
-- Sayı içeren her soruda önce araçları kullan; asla tahmin etme veya sayı uydurma. Veri yoksa açıkça söyle.
-- Gerekirse birden fazla aracı art arda çağır (ör. önce parca_ara, sonra parca_detay).
-- Tutarlar Türk lirası; aksi söylenmedikçe KDV hariç ver ve bunu belirt. Binlik ayırıcı nokta, kuruş virgül (₺12.345,67).
-- Ciro = parça satışı + işçilik. İşçiliğin maliyeti yoktur, kârın tamamıdır. Kartsız parçalar ciroya girer ama kâra katılmaz.
-- "Bu ay", "geçen ay", "bu hafta" gibi ifadeleri bugünün tarihine göre YYYY-AA-GG aralığına çevir.
-- Yanıtlar Türkçe, kısa ve net olsun; önce cevap, sonra gerekirse kısa liste. Uzun tabloları en önemli 10 satırla sınırla.
-- Stok kodlarını \`kod\` biçiminde yaz.
-- Uygun olduğunda kısa bir öneri ekle (ör. kritik stok için sipariş, ölü stok için kampanya), ama kullanıcıyı yönlendirmeden önce veriye dayan.
-- Uygulamada değişiklik yapamazsın; yalnızca okuyup analiz edersin. Değişiklik istenirse hangi ekrandan yapılacağını söyle.`;
+  return `Sen "Duar Asistan"sın: Samsun'da bir EUROREPAR oto servisin sahibi ve çalışanlarının yanındaki akıllı yardımcı. Duar Stok Yönetim uygulamasının bütün verisine (parçalar, alış faturaları, satışlar, işçilikler, stok hareketleri, iptaller) araçlarla erişebilirsin.
+Bugün: ${todayKey(now)} (${now.toLocaleDateString("tr-TR", { weekday: "long" })}).
+
+Nasıl çalışırsın:
+- Gerçek bir yapay zekâ gibi düşün: soruyu anla, gerekirse birkaç adımda veriyi kendin araştır, sonuçları yorumla, karşılaştır, neden-sonuç kur. Kullanıcı hazır kalıplarla sormaz; serbestçe, kısa, bazen yazım hatalı sorar; niyetini çıkar.
+- Uygulama verisiyle ilgili her sayısal iddiayı araçlardan al; asla sayı uydurma. Hazır araçlar soruyu tam karşılamıyorsa veri_sorgula ile istediğin süzme/gruplama/sıralamayı kendin kur. Bir araç hata verirse düzeltip tekrar dene.
+- Birden çok adım gerekiyorsa çekinmeden zincirle (ör. önce müşteriyi bul, sonra o müşterinin parçalarını grupla, sonra geçen ayla karşılaştır).
+- Uygulama dışı sorulara da cevap ver: araç arızaları, parça uyumu ve muadilleri, bakım aralıkları, işçilik fiyatlandırması, KDV/vergi hesapları, tedarikçi pazarlığı, işletme yönetimi, müşteriye yazılacak mesaj, genel sohbet… Bu cevaplar genel bilgine dayanır; uygulama verisiyle karıştırma ve kesin olmayan teknik/hukuki konularda bunu belirt.
+- Önceki mesajları hatırla; "peki geçen ay?", "bunu tedarikçiye göre ayır" gibi devam sorularını bağlamdan anla.
+- Soru gerçekten belirsizse en olası yorumla cevapla ve hangi yorumu yaptığını tek cümleyle söyle; gerekmedikçe soru sorarak bekletme.
+- Sonuçları yorumla: dikkat çeken bir şey görürsen (ani düşüş, zararına satış, maliyeti artan parça, ölü stok, eDMS farkı) kendiliğinden kısaca belirt ve somut öneri ver.
+
+Hesap kuralları:
+- Tutarlar Türk lirası; aksi söylenmedikçe KDV hariç ver ve belirt. Biçim: ₺12.345,67.
+- Ciro = parça satışı + işçilik (+ kartsız parça). İşçiliğin maliyeti yoktur, tamamı kârdır. Kartsız parçalar ciroya girer, kâra katılmaz. KDV oranı %20.
+- "Bu ay", "geçen ay", "bu hafta", "dün" gibi ifadeleri bugüne göre YYYY-AA-GG aralığına çevir.
+
+Yazım:
+- Türkçe, doğal ve samimi ama işini bilen bir dille yaz; önce net cevap, sonra gerekiyorsa kısa liste veya **kalın** vurgular. Gereksiz uzatma.
+- Stok kodlarını \`kod\` biçiminde yaz (tıklanınca parça açılır). Uzun listeleri en önemli 10 satırla sınırla.
+- Uygulamada kayıt değiştiremezsin; değişiklik istenirse hangi ekrandan nasıl yapılacağını adım adım anlat.`;
 }
