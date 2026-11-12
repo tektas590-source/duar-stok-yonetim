@@ -100,7 +100,7 @@ export function Assistant({ open, setOpen }) {
           {busy ? <div className="ai-msg ai-model ai-thinking"><span className="dots"><i /><i /><i /></span>{step}…</div> : null}
         </div>
         <form className="ai-input" onSubmit={(e) => { e.preventDefault(); send(); }}>
-          <textarea ref={inputRef} rows={1} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }} placeholder="Bir şey sor ya da yaz…" aria-label="Asistana sor" disabled={busy} />
+          <textarea ref={inputRef} rows={1} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }} placeholder="Bir şey sor ya da yaz…" aria-label="Asistana sor" />
           <button type="submit" className="ai-send" disabled={busy || !input.trim()} aria-label="Gönder"><Icon name="chevron" size={18} /></button>
         </form>
       </section>
