@@ -121,8 +121,18 @@ export function analyzeInvoice(inv, items, existingIds) {
   const prefix = inv.type === "purchase" ? "p" : "s";
   let docId = null;
   try { docId = `${prefix}_${encodeURIComponent(inv.no.toLocaleUpperCase("tr")).replace(/\./g, "%2E")}`; } catch { docId = null; }
-  const already = docId ? existingIds.has(docId) : false;
-  const existingDoc = already && typeof existingIds.get === "function" ? existingIds.get(docId) : null;
+  // İptal edilmiş kayıt "kayıtlı" sayılmaz; aynı numara yeniden yüklenebilir (…_r2, _r3).
+  let existingDoc = null, already = false, reimport = false;
+  if (docId) {
+    const isMap = typeof existingIds.get === "function";
+    for (let n = 1; n <= 50; n += 1) {
+      const id = n === 1 ? docId : `${docId}_r${n}`;
+      if (!existingIds.has(id)) break;
+      const doc = isMap ? existingIds.get(id) : null;
+      if (doc && doc.cancelled) { reimport = true; continue; }
+      already = true; existingDoc = doc; reimport = false; break;
+    }
+  }
   let net = 0, vat = 0, edmsGross = 0, units = 0;
   const lines = inv.lines.map((line, index) => {
     const isStock = line.kind === "Stok" && line.code && line.qty > 0;
@@ -146,7 +156,7 @@ export function analyzeInvoice(inv, items, existingIds) {
   const hasService = lines.some((l) => !l.isStock);
   // Satışta stoğa dokunmadan ciroya girecek satırlar: işçilik/hizmet ve kartı olmayan parçalar.
   const services = inv.type === "sale" ? lines.filter((l) => (!l.isStock && (l.unitPrice || l.total)) || (l.isStock && l.match === "new")).map((l) => ({
-    kind: l.isStock ? "part" : "labor", code: l.code, name: l.name, qty: l.qty || 1, unitPrice: l.unitPrice, discountPct: l.discountPct, vatPct: l.vatPct, net: l.net,
+    kind: l.isStock ? "part" : "labor", code: l.code, name: l.name, qty: l.qty || 1, unitPrice: l.unitPrice, discountPct: l.discountPct, vatPct: l.vatPct, net: l.net, ...(l.isStock ? { pending: true } : {}),
   })) : [];
   const laborNet = round(services.filter((x) => x.kind === "labor").reduce((s2, x) => s2 + x.net, 0));
   const otherNet = round(services.filter((x) => x.kind === "part").reduce((s2, x) => s2 + x.net, 0));
@@ -165,6 +175,7 @@ export function analyzeInvoice(inv, items, existingIds) {
     ...inv,
     docId,
     already,
+    reimport,
     lines,
     totals: { net, vat, gross, edmsGross, units: round(units, 3), laborNet, otherNet, fullNet: round(net + laborNet), fullGross },
     services,

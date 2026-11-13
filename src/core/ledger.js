@@ -3,7 +3,7 @@
 // döndürür. Firestore ve bellek (demo) deposu aynı planları kullanır; böylece
 // stok hesabı tek yerde ve test edilebilir durumdadır.
 
-import { docIdFromNumber, itemIdFromSku, round, skuKey, VAT_RATE } from "./format.js";
+import { docIdFromNumber, itemIdFromSku, looseKey, round, skuKey, VAT_RATE } from "./format.js";
 
 export const MOVE = {
   PURCHASE: "purchase",
@@ -94,7 +94,7 @@ export function planPurchase(invoice, itemsById, { actor, now, makeId }) {
   const items = new Map();
   const movements = [];
   const docLines = [];
-  const invoiceId = docIdFromNumber("p", no);
+  const invoiceId = invoice.id || docIdFromNumber("p", no);
   const ref = { type: "purchase", id: invoiceId, no };
 
   sourceLines.forEach((line) => {
@@ -145,12 +145,13 @@ export function planIssue(issue, itemsById, { actor, now, makeId, allowNegative 
   if (!issue.date) throw new Error("Tarih gerekli.");
   const lines = (issue.lines || []).filter((line) => cleanQty(line.qty) > 0);
   const services = buildServices(issue.services);
-  const shortages = [];
+  // Kartı henüz olmayan (alışı gelmemiş) parçalar da eksik olarak izlenir; alış gelince stoktan düşülür.
+  const shortages = (issue.services || []).filter((x) => x.pending && x.code && Number(x.qty) > 0).map((x) => ({ itemId: itemIdFromSku(x.code), sku: String(x.code).trim(), name: x.name, missing: cleanQty(x.qty) }));
   if (!lines.length && !services.length) throw new Error("En az bir parça veya işçilik kalemi ekleyin.");
   const items = new Map();
   const movements = [];
   const docLines = [];
-  const issueId = docIdFromNumber("s", no);
+  const issueId = issue.id || docIdFromNumber("s", no);
   const ref = { type: "issue", id: issueId, no };
   lines.forEach((line) => {
     const id = line.itemId || itemIdFromSku(line.sku);
@@ -169,7 +170,7 @@ export function planIssue(issue, itemsById, { actor, now, makeId, allowNegative 
       net = round(fullNet * (q / fullQty));
       const restQty = cleanQty(fullQty - q);
       services.push(...buildServices([{ kind: "part", code: item.sku, name: `${line.name || item.name} (stokta yoktu)`, qty: restQty, unitPrice, discountPct, vatPct: line.vatPct, net: round(fullNet - net) }]));
-      shortages.push({ sku: item.sku, name: item.name, missing: restQty });
+      shortages.push({ itemId: id, sku: item.sku, name: item.name, missing: restQty });
       if (q <= 0) return;
     }
     const after = cleanQty(before - q);
@@ -289,4 +290,53 @@ export function planAddServices(doc, services, { actor, now }) {
   const built = buildServices(services);
   if (!built.length) throw new Error("Eklenecek işçilik yok.");
   return { ...doc, services: built, totals: issueTotals(doc.lines, built), servicesAddedAt: now, servicesAddedBy: actor };
+}
+
+// Alış sonradan gelince: satışta "stokta yoktu" diye ciroya yazılan miktarı
+// artık stokta varsa stoktan düşer, satırı kartlı parçaya çevirir, maliyet ve
+// kârı günceller. Kısmen kapanabilir; kalan eksik belgede durur.
+export function planSettleShortages(doc, itemsById, { actor, now, makeId, date }) {
+  if (doc.cancelled) return { doc, items: [], movements: [], settled: [] };
+  const items = new Map();
+  const movements = [];
+  const settled = [];
+  const lines = doc.lines.map((l) => ({ ...l }));
+  let services = (doc.services || []).map((l) => ({ ...l }));
+  const ref = { type: "issue", id: doc.id, no: doc.no };
+  const shortages = (doc.shortages || []).map((sh) => {
+    const missing = cleanQty(sh.missing);
+    if (missing <= 0) return sh;
+    const id = sh.itemId || itemIdFromSku(sh.sku);
+    const current = items.get(id) || itemsById[id];
+    if (!current) return sh;
+    const before = cleanQty(current.stock);
+    const q = cleanQty(Math.min(before, missing));
+    if (q <= 0) return sh;
+    const svc = services.find((x) => x.kind === "part" && x.code === sh.sku && /\(stokta yoktu\)$/.test(x.name) && x.qty > 0)
+      || services.find((x) => x.kind === "part" && x.code && looseKey(x.code) === looseKey(sh.sku) && x.qty > 0);
+    const svcQty = svc ? cleanQty(svc.qty) : q;
+    const unitNet = svc ? (svc.net / svcQty) : 0;
+    const net = round(unitNet * q);
+    const item = { ...current, stock: cleanQty(before - q), updatedAt: now };
+    items.set(id, item);
+    const unitPrice = svc ? svc.unitPrice : 0;
+    movements.push({ id: makeId(), ...baseMovement({ item, qty: -q, type: MOVE.ISSUE, ref, actor, now, date: date || doc.date, unitCost: item.cost, unitPrice, note: `${doc.no} · stokta olmayan kalem alış sonrası düşüldü` }), stockBefore: before, stockAfter: item.stock });
+    const cost = round(Number(item.cost || 0) * q, 2);
+    const existing = lines.find((l) => l.itemId === id);
+    if (existing) { existing.qty = cleanQty(existing.qty + q); existing.net = round(existing.net + net); existing.cost = round((existing.cost || 0) + cost, 2); }
+    else lines.push({ itemId: id, sku: item.sku, name: svc ? svc.name.replace(/\s*\(stokta yoktu\)$/, "") : item.name, qty: q, unitPrice, discountPct: svc?.discountPct || 0, vatPct: svc?.vatPct ?? VAT_RATE * 100, net, cost });
+    if (svc) {
+      const rest = cleanQty(svcQty - q);
+      if (rest <= 0) services = services.filter((x) => x !== svc);
+      else { svc.qty = rest; svc.net = round(svc.net - net); }
+    }
+    settled.push({ sku: item.sku, name: item.name, qty: q });
+    return { ...sh, itemId: id, missing: cleanQty(missing - q), settled: cleanQty((sh.settled || 0) + q) };
+  });
+  if (!settled.length) return { doc, items: [], movements: [], settled };
+  const open = shortages.filter((x) => cleanQty(x.missing) > 0);
+  return {
+    doc: { ...doc, lines, services, shortages: open, settledShortages: [...(doc.settledShortages || []), ...settled.map((x) => ({ ...x, at: now, by: actor }))], totals: issueTotals(lines, services), updatedAt: now },
+    items: [...items.values()], movements, settled,
+  };
 }

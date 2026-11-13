@@ -12,7 +12,7 @@ function findItem(items, sku) {
 
 // mode: "purchase" (alış faturası) | "issue" (satış / çıkış)
 export function DocForm({ mode, initialItemId, onDone }) {
-  const { data, store, run } = useApp();
+  const { data, store, run, toast } = useApp();
   const isPurchase = mode === "purchase";
   const items = useMemo(() => data.items.filter((i) => !i.archived), [data.items]);
   const nextIssueNo = useMemo(() => {
@@ -85,7 +85,14 @@ export function DocForm({ mode, initialItemId, onDone }) {
     const payload = isPurchase
       ? { no: head.no, supplier: head.supplier, date: head.date, source: "manual", lines: valid.map((l) => ({ sku: l.item ? l.item.sku : l.sku.trim(), name: l.name || l.sku, qty: l.q, unitPrice: l.price, discountPct: toNumber(l.discountPct), vatPct: 20 })) }
       : { no: head.no, customer: head.customer, plate: head.plate, note: head.note, date: head.date, source: "manual", lines: valid.map((l) => ({ itemId: l.item.id, sku: l.item.sku, name: l.item.name, qty: l.q, unitPrice: l.price, discountPct: toNumber(l.discountPct), vatPct: 20 })), services: laborValid.map((l) => ({ kind: "labor", name: l.name.trim(), qty: l.q, unitPrice: l.price, vatPct: 20 })) };
-    const ok = await run(() => (isPurchase ? store.purchase(payload) : store.issue(payload)), isPurchase ? `${payload.no} faturası stoğa işlendi.` : `${payload.no} kaydedildi${valid.length ? ", stok düşüldü" : ""}.`);
+    const ok = await run(async () => {
+      if (!isPurchase) return store.issue(payload);
+      await store.purchase(payload);
+      const open = data.issues.filter((d) => !d.cancelled && (d.shortages || []).some((x) => x.missing > 0)).map((d) => d.id);
+      const settled = open.length ? await store.settleShortages(open) : [];
+      if (settled.length) toast(`${settled.length} satıştaki stokta olmayan kalemler stoktan düşüldü.`, "ok");
+      return true;
+    }, isPurchase ? `${payload.no} faturası stoğa işlendi.` : `${payload.no} kaydedildi${valid.length ? ", stok düşüldü" : ""}.`);
     if (ok !== false) { setLines([emptyLine()]); setLabor([]); setHead({ ...head, no: isPurchase ? "" : `S-${String(Number(head.no.slice(2) || 0) + 1).padStart(5, "0")}`, supplier: isPurchase ? head.supplier : "", customer: "", plate: "", note: "" }); onDone?.(); }
   }
 

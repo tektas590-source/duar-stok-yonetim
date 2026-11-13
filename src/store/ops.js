@@ -2,8 +2,8 @@
 // fn'e { get(col, id), set(col, id, data) } verir; tüm okumalar yazmalardan
 // önce yapılır (Firestore kuralı). Firestore ve bellek deposu bunu sağlar.
 
-import { planAddServices, planAdjust, planCount, planIssue, planPurchase, planReverse, newItem } from "../core/ledger.js";
-import { itemIdFromSku, todayKey } from "../core/format.js";
+import { planAddServices, planAdjust, planCount, planIssue, planPurchase, planReverse, planSettleShortages, newItem } from "../core/ledger.js";
+import { docIdFromNumber, itemIdFromSku, todayKey } from "../core/format.js";
 import { toIssueInput, toPurchaseInput } from "../core/edms.js";
 
 const makeId = () => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
@@ -15,6 +15,18 @@ async function readItems(tx, ids) {
     if (doc) map[id] = doc;
   }
   return map;
+}
+
+// İptal edilen belgenin numarası yeniden kullanılabilir: p_X iptalse p_X_r2, p_X_r3 …
+async function freeDocId(tx, col, prefix, no) {
+  const base = docIdFromNumber(prefix, no);
+  for (let n = 1; n <= 50; n += 1) {
+    const id = n === 1 ? base : `${base}_r${n}`;
+    const doc = await tx.get(col, id);
+    if (!doc) return id;
+    if (!doc.cancelled) throw new Error(`${no} numaralı ${prefix === "p" ? "fatura" : "belge"} zaten kayıtlı.`);
+  }
+  throw new Error(`${no} numarası çok kez iptal edilmiş.`);
 }
 
 function writeResult(tx, { items = [], movements = [] }) {
@@ -63,9 +75,9 @@ export function createOps(runTx, getActor) {
     async purchase(input) {
       return runTx(async (tx) => {
         const ids = (input.lines || []).filter((l) => Number(l.qty) > 0).map((l) => itemIdFromSku(l.sku));
+        const id = await freeDocId(tx, "invoices", "p", input.no);
         const items = await readItems(tx, ids);
-        const plan = planPurchase(input, items, meta());
-        if (await tx.get("invoices", plan.invoiceDoc.id)) throw new Error(`${input.no} numaralı fatura zaten kayıtlı.`);
+        const plan = planPurchase({ ...input, id }, items, meta());
         writeResult(tx, plan);
         tx.set("invoices", plan.invoiceDoc.id, plan.invoiceDoc);
         return plan.invoiceDoc;
@@ -75,9 +87,9 @@ export function createOps(runTx, getActor) {
     async issue(input, options = {}) {
       return runTx(async (tx) => {
         const ids = (input.lines || []).map((l) => l.itemId || itemIdFromSku(l.sku));
+        const id = await freeDocId(tx, "issues", "s", input.no);
         const items = await readItems(tx, ids);
-        const plan = planIssue(input, items, { ...meta(), ...options });
-        if (await tx.get("issues", plan.issueDoc.id)) throw new Error(`${input.no} numaralı belge zaten kayıtlı.`);
+        const plan = planIssue({ ...input, id }, items, { ...meta(), ...options });
         writeResult(tx, plan);
         tx.set("issues", plan.issueDoc.id, plan.issueDoc);
         return plan.issueDoc;
@@ -128,11 +140,35 @@ export function createOps(runTx, getActor) {
       });
     },
 
+    // Stokta olmadığı için ciroya "stokta yoktu" yazılan satış kalemlerini,
+    // stok artık varsa stoktan düşer. docIds: açık eksiği olan satış belgeleri.
+    async settleShortages(docIds) {
+      const settled = [];
+      for (const docId of docIds || []) {
+        try {
+          const res = await runTx(async (tx) => {
+            const doc = await tx.get("issues", docId);
+            if (!doc || doc.cancelled || !(doc.shortages || []).some((x) => x.missing > 0)) return null;
+            const items = await readItems(tx, doc.shortages.map((x) => x.itemId || itemIdFromSku(x.sku)));
+            const plan = planSettleShortages(doc, items, { ...meta(), date: todayKey() });
+            if (!plan.settled.length) return null;
+            writeResult(tx, plan);
+            tx.set("issues", docId, plan.doc);
+            return { no: doc.no, items: plan.settled };
+          });
+          if (res) settled.push(res);
+        } catch (error) { console.error(error); }
+      }
+      return settled;
+    },
+
     // Analiz edilmiş eDMS faturalarını sırayla işler; biri hata verse diğerleri devam eder.
     // Daha önce kaydedilmiş satışlar için yalnızca eksik işçilik satırları eklenir.
     async importEdms(analyzedList, { allowNegative = false } = {}) {
       const results = [];
-      for (const a of analyzedList) {
+      // Önce alışlar (tarih sırasıyla), sonra satışlar: aynı yüklemede satış, alışı gelmemiş parçaya takılmasın.
+      const ordered = [...analyzedList].sort((x, y) => (x.type === y.type ? String(x.date).localeCompare(String(y.date)) : x.type === "purchase" ? -1 : 1));
+      for (const a of ordered) {
         try {
           if (a.backfill) {
             const doc = await this.addServices(a.docId, a.services, a.reportGross ?? a.totals.fullGross);
@@ -145,6 +181,9 @@ export function createOps(runTx, getActor) {
           results.push({ no: a.no, ok: false, error: error.message || String(error) });
         }
       }
+      // Bu yüklemede stokta/kartı olmadığı için eksik kalan satış kalemleri, aynı yüklemedeki alışlarla kapanır.
+      const pending = results.filter((x) => x.ok && x.doc?.kind === "issue" && (x.doc.shortages || []).length).map((x) => x.doc.id);
+      if (pending.length && results.some((x) => x.ok && x.doc?.kind === "purchase")) await this.settleShortages(pending);
       return results;
     },
   };

@@ -51,3 +51,58 @@ test("memory store: card save, adjust, count", async () => {
   assert.equal(s.items[0].stock, 4);
   assert.deepEqual(s.movements.map((m) => m.type).sort(), ["adjust", "count"]);
 });
+
+test("sale before purchase: shortage settles when stock arrives; cancelled docs can be re-imported", async () => {
+  const store = createMemoryStore();
+  const analyze = () => {
+    const s = state(store);
+    const existing = new Map([...s.invoices, ...s.issues].map((d) => [d.id, d]));
+    return parseFaturaRaporu(REPORT).invoices.map((inv) => analyzeInvoice(inv, s.items, existing));
+  };
+  // 1) Önce satış: K1 kartı yok → kartsız parça ama eksik olarak izlenir.
+  let [, sale] = analyze();
+  assert.equal(sale.lines[0].match, "new");
+  let r = await store.importEdms([sale]);
+  assert.ok(r[0].ok, r[0].error);
+  let s = state(store);
+  assert.equal(s.issues[0].shortages[0].missing, 1);
+  assert.equal(s.issues[0].totals.otherNet, 1500);
+  // 2) Sonra alış: 4 adet girer; eksik kapatılınca stok 3 olur, satış kartlı parçaya döner.
+  const [purchase] = analyze();
+  r = await store.importEdms([purchase]);
+  assert.ok(r[0].ok, r[0].error);
+  const settled = await store.settleShortages([s.issues[0].id]);
+  assert.equal(settled[0].items[0].qty, 1);
+  s = state(store);
+  assert.equal(s.items[0].stock, 3);
+  const doc = s.issues[0];
+  assert.equal(doc.shortages.length, 0);
+  assert.equal(doc.lines[0].qty, 1);
+  assert.equal(doc.totals.partsNet, 1500);
+  assert.equal(doc.totals.otherNet, 0);
+  assert.equal(doc.totals.net, 1500);
+  assert.equal(doc.totals.profit, 500);
+  // 3) Satış iptal edilir ve yeniden yüklenebilir (s_5001_r2).
+  await store.reverse("issues", doc.id);
+  s = state(store);
+  assert.equal(s.items[0].stock, 4);
+  [, sale] = analyze();
+  assert.equal(sale.already, false);
+  assert.equal(sale.reimport, true);
+  assert.ok(sale.importable);
+  r = await store.importEdms([sale]);
+  assert.ok(r[0].ok, r[0].error);
+  s = state(store);
+  assert.equal(s.items[0].stock, 3);
+  assert.ok(s.issues.some((d) => d.id.endsWith("_r2") && !d.cancelled && d.totals.profit === 500));
+  assert.ok(analyze()[1].already);
+  // 4) Aynı yüklemede satış önce gelse bile alış önce işlenir.
+  const store2 = createMemoryStore();
+  const s2 = state(store2);
+  const both = parseFaturaRaporu(REPORT).invoices.map((inv) => analyzeInvoice(inv, s2.items, new Map()));
+  const res2 = await store2.importEdms([both[1], both[0]]);
+  assert.ok(res2.every((x) => x.ok));
+  const after2 = state(store2);
+  assert.equal(after2.items[0].stock, 3);
+  assert.equal(after2.issues[0].shortages.length, 0);
+});

@@ -49,7 +49,14 @@ export function EdmsImport({ defaultTypes = ["purchase"] }) {
     setBusy(true);
     try {
       const res = await store.importEdms(chosen);
+      // Alış geldiyse, daha önce "stokta yoktu" diye kaydedilen satış kalemlerini stoktan düş.
+      let settled = [];
+      if (res.some((r) => r.ok && r.doc?.kind === "purchase")) {
+        const open = data.issues.filter((d) => !d.cancelled && (d.shortages || []).some((x) => x.missing > 0)).map((d) => d.id);
+        settled = await store.settleShortages(open);
+      }
       setResults(res);
+      if (settled.length) toast(`${settled.length} satışta stokta olmayan kalemler artık stoktan düşüldü (${settled.flatMap((x) => x.items).map((x) => x.sku).slice(0, 4).join(", ")}${settled.flatMap((x) => x.items).length > 4 ? "…" : ""}).`, "ok");
       const ok = res.filter((r) => r.ok).length;
       const filled = res.filter((r) => r.ok && r.backfill).length;
       toast(ok ? `${ok - filled ? `${ok - filled} fatura işlendi` : ""}${ok - filled && filled ? ", " : ""}${filled ? `${filled} kayıtlı satış güncellendi` : ""}${res.length - ok ? `, ${res.length - ok} hata` : ""}.` : "Faturalar işlenemedi.", ok ? "ok" : "bad");
@@ -124,6 +131,7 @@ export function EdmsImport({ defaultTypes = ["purchase"] }) {
                     <div className="inv-meta">
                       <span className={`pill ${a.type === "purchase" ? "is-info" : "is-violet"}`}>{TYPE_LABEL[a.type]}</span>
                       {a.already ? <span className="pill">Zaten kayıtlı</span> : null}
+                      {a.reimport ? <span className="pill is-warn" title="Bu fatura daha önce yüklenip iptal edilmiş; yeniden yüklenebilir.">İptal edilmişti · yeniden yüklenecek</span> : null}
                       {a.backfill ? <span className="pill is-warn">{a.needsServices ? "İşçilik eklenecek" : "eDMS tutarı işlenecek"}</span> : null}
                       {a.totals.laborNet ? <span className="pill is-violet">İşçilik {money(a.totals.laborNet)}</span> : null}
                       <span className={`pill ${a.match ? "is-ok" : "is-bad"}`}><Icon name={a.match ? "check" : "alert"} size={12} />{a.match ? "eDMS ile birebir" : "Tutar farkı"}</span>
