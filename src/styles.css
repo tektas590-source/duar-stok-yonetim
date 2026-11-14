@@ -750,3 +750,33 @@ textarea { resize: vertical; }
 @media (max-width: 860px) { .veh-grid { grid-template-columns: 1fr; } .veh-list { max-height: 320px; } }
 .veh-stats { grid-template-columns: repeat(4, 1fr); }
 @media (max-width: 860px) { .veh-stats { grid-template-columns: repeat(2, 1fr); } }
+
+/* Fiyatlandırma */
+.trend { margin-left: 5px; font-style: normal; font-size: 10.5px; font-weight: 700; }
+.trend.up { color: var(--bad); } .trend.down { color: var(--ok); }
+td.num.stack { text-align: right; } td.num.stack > * { justify-content: flex-end; }
+.price-alert { display: flex; align-items: center; gap: 12px; width: 100%; margin: 0 0 14px; padding: 12px 16px; border-radius: var(--r-sm); border: 1px solid color-mix(in srgb, var(--warn) 40%, transparent); background: color-mix(in srgb, var(--warn) 9%, var(--surface)); color: var(--warn); text-align: left; transition: background 0.2s, box-shadow 0.2s; animation: rise 0.5s var(--ease) both; opacity: 1; transform: none; }
+.price-alert span { display: grid; gap: 2px; flex: 1; color: var(--text); }
+.price-alert small { color: var(--text-2); font-size: 12px; }
+.price-alert b { padding: 5px 12px; border-radius: 99px; background: color-mix(in srgb, var(--warn) 18%, transparent); font-size: 12px; white-space: nowrap; }
+.price-alert:hover, .price-alert.active { box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn) 18%, transparent); }
+.price-sec { display: grid; gap: 10px; }
+.price-warn { display: flex; align-items: flex-start; gap: 8px; margin: 0; padding: 9px 12px; border-radius: var(--r-sm); background: color-mix(in srgb, var(--warn) 11%, transparent); color: var(--text); font-size: 12.5px; }
+.price-warn svg { flex: 0 0 auto; margin-top: 1px; color: var(--warn); }
+.price-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.price-grid > div { display: grid; gap: 3px; padding: 10px 12px; border-radius: var(--r-sm); border: 1px solid var(--line); background: var(--surface-2); min-width: 0; }
+.price-grid span { font-size: 10.5px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-3); }
+.price-grid strong { font: 650 16px var(--display); }
+.price-grid small { font-size: 11px; color: var(--text-3); overflow: hidden; text-overflow: ellipsis; }
+.price-grid .is-suggest { border-color: color-mix(in srgb, var(--accent) 45%, transparent); background: var(--accent-soft); }
+.price-grid .is-suggest strong { color: var(--accent); }
+.price-hist { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; font-size: 12px; }
+.price-hist b { display: block; margin-bottom: 4px; font-size: 11px; color: var(--text-3); letter-spacing: 0.04em; }
+.price-hist p { display: grid; grid-template-columns: auto 1fr auto; gap: 8px; margin: 0; padding: 4px 0; border-bottom: 1px dashed var(--line); }
+.price-hist p span.muted { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.markup-set { display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--text-3); }
+.markup-set input { width: 64px; height: 28px; padding: 0 6px; font-size: 12px; }
+.price-hint { display: block; margin-top: 3px; font-size: 10.5px; color: var(--text-3); white-space: normal; text-align: right; line-height: 1.35; }
+.price-hint.up { color: var(--warn); }
+.price-hint button { padding: 0; border: 0; background: none; color: var(--accent); font: inherit; font-weight: 700; text-decoration: underline; cursor: pointer; }
+@media (max-width: 640px) { .price-grid, .price-hist { grid-template-columns: 1fr; } }

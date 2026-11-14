@@ -267,3 +267,31 @@ test("vehicle memory: parse note, auto-link parts, plate fallback, manual fits",
   assert.equal(searchVehicles(c, "55abc123")[0].key, "PEUGEOT|3008 1.6 HDI");
   assert.equal(partVehicles(c, "b")[0].key, "PEUGEOT|208");
 });
+
+test("pricing: last buy/sale, cost change, suggestion from historical markup", async () => {
+  const { buildPricing, roundPrice } = await import("../src/core/pricing.js");
+  assert.equal(roundPrice(123.2), 124);
+  assert.equal(roundPrice(1234), 1235);
+  assert.equal(roundPrice(12.1), 12.5);
+  const items = [{ id: "a", sku: "A", name: "Filtre", cost: 110, lastCost: 120, price: null }, { id: "b", sku: "B", name: "Yeni", cost: 200, lastCost: 200, price: 210 }];
+  const invoices = [
+    { id: "p1", date: "2026-10-01", supplier: "X", lines: [{ itemId: "a", qty: 2, net: 200 }] },
+    { id: "p2", date: "2026-11-10", supplier: "Y", lines: [{ itemId: "a", qty: 1, net: 120 }, { itemId: "b", qty: 1, net: 200 }] },
+    { id: "p3", date: "2026-11-11", supplier: "Y", cancelled: true, lines: [{ itemId: "a", qty: 1, net: 999 }] },
+  ];
+  const issues = [{ id: "s1", date: "2026-10-05", customer: "Ali", plate: "55 A 1", lines: [{ itemId: "a", qty: 1, net: 150, cost: 100 }] }];
+  const p = buildPricing(items, invoices, issues, 35);
+  const a = p.get("a");
+  assert.equal(a.lastCost, 120);
+  assert.equal(a.costChangePct, 20);
+  assert.equal(a.lastSale.unit, 150);
+  assert.equal(a.markup, 50);
+  assert.equal(a.suggested, 180);
+  assert.equal(a.suggestedGross, 216);
+  assert.equal(a.costRiseSinceSale, 20);
+  assert.ok(a.needsUpdate);
+  const b = p.get("b");
+  assert.equal(b.markup, 35);
+  assert.equal(b.suggested, 270);
+  assert.ok(b.priceLow);
+});

@@ -3,6 +3,25 @@ import { Button, Field, Icon } from "./kit.jsx";
 import { useApp } from "./context.js";
 import { looseKey, money, qty, round, skuKey, todayKey, toNumber, VAT_RATE } from "../core/format.js";
 import { buildCompat, splitBrandModel } from "../core/vehicles.js";
+import { usePricing } from "./pricing.jsx";
+
+// Fiyat girerken ipucu: son satış, son alış, öneri; alış fiyatı değiştiyse uyarı.
+function PriceHint({ pr, purchase, price, onPick }) {
+  if (!pr) return null;
+  if (purchase) {
+    if (!pr.lastCost) return null;
+    const diff = price && pr.lastCost ? Math.round(((price - pr.lastCost) / pr.lastCost) * 1000) / 10 : 0;
+    return <small className={`price-hint ${diff > 1 ? "up" : ""}`}>son alış {money(pr.lastCost)}{diff && Math.abs(diff) >= 1 ? ` · ${diff > 0 ? "▲" : "▼"}%${Math.abs(diff)}` : ""}</small>;
+  }
+  const margin = price && pr.lastCost ? Math.round(((price - pr.lastCost) / price) * 100) : null;
+  return (
+    <small className={`price-hint ${margin !== null && pr.suggested && price < pr.suggested * 0.97 ? "up" : ""}`}>
+      {pr.lastSale ? <>son satış {money(pr.lastSale.unit)} · </> : null}alış {money(pr.lastCost)}
+      {pr.suggested && Math.abs(price - pr.suggested) > 0.009 ? <> · <button type="button" onClick={() => onPick(pr.suggested)}>öneri {money(pr.suggested)}</button></> : null}
+      {margin !== null ? <> · kâr %{margin}</> : null}
+    </small>
+  );
+}
 
 const emptyLine = () => ({ key: Math.random().toString(36).slice(2), sku: "", name: "", qty: "1", unitPrice: "", discountPct: "" });
 
@@ -20,10 +39,13 @@ export function DocForm({ mode, initialItemId, onDone }) {
     const n = data.issues.filter((d) => /^S-\d+$/.test(d.no)).map((d) => Number(d.no.slice(2))).reduce((a, b) => Math.max(a, b), 0);
     return `S-${String(n + 1).padStart(5, "0")}`;
   }, [data.issues]);
+  const pricing = usePricing(data);
+  // Satışta varsayılan fiyat: kayıtlı satış fiyatı, yoksa güncel alışa göre öneri.
+  const sellPrice = (item) => item.price ?? pricing.get(item.id)?.suggested ?? "";
   const initLines = () => {
     if (!initialItemId) return [emptyLine()];
     const item = items.find((i) => i.id === initialItemId);
-    return item ? [{ ...emptyLine(), sku: item.sku, name: item.name, unitPrice: item.price ?? "" }] : [emptyLine()];
+    return item ? [{ ...emptyLine(), sku: item.sku, name: item.name, unitPrice: isPurchase ? item.lastCost || "" : sellPrice(item) }] : [emptyLine()];
   };
   const [head, setHead] = useState({ no: isPurchase ? "" : nextIssueNo, supplier: "", customer: "", plate: "", vehicle: "", note: "", date: todayKey() });
   const plateModels = useMemo(() => (isPurchase ? new Map() : buildCompat(data.issues, []).plateModels), [isPurchase, data.issues]);
@@ -49,7 +71,7 @@ export function DocForm({ mode, initialItemId, onDone }) {
     const next = { ...l, ...patch };
     if (patch.sku !== undefined) {
       const item = findItem(items, patch.sku);
-      if (item) { next.name = item.name; if (!isPurchase && (next.unitPrice === "" || next.unitPrice === undefined)) next.unitPrice = item.price ?? ""; if (isPurchase && next.unitPrice === "") next.unitPrice = item.lastCost || ""; }
+      if (item) { next.name = item.name; if (!isPurchase && (next.unitPrice === "" || next.unitPrice === undefined)) next.unitPrice = sellPrice(item); if (isPurchase && next.unitPrice === "") next.unitPrice = item.lastCost || ""; }
     }
     return next;
   }));
@@ -76,7 +98,7 @@ export function DocForm({ mode, initialItemId, onDone }) {
       const numeric = r.slice(1).map((c) => (/^-?[\d.,]+$/.test(c) ? c : null));
       const hasName = r[1] && !numeric[0];
       const [q, p, d] = hasName ? [r[2], r[3], r[4]] : [r[1], r[2], r[3]];
-      return { ...emptyLine(), sku: item ? item.sku : r[0], name: hasName ? r[1] : item?.name || "", qty: q || "1", unitPrice: p ?? (isPurchase ? item?.lastCost ?? "" : item?.price ?? ""), discountPct: d || "" };
+      return { ...emptyLine(), sku: item ? item.sku : r[0], name: hasName ? r[1] : item?.name || "", qty: q || "1", unitPrice: p ?? (isPurchase ? item?.lastCost ?? "" : item ? sellPrice(item) : ""), discountPct: d || "" };
     });
     setLines((ls) => [...ls.filter((l) => l.sku.trim()), ...next]);
     setPaste(""); setShowPaste(false);
@@ -121,7 +143,7 @@ export function DocForm({ mode, initialItemId, onDone }) {
                   {l.missing ? <small className="bad">Kart yok</small> : l.item ? <small className="muted">Stok {qty(l.item.stock)} {l.item.unit}</small> : l.sku && isPurchase ? <small className="warn">Yeni kart açılır</small> : null}</td>
                 <td><input value={l.name} onChange={(e) => setLine(l.key, { name: e.target.value })} placeholder={isPurchase ? "Parça adı" : ""} disabled={!isPurchase} aria-label="Parça adı" /></td>
                 <td className="num"><input type="number" min="0" step="any" value={l.qty} onChange={(e) => setLine(l.key, { qty: e.target.value })} aria-label="Miktar" />{l.short ? <small className="bad">Stok yetersiz</small> : null}</td>
-                <td className="num"><input type="number" min="0" step="0.01" value={l.unitPrice} onChange={(e) => setLine(l.key, { unitPrice: e.target.value })} aria-label="Birim fiyat" /></td>
+                <td className="num"><input type="number" min="0" step="0.01" value={l.unitPrice} onChange={(e) => setLine(l.key, { unitPrice: e.target.value })} aria-label="Birim fiyat" />{l.item ? <PriceHint pr={pricing.get(l.item.id)} purchase={isPurchase} price={toNumber(l.unitPrice)} onPick={(v) => setLine(l.key, { unitPrice: String(v) })} /> : null}</td>
                 <td className="num"><input type="number" min="0" max="100" step="0.01" value={l.discountPct} onChange={(e) => setLine(l.key, { discountPct: e.target.value })} aria-label="İskonto" /></td>
                 <td className="num strong">{money(l.net)}</td>
                 <td><button type="button" className="icon-btn sm danger" onClick={() => setLines((ls) => (ls.length > 1 ? ls.filter((x) => x.key !== l.key) : [emptyLine()]))} aria-label="Satırı sil"><Icon name="close" size={14} /></button></td>

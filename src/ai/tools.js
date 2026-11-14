@@ -4,6 +4,7 @@ import { level, LEVEL_LABEL, summarize, usageMap, reorderSuggestions } from "../
 import { looseKey, round, skuKey, todayKey } from "../core/format.js";
 import { MOVE_LABEL } from "../core/ledger.js";
 import { buildCompat } from "../core/vehicles.js";
+import { buildPricing } from "../core/pricing.js";
 
 const DAY = 86400000;
 const r2 = (v) => round(Number(v) || 0, 2);
@@ -61,7 +62,10 @@ function datasets(data, usage) {
   const sales = live(data.issues);
   const buys = live(data.invoices);
   return {
-    parcalar: () => items.map((i) => itemBrief(i, usage)),
+    parcalar: () => {
+      const pr = buildPricing(items, data.invoices, data.issues);
+      return items.map((i) => { const p = pr.get(i.id); return { ...itemBrief(i, usage), sonAlisTarihi: p?.lastBuy?.date || null, sonAlisTedarikci: p?.lastBuy?.supplier || null, alisDegisimYuzde: p?.costChangePct ?? null, sonSatisFiyati: p?.lastSale ? r2(p.lastSale.unit) : null, sonSatisTarihi: p?.lastSale?.date || null, onerilenFiyat: p?.suggested ?? null, onerilenKdvDahil: p?.suggestedGross ?? null, hedefKarYuzde: p?.markup ?? null, fiyatGuncellenmeli: Boolean(p?.needsUpdate) }; });
+    },
     satis_belgeleri: () => sales.map((d) => ({ no: d.no, tarih: d.date, ay: String(d.date).slice(0, 7), musteri: d.customer || "Tezgah", plaka: d.plate || null, arac: [d.brand, d.vehicleModel].filter(Boolean).join(" ") || null, sase: d.vin || null, kaynak: d.source || null, ciro: r2(d.totals.net), parca: r2(d.totals.partsNet ?? d.totals.net), iscilik: r2(d.totals.laborNet || 0), kartsizParca: r2(d.totals.otherNet || 0), kdvDahil: r2(d.totals.gross), maliyet: r2(d.totals.cost || 0), kar: r2(d.totals.profit || 0), kalemSayisi: d.lines.length })),
     satis_kalemleri: () => sales.flatMap((d) => d.lines.map((l) => ({ tarih: d.date, ay: String(d.date).slice(0, 7), belge: d.no, musteri: d.customer || "Tezgah", plaka: d.plate || null, sku: l.sku, ad: l.name, adet: r2(l.qty), birimFiyat: r2(l.unitPrice), iskonto: l.discountPct || 0, net: r2(l.net), maliyet: r2(l.cost || 0), kar: r2(l.net - (l.cost || 0)) }))),
     iscilikler: () => sales.flatMap((d) => (d.services || []).map((l) => ({ tarih: d.date, ay: String(d.date).slice(0, 7), belge: d.no, musteri: d.customer || "Tezgah", plaka: d.plate || null, tur: l.kind === "labor" ? "işçilik" : "kartsız parça", kod: l.code || null, ad: l.name, adet: r2(l.qty), net: r2(l.net) }))),
@@ -158,7 +162,7 @@ export function queryData(args, data, now = Date.now()) {
 }
 
 export const COLLECTION_FIELDS = {
-  parcalar: "sku, ad, stok, birim, kritik, durum (Tükendi/Kritik/Azalıyor/Yeterli), ortMaliyet, sonAlis, satisFiyati, stokDegeri, raf, kategori, marka, gun90Cikis, kacGunYeter",
+  parcalar: "sku, ad, stok, birim, kritik, durum (Tükendi/Kritik/Azalıyor/Yeterli), ortMaliyet, sonAlis (birim alış), sonAlisTarihi, sonAlisTedarikci, alisDegisimYuzde (önceki alışa göre), sonSatisFiyati, sonSatisTarihi, onerilenFiyat (güncel alışa göre, KDV hariç), onerilenKdvDahil, hedefKarYuzde, fiyatGuncellenmeli (true/false), satisFiyati, stokDegeri, raf, kategori, marka, gun90Cikis, kacGunYeter",
   satis_belgeleri: "no, tarih, ay, musteri, plaka, arac (marka model), sase, kaynak, ciro (KDV hariç), parca, iscilik, kartsizParca, kdvDahil, maliyet, kar, kalemSayisi",
   satis_kalemleri: "tarih, ay, belge, musteri, plaka, sku, ad, adet, birimFiyat, iskonto, net, maliyet, kar",
   iscilikler: "tarih, ay, belge, musteri, plaka, tur (işçilik/kartsız parça), kod, ad, adet, net",
@@ -313,6 +317,7 @@ Nasıl çalışırsın:
 - Birden çok adım gerekiyorsa çekinmeden zincirle (ör. önce müşteriyi bul, sonra o müşterinin parçalarını grupla, sonra geçen ayla karşılaştır).
 - Uygulama dışı sorulara da cevap ver: araç arızaları, parça uyumu ve muadilleri, bakım aralıkları, işçilik fiyatlandırması, KDV/vergi hesapları, tedarikçi pazarlığı, işletme yönetimi, müşteriye yazılacak mesaj, genel sohbet… Bu cevaplar genel bilgine dayanır; uygulama verisiyle karıştırma ve kesin olmayan teknik/hukuki konularda bunu belirt.
 - "Şu araca hangi parça uyar / 3008'e ne taktık / bu plakaya ne kullandık" gibi sorularda veri_sorgula ile arac_parca koleksiyonunu kullan (ara alanına model veya plaka yaz). Kayıt yoksa genel bilgini kullanabilirsin ama bunun kayıttan değil tahmin olduğunu belirt.
+- Müşteriye fiyat sorulduğunda (ör. "bu parçayı kaça vereyim") parcalar koleksiyonundan son alış, son satış ve önerilen fiyatı getir; alış fiyatı son satıştan beri arttıysa bunu söyle ve KDV dahil fiyatı da ver.
 - Önceki mesajları hatırla; "peki geçen ay?", "bunu tedarikçiye göre ayır" gibi devam sorularını bağlamdan anla.
 - Soru gerçekten belirsizse en olası yorumla cevapla ve hangi yorumu yaptığını tek cümleyle söyle; gerekmedikçe soru sorarak bekletme.
 - Sonuçları yorumla: dikkat çeken bir şey görürsen (ani düşüş, zararına satış, maliyeti artan parça, ölü stok, eDMS farkı) kendiliğinden kısaca belirt ve somut öneri ver.

@@ -3,6 +3,7 @@ import { Button, Drawer, Empty, Icon, PageHead, Ring, Sparkline, useCountUp, use
 import { useApp } from "../context.js";
 import { ItemForm } from "../ItemForm.jsx";
 import { buildCompat, partVehicles, splitBrandModel, vehicleKey } from "../../core/vehicles.js";
+import { useMarkup, usePricing } from "../pricing.jsx";
 import { LEVEL_LABEL, abcClasses, filterItems, level, stockSeries, summarize, usageMap } from "../../core/stock.js";
 import { MOVE_LABEL } from "../../core/ledger.js";
 import { dateLabel, money, moneyShort, qty } from "../../core/format.js";
@@ -87,6 +88,7 @@ function ItemDrawer({ item, onClose, onEdit }) {
                 <div key={l} style={{ "--i": i }}><span>{l}</span><strong>{v}</strong></div>
               ))}
             </div>
+            <PriceSection item={item} />
             <section className="dsec">
               <div className="dsec-head"><h3>Son 60 gün stok seyri</h3><span>{usage?.cover === null || !usage ? "Son 90 günde çıkış yok" : `Günlük ort. ${qty(usage.daily)} · ≈ ${usage.cover} gün yeter`}</span></div>
               <Sparkline values={series} height={80} />
@@ -135,6 +137,44 @@ function ItemDrawer({ item, onClose, onEdit }) {
   );
 }
 
+// Fiyat: son alış/satış, alış değişimi, güncel alışa göre önerilen satış fiyatı.
+function PriceSection({ item }) {
+  const { data, store, run } = useApp();
+  const pricing = usePricing(data);
+  const [markup, setMarkup] = useMarkup();
+  const pr = pricing.get(item.id);
+  const [custom, setCustom] = useState("");
+  if (!pr) return null;
+  const price = item.price === null || item.price === undefined ? null : Number(item.price);
+  const save = (v) => run(() => store.patchItem(item.id, { price: Math.round(Number(v) * 100) / 100 }), `Satış fiyatı ${money(v)} (KDV hariç) olarak kaydedildi.`);
+  const customNet = Number(String(custom).replace(",", ".")) || 0;
+  return (
+    <section className="dsec price-sec">
+      <div className="dsec-head"><h3>Fiyat</h3><span>Tutarlar KDV hariç</span></div>
+      {pr.costRiseSinceSale ? <p className="price-warn"><Icon name="alert" size={15} />Alış, son satıştan beri <b>%{pr.costRiseSinceSale}</b> arttı. Son satış fiyatıyla verirseniz kâr %{pr.lastSaleMarginNow ?? 0} kalır.</p> : null}
+      {!pr.costRiseSinceSale && pr.priceLow ? <p className="price-warn"><Icon name="alert" size={15} />Kayıtlı satış fiyatı ({money(price)}) güncel alışa göre düşük kaldı.</p> : null}
+      <div className="price-grid">
+        <div><span>Son alış</span><strong>{money(pr.lastCost)}{pr.costChangePct ? <em className={`trend ${pr.costChangePct > 0 ? "up" : "down"}`}>{pr.costChangePct > 0 ? "▲" : "▼"}%{Math.abs(pr.costChangePct)}</em> : null}</strong><small>{pr.lastBuy ? `${dateLabel(pr.lastBuy.date)} · ${pr.lastBuy.supplier}` : "Alış kaydı yok"}{pr.prevBuy ? ` · önceki ${money(pr.prevBuy.unit)}` : ""}</small></div>
+        <div><span>Son satış</span><strong>{pr.lastSale ? money(pr.lastSale.unit) : "—"}</strong><small>{pr.lastSale ? `${dateLabel(pr.lastSale.date)} · ${pr.lastSale.customer}${pr.lastSale.plate ? ` · ${pr.lastSale.plate}` : ""}` : "Henüz satılmadı"}</small></div>
+        <div className="is-suggest"><span>Önerilen satış</span><strong>{pr.suggested ? money(pr.suggested) : "—"}</strong><small>{pr.suggested ? `KDV dahil ${money(pr.suggestedGross)} · %${pr.markup} kâr (${pr.markupSource})` : "Alış fiyatı gerekli"}</small></div>
+      </div>
+      <div className="quick-row">
+        {pr.suggested ? <Button variant="primary" icon="check" onClick={() => save(pr.suggested)} disabled={price === pr.suggested}>Öneriyi satış fiyatı yap</Button> : null}
+        <input type="number" min="0" step="0.01" value={custom} onChange={(e) => setCustom(e.target.value)} placeholder={price !== null ? `Kayıtlı: ${price}` : "Kendi fiyatın"} aria-label="Satış fiyatı" />
+        <Button icon="edit" disabled={!customNet} onClick={() => save(customNet).then((ok) => ok && setCustom(""))}>Kaydet</Button>
+      </div>
+      {customNet && pr.lastCost ? <small className="muted">KDV dahil {money(customNet * 1.2)} · güncel alışa göre kâr %{Math.round(((customNet - pr.lastCost) / customNet) * 100)}</small> : null}
+      {pr.history.purchases.length + pr.history.sales.length > 1 ? (
+        <div className="price-hist">
+          <div><b>Alış geçmişi</b>{pr.history.purchases.slice(0, 5).map((p, i) => <p key={i}><span>{dateLabel(p.date)}</span><span className="muted">{p.supplier}</span><strong>{money(p.unit)}</strong></p>)}</div>
+          <div><b>Satış geçmişi</b>{pr.history.sales.slice(0, 5).map((p, i) => <p key={i}><span>{dateLabel(p.date)}</span><span className="muted">{p.plate || p.customer}</span><strong>{money(p.unit)}</strong></p>)}{!pr.history.sales.length ? <p className="muted">—</p> : null}</div>
+        </div>
+      ) : null}
+      <label className="markup-set">Geçmiş satışı olmayan parçalarda varsayılan kâr: %<input type="number" min="1" max="300" value={markup} onChange={(e) => setMarkup(e.target.value)} aria-label="Varsayılan kâr oranı" /></label>
+    </section>
+  );
+}
+
 // Parçanın uyduğu araçlar: satışlardan otomatik + elle eklenenler.
 function FitsSection({ item, onGo }) {
   const { data, store, run } = useApp();
@@ -167,6 +207,7 @@ export function StockPage({ params }) {
   const [brand, setBrand] = useState("all");
   const [favorites, setFavorites] = useState(false);
   const [archived, setArchived] = useState(false);
+  const [priceOnly, setPriceOnly] = useState(params?.price || false);
   const [sort, setSort] = useState("level");
   const [dir, setDir] = useState("asc");
   const [limit, setLimit] = useState(PAGE);
@@ -181,14 +222,19 @@ export function StockPage({ params }) {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
-  useEffect(() => setLimit(PAGE), [query, lvl, category, brand, favorites, archived, sort, dir]);
+  useEffect(() => setLimit(PAGE), [query, lvl, category, brand, favorites, archived, sort, dir, priceOnly]);
 
   const summary = useMemo(() => summarize(data.items), [data.items]);
   const abc = useMemo(() => abcClasses(data.items), [data.items]);
   const usage = useMemo(() => usageMap(data.items, data.movements), [data.items, data.movements]);
   const categories = useMemo(() => [...new Set(data.items.map((i) => i.category).filter(Boolean))].sort((a, b) => a.localeCompare(b, "tr")), [data.items]);
   const brands = useMemo(() => [...new Set(data.items.map((i) => i.brand).filter(Boolean))].sort((a, b) => a.localeCompare(b, "tr")), [data.items]);
-  const list = useMemo(() => filterItems(data.items, { query, lvl, category, brand, favorites, archived, sort, dir }), [data.items, query, lvl, category, brand, favorites, archived, sort, dir]);
+  const pricing = usePricing(data);
+  const priceAlerts = useMemo(() => data.items.filter((i) => !i.archived && pricing.get(i.id)?.needsUpdate), [data.items, pricing]);
+  const list = useMemo(() => {
+    const base = filterItems(data.items, { query, lvl, category, brand, favorites, archived, sort, dir });
+    return priceOnly ? base.filter((i) => pricing.get(i.id)?.needsUpdate) : base;
+  }, [data.items, query, lvl, category, brand, favorites, archived, sort, dir, priceOnly, pricing]);
   const shown = list.slice(0, limit);
   const listValue = list.reduce((s, i) => s + Math.max(0, Number(i.stock) || 0) * (Number(i.cost) || 0), 0);
   const openItem = openId ? data.items.find((i) => i.id === openId) : null;
@@ -196,9 +242,10 @@ export function StockPage({ params }) {
   const exportExcel = () => downloadRows(`duar-stok-${new Date().toISOString().slice(0, 10)}.xlsx`, "Stok", list.map((i) => ({
     "Stok Kodu": i.sku, "Parça Adı": i.name, Kategori: i.category, Marka: i.brand, Raf: i.location, Birim: i.unit,
     Stok: Number(i.stock) || 0, "Kritik Seviye": Number(i.minimum) || 0, "Ort. Maliyet": Number(i.cost) || 0, "Son Alış": Number(i.lastCost) || 0,
+    "Son Satış (KDV hariç)": pricing.get(i.id)?.lastSale?.unit ?? "", "Son Satış Tarihi": pricing.get(i.id)?.lastSale?.date ?? "", "Önerilen Fiyat (KDV hariç)": pricing.get(i.id)?.suggested ?? "",
     "Satış Fiyatı": i.price ?? "", "Stok Değeri": Math.round(Math.max(0, Number(i.stock) || 0) * (Number(i.cost) || 0) * 100) / 100,
     "90 Gün Çıkış": usage.get(i.id)?.used || 0, "Yeterlilik (gün)": usage.get(i.id)?.cover ?? "", ABC: abc.get(i.id) || "", Durum: LEVEL_LABEL[level(i)],
-  })), [20, 40, 14, 14, 8, 6, 8, 12, 12, 12, 12, 14, 12, 14, 5, 10]);
+  })), [20, 40, 14, 14, 8, 6, 8, 12, 12, 12, 14, 14, 16, 12, 14, 12, 14, 5, 10]);
 
   return (
     <div className="page">
@@ -208,6 +255,13 @@ export function StockPage({ params }) {
         <Button variant="primary" icon="plus" onClick={() => setEditing("new")}>Stok kartı</Button>
       </>} />
       <StockHero summary={summary} lvl={lvl} setLvl={setLvl} />
+      {priceAlerts.length ? (
+        <button type="button" className={`price-alert ${priceOnly ? "active" : ""}`} onClick={() => setPriceOnly(!priceOnly)}>
+          <Icon name="alert" size={17} />
+          <span><strong>{priceAlerts.length} parçanın alış fiyatı değişti</strong><small>Son satıştan sonra alış arttı ya da kayıtlı satış fiyatı güncel alışın gerisinde kaldı. Müşteriye fiyat vermeden önce kontrol edin.</small></span>
+          <b>{priceOnly ? "Tümünü göster" : "Listele"}</b>
+        </button>
+      ) : null}
       <div className="toolbar">
         <label className="search">
           <Icon name="search" size={16} />
@@ -228,14 +282,17 @@ export function StockPage({ params }) {
         {shown.length ? (
           <div className="table-scroll">
             <table className="table">
-              <thead><tr><th /><th>PARÇA</th><th>KATEGORİ · MARKA</th><th>STOK</th><th>YETERLİLİK</th><th className="num">ORT. MALİYET</th><th className="num">SATIŞ</th><th className="num">MARJ</th><th className="num">STOK DEĞERİ</th><th>DURUM</th><th /></tr></thead>
+              <thead><tr><th /><th>PARÇA</th><th>KATEGORİ · MARKA</th><th>STOK</th><th>YETERLİLİK</th><th className="num">SON ALIŞ</th><th className="num">SON SATIŞ</th><th className="num">ÖNERİLEN</th><th className="num">MARJ</th><th className="num">STOK DEĞERİ</th><th>DURUM</th><th /></tr></thead>
               <tbody>
                 {shown.map((item, index) => {
                   const lv = level(item);
                   const u = usage.get(item.id);
                   const cost = Number(item.cost) || 0;
                   const price = item.price === null || item.price === undefined ? null : Number(item.price);
-                  const margin = price ? Math.round(((price - cost) / price) * 100) : null;
+                  const pr = pricing.get(item.id);
+                  const sellAt = price ?? pr?.lastSale?.unit ?? null;
+                  const nowCost = pr?.lastCost || cost;
+                  const margin = sellAt ? Math.round(((sellAt - nowCost) / sellAt) * 100) : null;
                   return (
                     <tr key={item.id} className={`row row-${lv}`} style={{ "--d": `${Math.min(index, 25) * 20}ms` }} tabIndex={0}
                       onClick={(e) => { if (!e.target.closest("button")) setOpenId(item.id); }}
@@ -249,8 +306,9 @@ export function StockPage({ params }) {
                         <button type="button" className="step" onClick={() => run(() => store.adjust(item.id, 1, "Hızlı düzeltme"))} aria-label={`${item.name} 1 ekle`}><Icon name="plus" size={12} /></button>
                       </div></td>
                       <td className="stack">{u?.cover === null || !u ? <span className="muted">Çıkış yok</span> : <span className={u.cover < 14 ? "warn" : ""}>{u.cover} gün</span>}{u?.used ? <small>90g: {qty(u.used)} çıkış</small> : null}</td>
-                      <td className="num">{money(cost)}</td>
-                      <td className="num strong">{price === null ? <span className="tag tag-warn">Fiyat yok</span> : money(price)}</td>
+                      <td className="num stack"><span>{money(pr?.lastCost || cost)}{pr?.costChangePct ? <em className={`trend ${pr.costChangePct > 0 ? "up" : "down"}`}>{pr.costChangePct > 0 ? "▲" : "▼"}%{Math.abs(pr.costChangePct)}</em> : null}</span><small>ort. {money(cost)}</small></td>
+                      <td className="num stack">{pr?.lastSale ? <><span>{money(pr.lastSale.unit)}</span><small>{dateLabel(pr.lastSale.date)}</small></> : <span className="muted">—</span>}</td>
+                      <td className="num stack">{pr?.suggested ? <><span className={`strong ${pr.needsUpdate ? "warn" : ""}`}>{money(price ?? pr.suggested)}</span><small>{price !== null ? (pr.priceLow ? `öneri ${money(pr.suggested)}` : "kayıtlı fiyat") : `KDV dahil ${money(pr.suggestedGross)}`}</small></> : <span className="tag tag-warn">Fiyat yok</span>}</td>
                       <td className={`num ${margin !== null && margin < 10 ? "warn" : ""}`}>{margin === null ? "—" : `%${margin}`}</td>
                       <td className="num">{money(Math.max(0, Number(item.stock) || 0) * cost)}</td>
                       <td><span className={`badge badge-${lv}`}><i />{LEVEL_LABEL[lv]}</span></td>
