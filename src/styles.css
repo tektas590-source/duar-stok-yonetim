@@ -748,3 +748,5 @@ textarea { resize: vertical; }
 .veh-hit:last-child { border-bottom: 0; padding-bottom: 0; }
 .dsec .chips .chip { cursor: pointer; }
 @media (max-width: 860px) { .veh-grid { grid-template-columns: 1fr; } .veh-list { max-height: 320px; } }
+.veh-stats { grid-template-columns: repeat(4, 1fr); }
+@media (max-width: 860px) { .veh-stats { grid-template-columns: repeat(2, 1fr); } }

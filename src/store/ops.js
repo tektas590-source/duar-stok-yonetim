@@ -129,6 +129,17 @@ export function createOps(runTx, getActor) {
       });
     },
 
+    // Satış belgesinin araç bilgisini günceller (stok ve tutarlar değişmez).
+    async setIssueVehicle(docId, { brand = "", model = "" }) {
+      return runTx(async (tx) => {
+        const doc = await tx.get("issues", docId);
+        if (!doc) throw new Error("Belge bulunamadı.");
+        const next = { ...doc, brand: String(brand).trim().toLocaleUpperCase("tr"), vehicleModel: String(model).trim().toLocaleUpperCase("tr"), vehicleSetBy: getActor(), updatedAt: new Date().toISOString() };
+        tx.set("issues", docId, next);
+        return next;
+      });
+    },
+
     async addServices(docId, services, edmsGross = null, vehicle = null) {
       return runTx(async (tx) => {
         const doc = await tx.get("issues", docId);

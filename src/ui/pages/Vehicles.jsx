@@ -12,6 +12,7 @@ export function VehiclesPage({ params }) {
   const [query, setQuery] = useState(params?.q || "");
   const [selKey, setSelKey] = useState(params?.key || null);
   const [adding, setAdding] = useState("");
+  const [modelText, setModelText] = useState("");
   const compat = useMemo(() => buildCompat(data.issues, data.items.filter((i) => !i.archived)), [data.issues, data.items]);
   const list = useMemo(() => searchVehicles(compat, query), [compat, query]);
   const known = list.filter((v) => !v.key.startsWith("PLAKA|"));
@@ -43,6 +44,16 @@ export function VehiclesPage({ params }) {
     fits.push({ brand: selected.brand, model: selected.model });
     if (await run(() => store.patchItem(item.id, { fits }), `${item.sku} → ${selected.label} uyumluluğu kaydedildi.`)) setAdding("");
   };
+  // Modeli bilinmeyen plaka: plakanın en son satışına model yazılır; hafıza aynı plakalı tüm satışlara uygular.
+  const setPlateModel = async () => {
+    const plate = selected ? [...selected.plates][0] : "";
+    const { brand, model } = splitBrandModel(modelText);
+    if (!plate || (!brand && !model)) return;
+    const norm = (x) => String(x || "").replace(/\s+/g, "").toLocaleUpperCase("tr");
+    const doc = data.issues.filter((d) => !d.cancelled && norm(d.plate) === norm(plate)).sort((a, b) => String(b.date).localeCompare(String(a.date)))[0];
+    if (!doc) return;
+    if (await run(() => store.setIssueVehicle(doc.id, { brand, model }), `${plate} → ${[brand, model].filter(Boolean).join(" ")} kaydedildi.`)) { setModelText(""); setSelKey(vehicleKey(brand, model)); }
+  };
   const removeFit = (itemId) => {
     const item = compat.itemsById.get(itemId);
     if (!item) return;
@@ -52,7 +63,7 @@ export function VehiclesPage({ params }) {
   return (
     <div className="page">
       <PageHead eyebrow="HAFIZA" title="Araç & parça uyumu" text="Her satışta hangi parçanın hangi araca takıldığı otomatik kaydedilir. Marka, model, plaka, şase no ya da parça yazın; o araca uyan parçaları stok durumuyla görün." />
-      <div className="mini-stats">
+      <div className="mini-stats veh-stats">
         <Stat label="Araç modeli" value={models.length} style={{ "--i": 0 }} />
         <Stat label="Kayıtlı plaka" value={compat.plates.size} style={{ "--i": 1 }} />
         <Stat label="Parça – araç eşleşmesi" value={links} tone="ok" style={{ "--i": 2 }} />
@@ -134,7 +145,13 @@ export function VehiclesPage({ params }) {
                   <datalist id="veh-skus">{data.items.slice(0, 400).map((i) => <option key={i.id} value={i.sku}>{i.name}</option>)}</datalist>
                   <Button type="submit" icon="plus" disabled={!adding.trim()}>Uyumlu parça ekle</Button>
                 </form>
-              ) : <p className="muted veh-note">Bu plakanın modeli bilinmiyor. eDMS Fatura Raporu'nu Satış ekranından tekrar yükleyince araç bilgisi otomatik dolar.</p>}
+              ) : (
+                <form className="veh-add" onSubmit={(e) => { e.preventDefault(); setPlateModel(); }}>
+                  <input value={modelText} onChange={(e) => setModelText(e.target.value)} placeholder="Bu plakanın aracı: örn. Peugeot 3008 1.6 HDi" aria-label="Plakanın araç modeli" />
+                  <Button type="submit" variant="primary" icon="check" disabled={!modelText.trim()}>Modeli kaydet</Button>
+                  <small className="muted veh-note">Ya da eDMS Fatura Raporu'nu Satış ekranından tekrar yükleyin; araç bilgisi otomatik dolar.</small>
+                </form>
+              )}
             </> : <Empty icon="car" title="Bir araç seçin" text="Soldan bir model seçin veya yukarıdan arayın." />}
           </section>
         </div>
