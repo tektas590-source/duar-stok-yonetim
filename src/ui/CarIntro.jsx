@@ -31,40 +31,40 @@ function Wheel({ cx }) {
   );
 }
 
-function Car() {
+export function Car({ p = "ci", className = "" }) {
   return (
-    <svg className="ci-car" viewBox="0 0 620 200" aria-hidden="true">
+    <svg className={`ci-car ${className}`} viewBox="0 0 620 200" aria-hidden="true">
       <defs>
-        <linearGradient id="ciBody" x1="0" y1="0" x2="0" y2="1">
+        <linearGradient id={`${p}Body`} x1="0" y1="0" x2="0" y2="1">
           <stop offset="0" stopColor="#3a3f4b" />
           <stop offset="0.45" stopColor="#1b1e25" />
           <stop offset="1" stopColor="#0b0c10" />
         </linearGradient>
-        <linearGradient id="ciGlass" x1="0" y1="0" x2="1" y2="1">
+        <linearGradient id={`${p}Glass`} x1="0" y1="0" x2="1" y2="1">
           <stop offset="0" stopColor="#5b6578" stopOpacity="0.9" />
           <stop offset="1" stopColor="#11141a" stopOpacity="0.95" />
         </linearGradient>
-        <linearGradient id="ciShine" x1="0" y1="0" x2="1" y2="0">
+        <linearGradient id={`${p}Shine`} x1="0" y1="0" x2="1" y2="0">
           <stop offset="0" stopColor="#fff" stopOpacity="0" />
           <stop offset="0.5" stopColor="#fff" stopOpacity="0.55" />
           <stop offset="1" stopColor="#fff" stopOpacity="0" />
         </linearGradient>
-        <linearGradient id="ciStripe" x1="0" y1="0" x2="1" y2="0">
+        <linearGradient id={`${p}Stripe`} x1="0" y1="0" x2="1" y2="0">
           <stop offset="0" stopColor="var(--accent)" stopOpacity="0" />
           <stop offset="0.25" stopColor="var(--accent)" />
           <stop offset="1" stopColor="var(--accent-2)" />
         </linearGradient>
-        <clipPath id="ciBodyClip"><path d="M44 140 L44 120 Q46 106 66 102 L156 94 Q196 64 256 56 L336 54 Q388 56 430 86 L512 96 Q560 102 566 120 L570 140 Q570 148 560 148 L505 148 A45 45 0 0 0 415 148 L205 148 A45 45 0 0 0 115 148 L54 148 Q44 148 44 140 Z" /></clipPath>
+        <clipPath id={`${p}BodyClip`}><path d="M44 140 L44 120 Q46 106 66 102 L156 94 Q196 64 256 56 L336 54 Q388 56 430 86 L512 96 Q560 102 566 120 L570 140 Q570 148 560 148 L505 148 A45 45 0 0 0 415 148 L205 148 A45 45 0 0 0 115 148 L54 148 Q44 148 44 140 Z" /></clipPath>
       </defs>
       <ellipse cx="310" cy="186" rx="270" ry="10" className="ci-shadow" />
-      <path className="ci-body" d="M44 140 L44 120 Q46 106 66 102 L156 94 Q196 64 256 56 L336 54 Q388 56 430 86 L512 96 Q560 102 566 120 L570 140 Q570 148 560 148 L505 148 A45 45 0 0 0 415 148 L205 148 A45 45 0 0 0 115 148 L54 148 Q44 148 44 140 Z" />
-      <g clipPath="url(#ciBodyClip)">
-        <rect x="-160" y="40" width="120" height="120" fill="url(#ciShine)" className="ci-sweep" transform="skewX(-20)" />
-        <path d="M60 124 L560 124" stroke="url(#ciStripe)" strokeWidth="3" />
+      <path className="ci-body" fill={`url(#${p}Body)`} d="M44 140 L44 120 Q46 106 66 102 L156 94 Q196 64 256 56 L336 54 Q388 56 430 86 L512 96 Q560 102 566 120 L570 140 Q570 148 560 148 L505 148 A45 45 0 0 0 415 148 L205 148 A45 45 0 0 0 115 148 L54 148 Q44 148 44 140 Z" />
+      <g clipPath={`url(#${p}BodyClip)`}>
+        <rect x="-160" y="40" width="120" height="120" fill={`url(#${p}Shine)`} className="ci-sweep" transform="skewX(-20)" />
+        <path d="M60 124 L560 124" stroke={`url(#${p}Stripe)`} strokeWidth="3" />
         <path d="M70 106 Q300 92 540 104" className="ci-crease" />
       </g>
-      <path className="ci-glass" d="M176 97 Q210 72 258 66 L306 65 L306 96 Z" />
-      <path className="ci-glass" d="M318 65 L338 65 Q378 68 410 93 L318 96 Z" />
+      <path className="ci-glass" fill={`url(#${p}Glass)`} d="M176 97 Q210 72 258 66 L306 65 L306 96 Z" />
+      <path className="ci-glass" fill={`url(#${p}Glass)`} d="M318 65 L338 65 Q378 68 410 93 L318 96 Z" />
       <path d="M312 64 L312 97" className="ci-pillar" />
       <path d="M330 104 L352 104" className="ci-handle" />
       <path d="M520 112 Q546 110 562 118 L560 126 Q540 122 518 120 Z" className="ci-headlight" />

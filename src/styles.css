@@ -617,9 +617,9 @@ textarea { resize: vertical; }
 @keyframes ciDrive { from { transform: translateX(-140vw); } }
 .ci-car { position: relative; z-index: 2; width: 100%; height: 100%; overflow: visible; animation: ciSettle 0.6s ease-out 2.05s both; }
 @keyframes ciSettle { 0% { transform: translateY(0) rotate(0); } 35% { transform: translateY(3px) rotate(0.6deg); } 70% { transform: translateY(-1px) rotate(-0.2deg); } 100% { transform: none; } }
-.ci-body { fill: url(#ciBody); stroke: rgba(255, 255, 255, 0.14); stroke-width: 1.2; }
+.ci-body { stroke: rgba(255, 255, 255, 0.14); stroke-width: 1.2; }
 .ci-crease { fill: none; stroke: rgba(255, 255, 255, 0.12); stroke-width: 1.2; }
-.ci-glass { fill: url(#ciGlass); stroke: rgba(255, 255, 255, 0.18); stroke-width: 1; }
+.ci-glass { stroke: rgba(255, 255, 255, 0.18); stroke-width: 1; }
 .ci-pillar { stroke: #0b0c10; stroke-width: 6; }
 .ci-handle { stroke: rgba(255, 255, 255, 0.35); stroke-width: 2.5; stroke-linecap: round; }
 .ci-sill { stroke: rgba(0, 0, 0, 0.6); stroke-width: 3; }
@@ -656,3 +656,64 @@ textarea { resize: vertical; }
 .ci-skip { position: absolute; right: 22px; bottom: 22px; z-index: 5; padding: 8px 16px; border-radius: 99px; border: 1px solid rgba(255, 255, 255, 0.2); background: rgba(255, 255, 255, 0.06); color: rgba(255, 255, 255, 0.75); font-weight: 600; font-size: 12px; letter-spacing: 0.08em; backdrop-filter: blur(8px); }
 .ci-skip:hover { color: #fff; border-color: var(--accent); }
 @media (max-width: 640px) { .ci-drive { bottom: 20%; } .ci-title { top: 20%; } }
+
+/* Ana ekran: canlı atölye sahnesi (10 sn döngü) */
+.garage { position: relative; display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(240px, 1fr); margin-bottom: 18px; border: 1px solid var(--line); border-radius: var(--r-lg, 18px); overflow: hidden; background: var(--surface); animation: rise 0.7s var(--ease) both; opacity: 1; transform: none; }
+.gh-scene { position: relative; height: 250px; overflow: hidden; background: linear-gradient(180deg, #0b0d12, #12151c 70%, #0a0b0f); }
+.gh-wall { position: absolute; inset: 0 0 26% 0; background: repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.025) 0 1px, transparent 1px 64px), linear-gradient(180deg, rgba(255, 255, 255, 0.03), transparent); }
+.gh-lamp { position: absolute; top: 0; left: var(--x); width: 18%; height: 4px; margin-left: -9%; border-radius: 0 0 4px 4px; background: #fff3dc; box-shadow: 0 0 16px 3px rgba(255, 236, 200, 0.55); animation: ghLamp 10s linear infinite; }
+.gh-lamp::after { content: ""; position: absolute; left: -30%; right: -30%; top: 4px; height: 170px; background: radial-gradient(60% 100% at 50% 0, rgba(255, 236, 200, 0.12), transparent 70%); }
+@keyframes ghLamp { 0%, 2.2%, 2.8%, 100% { opacity: 1; } 2.4%, 2.6% { opacity: 0.35; } }
+.gh-board { position: absolute; left: 6%; top: 28%; display: flex; gap: 12px; opacity: 0.35; }
+.gh-board b { width: 6px; height: calc(26px + var(--i) * 5px); border-radius: 3px 3px 1px 1px; background: #3a3f4b; }
+.gh-floor { position: absolute; left: 0; right: 0; bottom: 0; height: 26%; background: linear-gradient(180deg, #171a22, #0c0d11); border-top: 1px solid rgba(255, 255, 255, 0.06); }
+.gh-floor::before { content: ""; position: absolute; left: 50%; top: 0; width: 70%; height: 3px; margin-left: -35%; background: repeating-linear-gradient(90deg, #f2b33d 0 18px, #111 18px 36px); opacity: 0.55; }
+.gh-rig { position: absolute; left: 50%; bottom: 20px; width: 440px; height: 175px; margin-left: -220px; }
+.gh-post { position: absolute; bottom: 0; width: 16px; height: 168px; border-radius: 3px 3px 0 0; background: linear-gradient(90deg, #2c313b, #4a5160 45%, #23272f); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06); }
+.gh-post::after { content: ""; position: absolute; left: 3px; right: 3px; top: 8px; height: 22px; border-radius: 2px; background: var(--accent); opacity: 0.85; }
+.gh-post-l { left: 8px; } .gh-post-r { right: 8px; }
+.gh-lift { position: absolute; left: 0; right: 0; bottom: 0; height: 160px; animation: ghLift 10s cubic-bezier(0.65, 0, 0.35, 1) infinite; }
+@keyframes ghLift { 0%, 12% { transform: translateY(0); } 26%, 84% { transform: translateY(-46px); } 96%, 100% { transform: translateY(0); } }
+.gh-arm { position: absolute; bottom: 30px; height: 6px; width: 130px; border-radius: 3px; background: linear-gradient(180deg, #5a6170, #2a2e37); }
+.gh-arm-l { left: 18px; } .gh-arm-r { right: 18px; }
+.gh-car { position: absolute; left: 0; bottom: 18px; width: 100%; height: auto; aspect-ratio: 620 / 200; }
+.gh-car .ci-shadow { display: none; }
+.gh-car .ci-rim { animation: none; }
+.gh-car .ci-headlight { fill: #fff6df; animation: none; filter: drop-shadow(0 0 6px #ffe2a8); }
+.gh-car .ci-tail { animation: none; fill: #a11d1d; }
+.gh-car .ci-sweep { animation: ghSweep 10s ease-in-out infinite; }
+@keyframes ghSweep { 0%, 72% { transform: skewX(-20deg) translateX(0); } 84%, 100% { transform: skewX(-20deg) translateX(860px); } }
+.gh-car g[transform^="translate(460"] .ci-rim { animation: ghBalance 10s linear infinite; }
+@keyframes ghBalance { 0%, 46% { transform: rotate(0); } 70%, 100% { transform: rotate(2160deg); } }
+.gh-tool { position: absolute; left: calc(460 / 620 * 100% - 6px); bottom: calc(18px + 50 / 200 * 141.9px); width: 46px; height: 46px; opacity: 0; transform-origin: 8px 40px; animation: ghTool 10s ease-in-out infinite; }
+.gh-wrench { width: 100%; height: 100%; fill: #d7dbe2; filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.6)); }
+@keyframes ghTool { 0%, 45% { opacity: 0; transform: translate(20px, -20px) rotate(-40deg); } 48% { opacity: 1; transform: translate(0, 0) rotate(-20deg); } 52% { transform: rotate(25deg); } 56% { transform: rotate(-20deg); } 60% { transform: rotate(25deg); } 64% { transform: rotate(-20deg); } 68% { opacity: 1; transform: rotate(10deg); } 72%, 100% { opacity: 0; transform: translate(24px, -24px) rotate(30deg); } }
+.gh-sparks { position: absolute; left: calc(460 / 620 * 100%); bottom: calc(18px + 50 / 200 * 141.9px); width: 0; height: 0; }
+.gh-sparks i { position: absolute; left: 0; top: 0; width: 14px; height: 2px; border-radius: 2px; background: linear-gradient(90deg, #fff, #ffb340); box-shadow: 0 0 6px #ff9b2f; transform-origin: 0 50%; opacity: 0; animation: ghSpark 10s linear var(--d) infinite; }
+@keyframes ghSpark { 0%, 50% { opacity: 0; transform: rotate(var(--a)) translateX(0) scaleX(0.4); } 51% { opacity: 1; } 55% { opacity: 0; transform: rotate(var(--a)) translateX(46px) scaleX(1); } 56% { opacity: 0; transform: rotate(var(--a)) translateX(0) scaleX(0.4); } 57% { opacity: 1; } 61% { opacity: 0; transform: rotate(var(--a)) translateX(52px) scaleX(1); } 62% { opacity: 0; transform: rotate(var(--a)) translateX(0); } 63% { opacity: 1; } 67%, 100% { opacity: 0; transform: rotate(var(--a)) translateX(40px) scaleX(1); } }
+.gh-scan { position: absolute; left: 0; bottom: 12px; width: 3px; height: 120px; border-radius: 3px; background: #4ef0ff; box-shadow: 0 0 14px 3px rgba(78, 240, 255, 0.7), -60px 0 60px -20px rgba(78, 240, 255, 0.35); opacity: 0; animation: ghScan 10s ease-in-out infinite; }
+@keyframes ghScan { 0%, 26% { opacity: 0; transform: translateX(10px); } 28% { opacity: 1; } 44% { opacity: 1; transform: translateX(430px); } 46%, 100% { opacity: 0; transform: translateX(430px); } }
+.gh-shadow { position: absolute; left: 10%; right: 10%; bottom: -6px; height: 14px; border-radius: 50%; background: rgba(0, 0, 0, 0.6); filter: blur(6px); }
+.gh-status { position: absolute; left: 16px; top: 14px; display: grid; }
+.gh-status span { grid-area: 1 / 1; display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 99px; border: 1px solid rgba(255, 255, 255, 0.12); background: rgba(10, 12, 16, 0.7); backdrop-filter: blur(8px); color: #e9ecf2; font: 600 12px var(--font); letter-spacing: 0.04em; opacity: 0; }
+.gh-status i { width: 8px; height: 8px; border-radius: 50%; }
+.gh-s1 { animation: ghS1 10s linear infinite; } .gh-s1 i { background: #4ef0ff; box-shadow: 0 0 8px #4ef0ff; }
+.gh-s2 { animation: ghS2 10s linear infinite; } .gh-s2 i { background: var(--accent); box-shadow: 0 0 8px var(--accent); }
+.gh-s3 { animation: ghS3 10s linear infinite; } .gh-s3 i { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+.gh-s3 { color: #b6f5d6 !important; border-color: rgba(52, 211, 153, 0.4) !important; }
+@keyframes ghS1 { 0%, 25% { opacity: 0; transform: translateY(6px); } 27%, 44% { opacity: 1; transform: none; } 46%, 100% { opacity: 0; } }
+@keyframes ghS2 { 0%, 46% { opacity: 0; transform: translateY(6px); } 48%, 68% { opacity: 1; transform: none; } 70%, 100% { opacity: 0; } }
+@keyframes ghS3 { 0%, 70% { opacity: 0; transform: translateY(6px) scale(0.96); } 72%, 92% { opacity: 1; transform: none; } 95%, 100% { opacity: 0; } }
+.gh-info { display: flex; flex-direction: column; justify-content: center; gap: 8px; padding: 22px 24px; border-left: 1px solid var(--line); background: radial-gradient(120% 90% at 100% 0, var(--accent-soft), transparent 60%); }
+.gh-info .eyebrow { margin: 0; }
+.gh-info h2 { margin: 0; font: 700 22px var(--display); }
+.gh-info h2 b { font-size: 44px; line-height: 1; margin-right: 6px; background: linear-gradient(135deg, var(--accent), var(--accent-2)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.gh-sub { margin: 0; color: var(--text-2); font-size: 13px; }
+.gh-figs { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 6px; }
+.gh-figs div { padding: 10px 12px; border-radius: var(--r-sm); background: var(--surface-2); border: 1px solid var(--line); min-width: 0; }
+.gh-figs span { display: block; font-size: 11px; color: var(--text-3); letter-spacing: 0.04em; }
+.gh-figs strong { display: block; margin-top: 3px; font: 650 15px var(--display); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gh-link { align-self: flex-start; margin-top: 4px; padding: 0; border: 0; background: none; color: var(--accent); font-weight: 600; font-size: 13px; }
+.gh-link:hover { text-decoration: underline; }
+@media (max-width: 960px) { .garage { grid-template-columns: 1fr; } .gh-info { border-left: 0; border-top: 1px solid var(--line); } }
+@media (max-width: 560px) { .gh-scene { height: 200px; } .gh-rig { transform: scale(0.72); transform-origin: 50% 100%; } }

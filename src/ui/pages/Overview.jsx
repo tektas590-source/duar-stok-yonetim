@@ -5,6 +5,7 @@ import { flowSeries, level, LEVEL_LABEL, summarize } from "../../core/stock.js";
 import { MOVE_LABEL } from "../../core/ledger.js";
 import { dateLabel, money, moneyShort, qty, round, timeLabel, todayKey } from "../../core/format.js";
 import { downloadRows } from "../excel.js";
+import { GarageHero } from "../GarageHero.jsx";
 
 function FlowChart({ series }) {
   const ready = useReady(150);
@@ -73,6 +74,7 @@ export function DashboardPage() {
         <Button icon="upload" onClick={() => go("alis", { tab: "edms" })}>eDMS faturası yükle</Button>
         <Button variant="primary" icon="out" onClick={() => go("satis")}>Satış / çıkış</Button>
       </>} />
+      <GarageHero data={data} onOpen={() => go("satis", { tab: "list" })} />
       <div className="kpis">
         <Kpi i={0} label="Stok değeri · maliyet" value={summary.costValue} sub={`${summary.total} kart · ${qty(summary.units)} birim`} onClick={() => go("stok")} />
         <Kpi i={1} label="Bu ay alış · KDV hariç" value={monthIn} sub={`${data.invoices.filter((d) => !d.cancelled && String(d.date).startsWith(month)).length} fatura`} onClick={() => go("alis")} />
