@@ -240,3 +240,30 @@ test("count sheet: eDMS WDMR002 Stok Mevcut Raporu columns", () => {
   assert.ok(detected);
   assert.deepEqual(lines.map((l) => [l.sku, l.qty]), [["GDY 301030", 48.5], ["0164.88ALT", 90]]);
 });
+
+test("vehicle memory: parse note, auto-link parts, plate fallback, manual fits", async () => {
+  const { parseVehicleNote, buildCompat, searchVehicles, vehicleParts, partVehicles } = await import("../src/core/vehicles.js");
+  assert.deepEqual(parseVehicleNote("VF3MCYHZRKS123456 / 55 ABC 123 / 3008 1.6 HDI"), { vin: "VF3MCYHZRKS123456", plate: "55 ABC 123", brand: "PEUGEOT", model: "3008 1.6 HDI" });
+  assert.equal(parseVehicleNote("55 DE 77 / Fiat Egea").brand, "FIAT");
+  assert.equal(parseVehicleNote("55 DE 77 / Fiat Egea").model, "EGEA");
+  const items = [{ id: "a", sku: "1609414480", name: "Yağ filtresi", stock: 3, minimum: 1 }, { id: "b", sku: "B-1", name: "Balata", stock: 0, minimum: 1, fits: [{ brand: "PEUGEOT", model: "208" }] }];
+  const issues = [
+    { id: "s1", date: "2026-11-01", plate: "55 ABC 123", vin: "VF3MCYHZRKS123456", brand: "PEUGEOT", vehicleModel: "3008 1.6 HDI", customer: "Ali", lines: [{ itemId: "a", sku: "1609414480", name: "Yağ filtresi", qty: 1, unitPrice: 300 }], services: [] },
+    { id: "s2", date: "2026-11-05", plate: "55 abc 123", lines: [{ itemId: "a", sku: "1609414480", name: "Yağ filtresi", qty: 1, unitPrice: 320 }], services: [{ kind: "part", code: "X9", name: "Silecek", qty: 2, unitPrice: 100 }] },
+    { id: "s3", date: "2026-11-06", plate: "55 ZZ 9", lines: [{ itemId: "a", sku: "1609414480", name: "Yağ filtresi", qty: 1 }], services: [] },
+    { id: "s4", date: "2026-11-07", plate: "55 ABC 123", cancelled: true, lines: [{ itemId: "b", sku: "B-1", name: "Balata", qty: 1 }], services: [] },
+  ];
+  const c = buildCompat(issues, items);
+  const v = c.vehicles.get("PEUGEOT|3008 1.6 HDI");
+  assert.equal(v.services, 2);
+  const parts = vehicleParts(v, c.itemsById);
+  assert.equal(parts[0].sku, "1609414480");
+  assert.equal(parts[0].times, 2);
+  assert.equal(parts[0].lastPrice, 320);
+  assert.ok(parts.some((p) => p.sku === "X9"));
+  assert.ok(!parts.some((p) => p.sku === "B-1"));
+  assert.ok(c.vehicles.has("PLAKA|55 ZZ 9"));
+  assert.equal(searchVehicles(c, "3008")[0].key, "PEUGEOT|3008 1.6 HDI");
+  assert.equal(searchVehicles(c, "55abc123")[0].key, "PEUGEOT|3008 1.6 HDI");
+  assert.equal(partVehicles(c, "b")[0].key, "PEUGEOT|208");
+});

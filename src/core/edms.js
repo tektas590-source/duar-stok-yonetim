@@ -8,6 +8,7 @@
 // `rows`: XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null }) çıktısı.
 
 import { dateKeyFromCell, itemIdFromSku, looseKey, round, skuKey, toNumber } from "./format.js";
+import { parseVehicleNote } from "./vehicles.js";
 
 const DEFAULT_COLS = { code: 2, name: 7, unitPrice: 13, qty: 16, discountPct: 18, vatPct: 19, total: 21, discount: 22, vat: 23, gross: 24 };
 const HEADER_NAMES = {
@@ -122,7 +123,7 @@ export function analyzeInvoice(inv, items, existingIds) {
   let docId = null;
   try { docId = `${prefix}_${encodeURIComponent(inv.no.toLocaleUpperCase("tr")).replace(/\./g, "%2E")}`; } catch { docId = null; }
   // İptal edilmiş kayıt "kayıtlı" sayılmaz; aynı numara yeniden yüklenebilir (…_r2, _r3).
-  let existingDoc = null, already = false, reimport = false;
+  let existingDoc = null, already = false, reimport = false, existingId = null;
   if (docId) {
     const isMap = typeof existingIds.get === "function";
     for (let n = 1; n <= 50; n += 1) {
@@ -130,7 +131,7 @@ export function analyzeInvoice(inv, items, existingIds) {
       if (!existingIds.has(id)) break;
       const doc = isMap ? existingIds.get(id) : null;
       if (doc && doc.cancelled) { reimport = true; continue; }
-      already = true; existingDoc = doc; reimport = false; break;
+      already = true; existingDoc = doc; existingId = id; reimport = false; break;
     }
   }
   let net = 0, vat = 0, edmsGross = 0, units = 0;
@@ -163,7 +164,9 @@ export function analyzeInvoice(inv, items, existingIds) {
   // Kayıtlı satışa eksik işçiliği ve/veya eDMS fatura tutarını (doğrulama için) ekle.
   const needsServices = Boolean(existingDoc && services.length && !(existingDoc.services || []).length);
   const needsStamp = Boolean(existingDoc && inv.type === "sale" && (existingDoc.edmsGross === null || existingDoc.edmsGross === undefined));
-  const backfill = Boolean(existingDoc && !existingDoc.cancelled && (needsServices || needsStamp));
+  const vehicle = inv.type === "sale" ? parseVehicleNote(inv.note) : null;
+  const needsVehicle = Boolean(existingDoc && vehicle && (vehicle.model || vehicle.vin) && !existingDoc.vehicleModel && !existingDoc.vin);
+  const backfill = Boolean(existingDoc && !existingDoc.cancelled && (needsServices || needsStamp || needsVehicle));
   const gross = round(net + vat);
   // Tüm satırlar (stok + hizmet) dahil fatura toplamı; eDMS "Fatura Tutarı" ile karşılaştırılır.
   const nonStock = lines.filter((l) => !l.isStock);
@@ -176,11 +179,14 @@ export function analyzeInvoice(inv, items, existingIds) {
     docId,
     already,
     reimport,
+    existingId,
     lines,
     totals: { net, vat, gross, edmsGross, units: round(units, 3), laborNet, otherNet, fullNet: round(net + laborNet), fullGross },
     services,
     backfill,
     needsServices,
+    needsVehicle,
+    vehicle,
     match: totalsOk && linesOk,
     counts: {
       stock: stockLines.length,
@@ -219,11 +225,15 @@ export function toPurchaseInput(analyzed) {
 // Analiz edilmiş satış faturasını planIssue girdisine çevirir (yalnızca kartı olan satırlar).
 export function toIssueInput(analyzed) {
   const parts = analyzed.note.split("/").map((p) => p.trim());
+  const vehicle = parseVehicleNote(analyzed.note);
   return {
     no: analyzed.no,
     date: analyzed.date,
     customer: analyzed.firm,
-    plate: parts.length > 1 && /^[A-Z0-9]{11,17}$/i.test(parts[0]) ? parts[1] : "",
+    plate: parts.length > 1 && /^[A-Z0-9]{11,17}$/i.test(parts[0]) ? parts[1] : vehicle.plate,
+    vin: vehicle.vin,
+    brand: vehicle.brand,
+    vehicleModel: vehicle.model,
     note: analyzed.source ? `eDMS · ${analyzed.source}` : "eDMS",
     source: "eDMS",
     lines: analyzed.lines.filter((l) => l.isStock && l.item).map((l) => ({

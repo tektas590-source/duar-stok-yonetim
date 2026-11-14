@@ -132,7 +132,8 @@ export function EdmsImport({ defaultTypes = ["purchase"] }) {
                       <span className={`pill ${a.type === "purchase" ? "is-info" : "is-violet"}`}>{TYPE_LABEL[a.type]}</span>
                       {a.already ? <span className="pill">Zaten kayıtlı</span> : null}
                       {a.reimport ? <span className="pill is-warn" title="Bu fatura daha önce yüklenip iptal edilmiş; yeniden yüklenebilir.">İptal edilmişti · yeniden yüklenecek</span> : null}
-                      {a.backfill ? <span className="pill is-warn">{a.needsServices ? "İşçilik eklenecek" : "eDMS tutarı işlenecek"}</span> : null}
+                      {a.backfill ? <span className="pill is-warn">{a.needsServices ? "İşçilik eklenecek" : a.needsVehicle ? "Araç bilgisi eklenecek" : "eDMS tutarı işlenecek"}</span> : null}
+                      {a.type === "sale" && a.vehicle && (a.vehicle.model || a.vehicle.brand) ? <span className="pill">{[a.vehicle.brand, a.vehicle.model].filter(Boolean).join(" ")}</span> : null}
                       {a.totals.laborNet ? <span className="pill is-violet">İşçilik {money(a.totals.laborNet)}</span> : null}
                       <span className={`pill ${a.match ? "is-ok" : "is-bad"}`}><Icon name={a.match ? "check" : "alert"} size={12} />{a.match ? "eDMS ile birebir" : "Tutar farkı"}</span>
                       {a.type === "purchase" && a.counts.fresh ? <span className="pill is-warn">{a.counts.fresh} yeni kart</span> : null}

@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Button, Drawer, Empty, Icon, PageHead, Ring, Sparkline, useCountUp, useReady } from "../kit.jsx";
 import { useApp } from "../context.js";
 import { ItemForm } from "../ItemForm.jsx";
+import { buildCompat, partVehicles, splitBrandModel, vehicleKey } from "../../core/vehicles.js";
 import { LEVEL_LABEL, abcClasses, filterItems, level, stockSeries, summarize, usageMap } from "../../core/stock.js";
 import { MOVE_LABEL } from "../../core/ledger.js";
 import { dateLabel, money, moneyShort, qty } from "../../core/format.js";
@@ -101,6 +102,7 @@ function ItemDrawer({ item, onClose, onEdit }) {
               </div>
               <small className="muted">Düş/Ekle fatura dışı düzeltmedir; hareket geçmişine adınızla kaydedilir.</small>
             </section>
+            <FitsSection item={item} onGo={(key) => { close(); go("arac", { key }); }} />
             <section className="dsec">
               <div className="dsec-head"><h3>Alış geçmişi</h3><span>{purchases.length} fatura</span></div>
               {purchases.length ? (
@@ -130,6 +132,30 @@ function ItemDrawer({ item, onClose, onEdit }) {
         </>
       )}
     </Drawer>
+  );
+}
+
+// Parçanın uyduğu araçlar: satışlardan otomatik + elle eklenenler.
+function FitsSection({ item, onGo }) {
+  const { data, store, run } = useApp();
+  const [text, setText] = useState("");
+  const vehicles = useMemo(() => partVehicles(buildCompat(data.issues, data.items), item.id), [data.issues, data.items, item.id]);
+  const add = () => {
+    const { brand, model } = splitBrandModel(text);
+    if (!model && !brand) return;
+    const key = vehicleKey(brand, model);
+    const fits = (item.fits || []).filter((f) => vehicleKey(f.brand, f.model) !== key);
+    run(() => store.patchItem(item.id, { fits: [...fits, { brand, model }] }), "Uyumlu araç kaydedildi.").then((ok) => ok && setText(""));
+  };
+  return (
+    <section className="dsec">
+      <div className="dsec-head"><h3>Uyumlu araçlar</h3><span>{vehicles.length ? `${vehicles.length} araç modeli` : "Satıldıkça otomatik dolar"}</span></div>
+      {vehicles.length ? <div className="chips">{vehicles.map((v) => <button key={v.key} type="button" className="chip" onClick={() => onGo(v.key)}><i />{v.label}<b>{v.parts.get(item.id)?.times || "elle"}</b></button>)}</div> : null}
+      <form className="quick-row" onSubmit={(e) => { e.preventDefault(); add(); }}>
+        <input value={text} onChange={(e) => setText(e.target.value)} placeholder="Örn: Peugeot 3008 1.6 HDi" aria-label="Uyumlu araç ekle" />
+        <Button type="submit" icon="plus" disabled={!text.trim()}>Araç ekle</Button>
+      </form>
+    </section>
   );
 }
 

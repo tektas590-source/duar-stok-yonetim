@@ -8,6 +8,7 @@ import { DashboardPage, ReportsPage } from "./pages/Overview.jsx";
 import { StockPage } from "./pages/Stock.jsx";
 import { IssuesPage, PurchasesPage } from "./pages/Docs.jsx";
 import { CountPage, MovementsPage, OrdersPage, SettingsPage } from "./pages/Ops.jsx";
+import { VehiclesPage } from "./pages/Vehicles.jsx";
 import { firebaseConfigured, hasAccess, logOut, OWNER_EMAIL, watchAuth } from "../firebase.js";
 import { level } from "../core/stock.js";
 
@@ -16,13 +17,14 @@ const NAV = [
   ["stok", "Stok", "box"],
   ["alis", "Alış faturaları", "inbox"],
   ["satis", "Satış / çıkış", "out"],
+  ["arac", "Araç & parça", "car"],
   ["hareket", "Hareketler", "swap"],
   ["sayim", "Sayım", "clipboard"],
   ["siparis", "Sipariş listesi", "cart"],
   ["rapor", "Raporlar", "chart"],
   ["ayarlar", "Ayarlar", "users"],
 ];
-const PAGES = { genel: DashboardPage, stok: StockPage, alis: PurchasesPage, satis: IssuesPage, hareket: MovementsPage, sayim: CountPage, siparis: OrdersPage, rapor: ReportsPage, ayarlar: SettingsPage };
+const PAGES = { genel: DashboardPage, stok: StockPage, alis: PurchasesPage, satis: IssuesPage, arac: VehiclesPage, hareket: MovementsPage, sayim: CountPage, siparis: OrdersPage, rapor: ReportsPage, ayarlar: SettingsPage };
 
 // Sinematik sayfa geçişi: perde açılır, ışık çizgisi süpürür, sayfa adı
 // büyük harflerle belirip kaybolur. Tıklamaları engellemez.

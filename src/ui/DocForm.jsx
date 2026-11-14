@@ -2,6 +2,7 @@ import React, { useMemo, useState } from "react";
 import { Button, Field, Icon } from "./kit.jsx";
 import { useApp } from "./context.js";
 import { looseKey, money, qty, round, skuKey, todayKey, toNumber, VAT_RATE } from "../core/format.js";
+import { buildCompat, splitBrandModel } from "../core/vehicles.js";
 
 const emptyLine = () => ({ key: Math.random().toString(36).slice(2), sku: "", name: "", qty: "1", unitPrice: "", discountPct: "" });
 
@@ -24,7 +25,9 @@ export function DocForm({ mode, initialItemId, onDone }) {
     const item = items.find((i) => i.id === initialItemId);
     return item ? [{ ...emptyLine(), sku: item.sku, name: item.name, unitPrice: item.price ?? "" }] : [emptyLine()];
   };
-  const [head, setHead] = useState({ no: isPurchase ? "" : nextIssueNo, supplier: "", customer: "", plate: "", note: "", date: todayKey() });
+  const [head, setHead] = useState({ no: isPurchase ? "" : nextIssueNo, supplier: "", customer: "", plate: "", vehicle: "", note: "", date: todayKey() });
+  const plateModels = useMemo(() => (isPurchase ? new Map() : buildCompat(data.issues, []).plateModels), [isPurchase, data.issues]);
+  const setPlate = (plate) => { const known = plateModels.get(String(plate).trim().replace(/\s+/g, " ").toLocaleUpperCase("tr")); setHead((h) => ({ ...h, plate, vehicle: !h.vehicle && known ? [known.brand, known.model].filter(Boolean).join(" ") : h.vehicle })); };
   const [lines, setLines] = useState(initLines);
   const [paste, setPaste] = useState("");
   const [showPaste, setShowPaste] = useState(false);
@@ -84,7 +87,7 @@ export function DocForm({ mode, initialItemId, onDone }) {
     if (blocked) return;
     const payload = isPurchase
       ? { no: head.no, supplier: head.supplier, date: head.date, source: "manual", lines: valid.map((l) => ({ sku: l.item ? l.item.sku : l.sku.trim(), name: l.name || l.sku, qty: l.q, unitPrice: l.price, discountPct: toNumber(l.discountPct), vatPct: 20 })) }
-      : { no: head.no, customer: head.customer, plate: head.plate, note: head.note, date: head.date, source: "manual", lines: valid.map((l) => ({ itemId: l.item.id, sku: l.item.sku, name: l.item.name, qty: l.q, unitPrice: l.price, discountPct: toNumber(l.discountPct), vatPct: 20 })), services: laborValid.map((l) => ({ kind: "labor", name: l.name.trim(), qty: l.q, unitPrice: l.price, vatPct: 20 })) };
+      : { no: head.no, customer: head.customer, plate: head.plate, brand: splitBrandModel(head.vehicle).brand, vehicleModel: splitBrandModel(head.vehicle).model, note: head.note, date: head.date, source: "manual", lines: valid.map((l) => ({ itemId: l.item.id, sku: l.item.sku, name: l.item.name, qty: l.q, unitPrice: l.price, discountPct: toNumber(l.discountPct), vatPct: 20 })), services: laborValid.map((l) => ({ kind: "labor", name: l.name.trim(), qty: l.q, unitPrice: l.price, vatPct: 20 })) };
     const ok = await run(async () => {
       if (!isPurchase) return store.issue(payload);
       await store.purchase(payload);
@@ -93,7 +96,7 @@ export function DocForm({ mode, initialItemId, onDone }) {
       if (settled.length) toast(`${settled.length} satıştaki stokta olmayan kalemler stoktan düşüldü.`, "ok");
       return true;
     }, isPurchase ? `${payload.no} faturası stoğa işlendi.` : `${payload.no} kaydedildi${valid.length ? ", stok düşüldü" : ""}.`);
-    if (ok !== false) { setLines([emptyLine()]); setLabor([]); setHead({ ...head, no: isPurchase ? "" : `S-${String(Number(head.no.slice(2) || 0) + 1).padStart(5, "0")}`, supplier: isPurchase ? head.supplier : "", customer: "", plate: "", note: "" }); onDone?.(); }
+    if (ok !== false) { setLines([emptyLine()]); setLabor([]); setHead({ ...head, no: isPurchase ? "" : `S-${String(Number(head.no.slice(2) || 0) + 1).padStart(5, "0")}`, supplier: isPurchase ? head.supplier : "", customer: "", plate: "", vehicle: "", note: "" }); onDone?.(); }
   }
 
   return (
@@ -103,7 +106,8 @@ export function DocForm({ mode, initialItemId, onDone }) {
         {isPurchase
           ? <Field label="Tedarikçi *"><input value={head.supplier} onChange={(e) => setHead({ ...head, supplier: e.target.value })} required list="supplier-list" placeholder="DEMPAR…" /><datalist id="supplier-list">{suppliers.map((s) => <option key={s} value={s} />)}</datalist></Field>
           : <Field label="Müşteri"><input value={head.customer} onChange={(e) => setHead({ ...head, customer: e.target.value })} placeholder="Tezgah satışı için boş bırakın" /></Field>}
-        {!isPurchase ? <Field label="Plaka"><input value={head.plate} onChange={(e) => setHead({ ...head, plate: e.target.value })} placeholder="55 ABC 123" /></Field> : null}
+        {!isPurchase ? <Field label="Plaka"><input value={head.plate} onChange={(e) => setPlate(e.target.value)} placeholder="55 ABC 123" /></Field> : null}
+        {!isPurchase ? <Field label="Araç (marka model)" hint="Parça–araç hafızasına kaydedilir"><input value={head.vehicle} onChange={(e) => setHead({ ...head, vehicle: e.target.value })} placeholder="Peugeot 3008 1.6 HDi" /></Field> : null}
         <Field label="Tarih *"><input type="date" value={head.date} onChange={(e) => setHead({ ...head, date: e.target.value })} required /></Field>
       </div>
       <datalist id="sku-list">{items.map((i) => <option key={i.id} value={i.sku}>{i.name}</option>)}</datalist>

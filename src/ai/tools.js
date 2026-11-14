@@ -3,6 +3,7 @@
 import { level, LEVEL_LABEL, summarize, usageMap, reorderSuggestions } from "../core/stock.js";
 import { looseKey, round, skuKey, todayKey } from "../core/format.js";
 import { MOVE_LABEL } from "../core/ledger.js";
+import { buildCompat } from "../core/vehicles.js";
 
 const DAY = 86400000;
 const r2 = (v) => round(Number(v) || 0, 2);
@@ -61,12 +62,19 @@ function datasets(data, usage) {
   const buys = live(data.invoices);
   return {
     parcalar: () => items.map((i) => itemBrief(i, usage)),
-    satis_belgeleri: () => sales.map((d) => ({ no: d.no, tarih: d.date, ay: String(d.date).slice(0, 7), musteri: d.customer || "Tezgah", plaka: d.plate || null, arac: d.vehicle || null, kaynak: d.source || null, ciro: r2(d.totals.net), parca: r2(d.totals.partsNet ?? d.totals.net), iscilik: r2(d.totals.laborNet || 0), kartsizParca: r2(d.totals.otherNet || 0), kdvDahil: r2(d.totals.gross), maliyet: r2(d.totals.cost || 0), kar: r2(d.totals.profit || 0), kalemSayisi: d.lines.length })),
+    satis_belgeleri: () => sales.map((d) => ({ no: d.no, tarih: d.date, ay: String(d.date).slice(0, 7), musteri: d.customer || "Tezgah", plaka: d.plate || null, arac: [d.brand, d.vehicleModel].filter(Boolean).join(" ") || null, sase: d.vin || null, kaynak: d.source || null, ciro: r2(d.totals.net), parca: r2(d.totals.partsNet ?? d.totals.net), iscilik: r2(d.totals.laborNet || 0), kartsizParca: r2(d.totals.otherNet || 0), kdvDahil: r2(d.totals.gross), maliyet: r2(d.totals.cost || 0), kar: r2(d.totals.profit || 0), kalemSayisi: d.lines.length })),
     satis_kalemleri: () => sales.flatMap((d) => d.lines.map((l) => ({ tarih: d.date, ay: String(d.date).slice(0, 7), belge: d.no, musteri: d.customer || "Tezgah", plaka: d.plate || null, sku: l.sku, ad: l.name, adet: r2(l.qty), birimFiyat: r2(l.unitPrice), iskonto: l.discountPct || 0, net: r2(l.net), maliyet: r2(l.cost || 0), kar: r2(l.net - (l.cost || 0)) }))),
     iscilikler: () => sales.flatMap((d) => (d.services || []).map((l) => ({ tarih: d.date, ay: String(d.date).slice(0, 7), belge: d.no, musteri: d.customer || "Tezgah", plaka: d.plate || null, tur: l.kind === "labor" ? "işçilik" : "kartsız parça", kod: l.code || null, ad: l.name, adet: r2(l.qty), net: r2(l.net) }))),
     alis_faturalari: () => buys.map((d) => ({ no: d.no, tarih: d.date, ay: String(d.date).slice(0, 7), tedarikci: d.supplier, kdvHaric: r2(d.totals.net), kdv: r2(d.totals.vat), kdvDahil: r2(d.totals.gross), kalemSayisi: d.lines.length, edmsTutari: d.edmsGross ?? null })),
     alis_kalemleri: () => buys.flatMap((d) => d.lines.map((l) => ({ tarih: d.date, ay: String(d.date).slice(0, 7), fatura: d.no, tedarikci: d.supplier, sku: l.sku, ad: l.name, adet: r2(l.qty), birimFiyat: r2(l.unitPrice), iskonto: l.discountPct || 0, net: r2(l.net), birimMaliyet: r2(l.qty ? l.net / l.qty : 0) }))),
     hareketler: () => (data.movements || []).map((m) => ({ tarih: m.date, ay: String(m.date).slice(0, 7), sku: m.sku, ad: m.name, islem: MOVE_LABEL[m.type] || m.type, miktar: r2(m.qty), once: m.stockBefore, sonra: m.stockAfter, belge: m.refNo || null, not: m.note || null, kullanici: m.actor || null })),
+    arac_parca: () => {
+      const c = buildCompat(data.issues, data.items || []);
+      return [...c.vehicles.values()].flatMap((v) => [...v.parts.values()].map((p) => {
+        const item = p.itemId ? c.itemsById.get(p.itemId) : null;
+        return { arac: v.label, marka: v.brand || null, model: v.model || null, plakalar: [...v.plates].join(", "), sku: p.sku, ad: item?.name || p.name, kullanim: p.times, toplamAdet: r2(p.qty), sonTarih: p.lastDate || null, sonFiyat: p.lastPrice ? r2(p.lastPrice) : null, stok: item ? Number(item.stock) || 0 : null, kaynak: [...p.sources].join("+") };
+      }));
+    },
     iptaller: () => [...(data.invoices || []).filter((d) => d.cancelled).map((d) => ({ tur: "alış", no: d.no, tarih: d.date, kim: d.supplier, kdvHaric: r2(d.totals.net) })), ...(data.issues || []).filter((d) => d.cancelled).map((d) => ({ tur: "satış", no: d.no, tarih: d.date, kim: d.customer || "Tezgah", kdvHaric: r2(d.totals.net) }))],
   };
 }
@@ -151,12 +159,13 @@ export function queryData(args, data, now = Date.now()) {
 
 export const COLLECTION_FIELDS = {
   parcalar: "sku, ad, stok, birim, kritik, durum (Tükendi/Kritik/Azalıyor/Yeterli), ortMaliyet, sonAlis, satisFiyati, stokDegeri, raf, kategori, marka, gun90Cikis, kacGunYeter",
-  satis_belgeleri: "no, tarih, ay, musteri, plaka, arac, kaynak, ciro (KDV hariç), parca, iscilik, kartsizParca, kdvDahil, maliyet, kar, kalemSayisi",
+  satis_belgeleri: "no, tarih, ay, musteri, plaka, arac (marka model), sase, kaynak, ciro (KDV hariç), parca, iscilik, kartsizParca, kdvDahil, maliyet, kar, kalemSayisi",
   satis_kalemleri: "tarih, ay, belge, musteri, plaka, sku, ad, adet, birimFiyat, iskonto, net, maliyet, kar",
   iscilikler: "tarih, ay, belge, musteri, plaka, tur (işçilik/kartsız parça), kod, ad, adet, net",
   alis_faturalari: "no, tarih, ay, tedarikci, kdvHaric, kdv, kdvDahil, kalemSayisi, edmsTutari",
   alis_kalemleri: "tarih, ay, fatura, tedarikci, sku, ad, adet, birimFiyat, iskonto, net, birimMaliyet",
   hareketler: "tarih, ay, sku, ad, islem (Alış faturası / Satış / çıkış / Düzeltme / Sayım / İptal…), miktar, once, sonra, belge, not, kullanici",
+  arac_parca: "Araç–parça uyumluluk hafızası (satışlardan otomatik + elle eklenen): arac, marka, model, plakalar, sku, ad, kullanim (kaç satış), toplamAdet, sonTarih, sonFiyat, stok, kaynak (satış/elle)",
   iptaller: "tur, no, tarih, kim, kdvHaric",
 };
 
@@ -303,6 +312,7 @@ Nasıl çalışırsın:
 - Uygulama verisiyle ilgili her sayısal iddiayı araçlardan al; asla sayı uydurma. Hazır araçlar soruyu tam karşılamıyorsa veri_sorgula ile istediğin süzme/gruplama/sıralamayı kendin kur. Bir araç hata verirse düzeltip tekrar dene.
 - Birden çok adım gerekiyorsa çekinmeden zincirle (ör. önce müşteriyi bul, sonra o müşterinin parçalarını grupla, sonra geçen ayla karşılaştır).
 - Uygulama dışı sorulara da cevap ver: araç arızaları, parça uyumu ve muadilleri, bakım aralıkları, işçilik fiyatlandırması, KDV/vergi hesapları, tedarikçi pazarlığı, işletme yönetimi, müşteriye yazılacak mesaj, genel sohbet… Bu cevaplar genel bilgine dayanır; uygulama verisiyle karıştırma ve kesin olmayan teknik/hukuki konularda bunu belirt.
+- "Şu araca hangi parça uyar / 3008'e ne taktık / bu plakaya ne kullandık" gibi sorularda veri_sorgula ile arac_parca koleksiyonunu kullan (ara alanına model veya plaka yaz). Kayıt yoksa genel bilgini kullanabilirsin ama bunun kayıttan değil tahmin olduğunu belirt.
 - Önceki mesajları hatırla; "peki geçen ay?", "bunu tedarikçiye göre ayır" gibi devam sorularını bağlamdan anla.
 - Soru gerçekten belirsizse en olası yorumla cevapla ve hangi yorumu yaptığını tek cümleyle söyle; gerekmedikçe soru sorarak bekletme.
 - Sonuçları yorumla: dikkat çeken bir şey görürsen (ani düşüş, zararına satış, maliyeti artan parça, ölü stok, eDMS farkı) kendiliğinden kısaca belirt ve somut öneri ver.
