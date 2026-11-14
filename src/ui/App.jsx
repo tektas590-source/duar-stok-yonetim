@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { AppContext } from "./context.js";
 import { Icon } from "./kit.jsx";
 import { Assistant } from "./Assistant.jsx";
+import { CarIntro } from "./CarIntro.jsx";
 import { LoginScreen, NoAccessScreen, SetupScreen, VerifyScreen } from "./Auth.jsx";
 import { DashboardPage, ReportsPage } from "./pages/Overview.jsx";
 import { StockPage } from "./pages/Stock.jsx";
@@ -155,10 +156,12 @@ export function App({ createStore, demo }) {
     });
   }, [demo]);
 
-  if (auth.state === "loading" || auth.state === "checking") return <div className="splash"><span className="loader" /><strong>DUAR</strong></div>;
-  if (auth.state === "setup") return <SetupScreen />;
-  if (auth.state === "signedout") return <LoginScreen />;
-  if (auth.state === "verify") return <VerifyScreen user={auth.user} onChecked={async (u) => setAuth({ state: (await hasAccess(u)) ? "ready" : "noaccess", user: u })} />;
-  if (auth.state === "noaccess") return <NoAccessScreen user={auth.user} />;
-  return <Shell store={store} user={auth.user} />;
+  let screen;
+  if (auth.state === "loading" || auth.state === "checking") screen = <div className="splash"><span className="loader" /><strong>DUAR</strong></div>;
+  else if (auth.state === "setup") screen = <SetupScreen />;
+  else if (auth.state === "signedout") screen = <LoginScreen />;
+  else if (auth.state === "verify") screen = <VerifyScreen user={auth.user} onChecked={async (u) => setAuth({ state: (await hasAccess(u)) ? "ready" : "noaccess", user: u })} />;
+  else if (auth.state === "noaccess") screen = <NoAccessScreen user={auth.user} />;
+  else screen = <Shell store={store} user={auth.user} />;
+  return <>{screen}<CarIntro /></>;
 }
