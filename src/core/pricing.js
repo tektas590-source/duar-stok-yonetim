@@ -31,7 +31,15 @@ export function priceHistory(invoices, issues) {
     get(l.itemId).sales.push({ date: d.date, at: d.createdAt || "", no: d.no, customer: d.customer || "Tezgah", plate: d.plate || "", qty: l.qty, unit: round(l.net / l.qty, 4), costUnit: round((l.cost || 0) / l.qty, 4) });
   }));
   const order = (a, b) => String(b.date).localeCompare(String(a.date)) || String(b.at).localeCompare(String(a.at));
-  map.forEach((h) => { h.purchases.sort(order); h.sales.sort(order); });
+  map.forEach((h) => {
+    h.purchases.sort(order); h.sales.sort(order);
+    // Satış anındaki alış fiyatı: o tarihte veya önce yapılan son alış (yoksa kayıtlı maliyet).
+    // Ortalama maliyet sayım/düzeltmelerle sapabildiği için kâr oranı buna göre hesaplanır.
+    h.sales.forEach((sale) => {
+      const buy = h.purchases.find((p) => String(p.date) <= String(sale.date));
+      sale.buyUnit = buy ? buy.unit : (sale.costUnit || 0);
+    });
+  });
   return map;
 }
 
@@ -45,14 +53,14 @@ export function itemPricing(item, history, defaultMarkup = DEFAULT_MARKUP) {
   const costChangePct = lastBuy && prevBuy && prevBuy.unit > 0 ? round(((lastBuy.unit - prevBuy.unit) / prevBuy.unit) * 100, 1) : null;
 
   // Hedef kâr: bu parçanın geçmiş satışlarındaki kâr oranı (son 5 satış medyanı), yoksa varsayılan.
-  const markups = h.sales.slice(0, 5).filter((s) => s.costUnit > 0 && s.unit > 0).map((s) => (s.unit / s.costUnit - 1) * 100);
-  const historical = markups.length ? Math.min(300, Math.max(5, median(markups))) : null;
+  const markups = h.sales.slice(0, 5).filter((s) => s.buyUnit > 0 && s.unit > 0).map((s) => (s.unit / s.buyUnit - 1) * 100);
+  const historical = markups.length ? Math.min(150, Math.max(5, median(markups))) : null;
   const markup = round(historical ?? (Number(defaultMarkup) || DEFAULT_MARKUP), 1);
   const base = lastCost || Number(item.cost) || 0;
   const suggested = base > 0 ? roundPrice(base * (1 + markup / 100)) : null;
 
   // Son satıştan bu yana alış fiyatı arttı mı?
-  const saleCost = lastSale?.costUnit || 0;
+  const saleCost = lastSale?.buyUnit || 0;
   const costRiseSinceSale = lastSale && saleCost > 0 && lastCost > saleCost * 1.01 ? round(((lastCost - saleCost) / saleCost) * 100, 1) : null;
   const price = item.price === null || item.price === undefined ? null : Number(item.price);
   const priceLow = price !== null && suggested !== null && price < suggested * 0.97;

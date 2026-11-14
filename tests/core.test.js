@@ -279,7 +279,7 @@ test("pricing: last buy/sale, cost change, suggestion from historical markup", a
     { id: "p2", date: "2026-11-10", supplier: "Y", lines: [{ itemId: "a", qty: 1, net: 120 }, { itemId: "b", qty: 1, net: 200 }] },
     { id: "p3", date: "2026-11-11", supplier: "Y", cancelled: true, lines: [{ itemId: "a", qty: 1, net: 999 }] },
   ];
-  const issues = [{ id: "s1", date: "2026-10-05", customer: "Ali", plate: "55 A 1", lines: [{ itemId: "a", qty: 1, net: 150, cost: 100 }] }];
+  const issues = [{ id: "s1", date: "2026-10-05", customer: "Ali", plate: "55 A 1", lines: [{ itemId: "a", qty: 1, net: 150, cost: 50 }] }];
   const p = buildPricing(items, invoices, issues, 35);
   const a = p.get("a");
   assert.equal(a.lastCost, 120);
