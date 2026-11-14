@@ -717,3 +717,5 @@ textarea { resize: vertical; }
 .gh-link:hover { text-decoration: underline; }
 @media (max-width: 960px) { .garage { grid-template-columns: 1fr; } .gh-info { border-left: 0; border-top: 1px solid var(--line); } }
 @media (max-width: 560px) { .gh-scene { height: 200px; } .gh-rig { transform: scale(0.72); transform-origin: 50% 100%; } }
+.gh-tool, .gh-sparks { z-index: 3; }
+.gh-scan { z-index: 3; }
