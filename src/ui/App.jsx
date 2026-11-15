@@ -9,6 +9,7 @@ import { StockPage } from "./pages/Stock.jsx";
 import { IssuesPage, PurchasesPage } from "./pages/Docs.jsx";
 import { CountPage, MovementsPage, OrdersPage, SettingsPage } from "./pages/Ops.jsx";
 import { VehiclesPage } from "./pages/Vehicles.jsx";
+import { PlansPage } from "./pages/Plans.jsx";
 import { firebaseConfigured, hasAccess, logOut, OWNER_EMAIL, watchAuth } from "../firebase.js";
 import { level } from "../core/stock.js";
 
@@ -17,6 +18,7 @@ const NAV = [
   ["stok", "Stok", "box"],
   ["alis", "Alış faturaları", "inbox"],
   ["satis", "Satış / çıkış", "out"],
+  ["tespit", "Ön tespit", "clipboard"],
   ["arac", "Araç & parça", "car"],
   ["hareket", "Hareketler", "swap"],
   ["sayim", "Sayım", "clipboard"],
@@ -24,7 +26,7 @@ const NAV = [
   ["rapor", "Raporlar", "chart"],
   ["ayarlar", "Ayarlar", "users"],
 ];
-const PAGES = { genel: DashboardPage, stok: StockPage, alis: PurchasesPage, satis: IssuesPage, arac: VehiclesPage, hareket: MovementsPage, sayim: CountPage, siparis: OrdersPage, rapor: ReportsPage, ayarlar: SettingsPage };
+const PAGES = { genel: DashboardPage, stok: StockPage, alis: PurchasesPage, satis: IssuesPage, tespit: PlansPage, arac: VehiclesPage, hareket: MovementsPage, sayim: CountPage, siparis: OrdersPage, rapor: ReportsPage, ayarlar: SettingsPage };
 
 // Sinematik sayfa geçişi: perde açılır, ışık çizgisi süpürür, sayfa adı
 // büyük harflerle belirip kaybolur. Tıklamaları engellemez.
@@ -88,6 +90,7 @@ function Shell({ store, user }) {
 
   const isOwner = (user?.email || "").toLowerCase() === OWNER_EMAIL || store.kind === "memory";
   const ctx = useMemo(() => ({ data, store, user, isOwner, toast, run, go }), [data, store, user, isOwner, toast, run, go]);
+  const openPlans = (data.plans || []).filter((p) => p.status === "open").length;
   const attention = data.items.filter((i) => !i.archived && ["out", "critical"].includes(level(i))).length;
   const Page = PAGES[route.page];
 
@@ -106,6 +109,7 @@ function Shell({ store, user }) {
                 <Icon name={icon} size={17} /><span>{label}</span>
                 {id === "stok" && attention ? <b className="nav-badge">{attention}</b> : null}
                 {id === "siparis" && attention ? <b className="nav-dot" /> : null}
+                {id === "tespit" && openPlans ? <b className="nav-badge is-info">{openPlans}</b> : null}
               </button>
             ))}
           </nav>

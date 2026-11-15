@@ -57,7 +57,7 @@ export function PurchasesPage({ params }) {
 
 export function IssuesPage({ params }) {
   const { data } = useApp();
-  const [tab, setTab] = useState(params?.itemId ? "new" : params?.tab || "new");
+  const [tab, setTab] = useState(params?.itemId || params?.plan ? "new" : params?.tab || "new");
   const s = useMemo(() => monthStats(data.issues), [data.issues]);
   return (
     <div className="page">
@@ -70,7 +70,7 @@ export function IssuesPage({ params }) {
       </div>
       <Tabs tab={tab} setTab={setTab} tabs={[["new", "Yeni satış", "out"], ["list", "Belgeler", "receipt", s.count], ["edms", "eDMS satış faturası", "upload"]]} />
       <div className="stage" key={tab}>
-        {tab === "new" ? <DocForm mode="issue" initialItemId={params?.itemId} onDone={() => setTab("list")} />
+        {tab === "new" ? <DocForm mode="issue" initialItemId={params?.itemId} initialPlanId={params?.plan} onDone={() => setTab("list")} />
           : tab === "list" ? <DocList docs={data.issues} kind="issue" emptyAction={<Button variant="primary" icon="out" onClick={() => setTab("new")}>İlk çıkışı yap</Button>} />
           : <EdmsImport defaultTypes={["sale"]} />}
       </div>

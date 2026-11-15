@@ -62,6 +62,45 @@ export function createOps(runTx, getActor) {
       });
     },
 
+    // Ön tespit: araç gelmeden belirlenen parçalar/işçilik. Stoğa dokunmaz;
+    // açık tespitlerdeki parçalar stokta "ayrıldı" görünür. Satışa dönüşünce kapanır.
+    async savePlan(input) {
+      return runTx(async (tx) => {
+        const { now, actor } = meta();
+        const id = input.id || `t_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+        const existing = input.id ? await tx.get("plans", id) : null;
+        const clean = (v) => String(v ?? "").trim();
+        const lines = (input.lines || []).filter((l) => clean(l.sku) || clean(l.name)).map((l) => ({
+          itemId: l.itemId || null, sku: clean(l.sku), name: clean(l.name) || clean(l.sku),
+          qty: Math.max(0.001, Number(l.qty) || 1), unitPrice: Math.max(0, Number(l.unitPrice) || 0),
+        }));
+        const labor = (input.labor || []).filter((l) => clean(l.name)).map((l) => ({ name: clean(l.name), qty: Math.max(0.001, Number(l.qty) || 1), unitPrice: Math.max(0, Number(l.unitPrice) || 0) }));
+        if (!clean(input.plate) && !clean(input.customer)) throw new Error("Plaka veya müşteri adı girin.");
+        if (!lines.length && !labor.length) throw new Error("En az bir parça veya işçilik ekleyin.");
+        const next = {
+          ...(existing || { createdAt: now, createdBy: actor, status: "open" }),
+          id, no: existing?.no || clean(input.no) || id, customer: clean(input.customer), phone: clean(input.phone),
+          plate: clean(input.plate).replace(/\s+/g, " ").toLocaleUpperCase("tr"),
+          brand: clean(input.brand).toLocaleUpperCase("tr"), vehicleModel: clean(input.vehicleModel).toLocaleUpperCase("tr"),
+          expected: clean(input.expected), note: clean(input.note), lines, labor,
+          updatedAt: now, updatedBy: actor,
+        };
+        tx.set("plans", id, next);
+        return next;
+      });
+    },
+
+    async setPlanStatus(id, status, extra = {}) {
+      return runTx(async (tx) => {
+        const doc = await tx.get("plans", id);
+        if (!doc) throw new Error("Tespit bulunamadı.");
+        const { now, actor } = meta();
+        const next = { ...doc, ...extra, status, statusAt: now, statusBy: actor, updatedAt: now };
+        tx.set("plans", id, next);
+        return next;
+      });
+    },
+
     async patchItem(id, patch) {
       return runTx(async (tx) => {
         const existing = await tx.get("items", id);

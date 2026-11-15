@@ -28,21 +28,24 @@ export function createFirestoreStore(getActor) {
   return {
     kind: "firestore",
     subscribe(onState, onError) {
-      const state = { ready: false, items: [], movements: [], invoices: [], issues: [] };
+      const state = { ready: false, items: [], movements: [], invoices: [], issues: [], plans: [] };
       const loaded = new Set();
-      const emit = () => onState({ ...state, ready: loaded.size >= 4 });
-      const listen = (key, ref, sorter) => onSnapshot(ref, (snap) => {
+      const CORE = ["items", "movements", "invoices", "issues"];
+      const emit = () => onState({ ...state, ready: CORE.every((k) => loaded.has(k)) });
+      // optional: okunamazsa (ör. kural henüz yayınlanmadı) uygulamayı bekletmez.
+      const listen = (key, ref, sorter, optional = false) => onSnapshot(ref, (snap) => {
         state[key] = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
         if (sorter) state[key].sort(sorter);
         loaded.add(key);
         emit();
-      }, (error) => { console.error(`${key} okunamadı`, error); onError?.(error); });
+      }, (error) => { console.error(`${key} okunamadı`, error); if (optional) { state[key] = []; emit(); } else onError?.(error); });
       const byDate = (a, b) => String(b.date).localeCompare(String(a.date)) || String(b.createdAt).localeCompare(String(a.createdAt));
       const stops = [
         listen("items", collection(db, "items")),
         listen("movements", query(collection(db, "movements"), orderBy("createdAt", "desc"), limit(MOVEMENT_LIMIT))),
         listen("invoices", collection(db, "invoices"), byDate),
         listen("issues", collection(db, "issues"), byDate),
+        listen("plans", collection(db, "plans"), (a, b) => String(b.createdAt).localeCompare(String(a.createdAt)), true),
       ];
       return () => stops.forEach((stop) => stop());
     },

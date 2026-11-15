@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createMemoryStore } from "../src/store/memoryStore.js";
 import { parseFaturaRaporu, analyzeInvoice } from "../src/core/edms.js";
+import { itemIdFromSku } from "../src/core/format.js";
 
 const H = ["Stok/Hizmet", null, "Kod", null, null, null, null, "Açıklama", null, null, null, null, "İndex", "Birim Fiyat", null, null, "Miktar", null, "İskonto(%)", "Kdv (%)", null, "Toplam", "İskonto", "Kdv", "Fatura Tutarı"];
 const row = (code, name, price, qty, total, vat, gross) => ["Stok", null, code, null, null, null, null, name, null, null, null, null, null, price, null, null, qty, null, null, 20, null, total, 0, vat, gross];
@@ -105,4 +106,26 @@ test("sale before purchase: shortage settles when stock arrives; cancelled docs 
   const after2 = state(store2);
   assert.equal(after2.items[0].stock, 3);
   assert.equal(after2.issues[0].shortages.length, 0);
+});
+
+test("pre-job plans: save, reserve, readiness, close", async () => {
+  const { reservedMap, planReadiness, planTotals } = await import("../src/core/plans.js");
+  const store = createMemoryStore();
+  await store.saveItem({ sku: "F-1", name: "Filtre", unit: "adet", minimum: 0, cost: 100 }, { isNew: true });
+  await store.adjust(itemIdFromSku("F-1"), 2, "test");
+  await assert.rejects(() => store.savePlan({ plate: "", customer: "", lines: [{ sku: "F-1", qty: 1 }] }));
+  const p1 = await store.savePlan({ no: "T-0001", plate: "55 abc 1", customer: "Ali", lines: [{ sku: "F-1", qty: 1, unitPrice: 150 }, { sku: "YOK-9", name: "Silecek", qty: 2, unitPrice: 50 }], labor: [{ name: "Bakım", qty: 1, unitPrice: 500 }] });
+  const p2 = await store.savePlan({ no: "T-0002", plate: "55 XY 2", lines: [{ sku: "F-1", qty: 2 }] });
+  assert.equal(p1.plate, "55 ABC 1");
+  assert.equal(planTotals(p1).net, 750);
+  let s = state(store);
+  const r = reservedMap(s.plans, s.items);
+  assert.equal(r.get(itemIdFromSku("F-1")).qty, 3);
+  const ready = planReadiness(p2, s.items, r);
+  assert.equal(ready[0].state, "short");
+  assert.equal(planReadiness(p1, s.items, r)[1].state, "nocard");
+  await store.setPlanStatus(p1.id, "done", { issueNo: "S-1" });
+  s = state(store);
+  assert.equal(reservedMap(s.plans, s.items).get(itemIdFromSku("F-1")).qty, 2);
+  assert.equal(planReadiness(s.plans.find((p) => p.id === p2.id), s.items, reservedMap(s.plans, s.items))[0].state, "ready");
 });

@@ -31,7 +31,7 @@ function findItem(items, sku) {
 }
 
 // mode: "purchase" (alış faturası) | "issue" (satış / çıkış)
-export function DocForm({ mode, initialItemId, onDone }) {
+export function DocForm({ mode, initialItemId, initialPlanId, onDone }) {
   const { data, store, run, toast } = useApp();
   const isPurchase = mode === "purchase";
   const items = useMemo(() => data.items.filter((i) => !i.archived), [data.items]);
@@ -42,18 +42,21 @@ export function DocForm({ mode, initialItemId, onDone }) {
   const pricing = usePricing(data);
   // Satışta varsayılan fiyat: kayıtlı satış fiyatı, yoksa güncel alışa göre öneri.
   const sellPrice = (item) => item.price ?? pricing.get(item.id)?.suggested ?? "";
+  // Ön tespitten satış: müşteri, plaka, araç, parçalar ve işçilik hazır gelir.
+  const plan = useMemo(() => (initialPlanId ? (data.plans || []).find((p) => p.id === initialPlanId && p.status === "open") : null), [initialPlanId]); // eslint-disable-line react-hooks/exhaustive-deps
   const initLines = () => {
+    if (plan?.lines?.length) return plan.lines.map((l) => ({ ...emptyLine(), sku: l.sku, name: l.name, qty: String(l.qty), unitPrice: String(l.unitPrice || "") }));
     if (!initialItemId) return [emptyLine()];
     const item = items.find((i) => i.id === initialItemId);
     return item ? [{ ...emptyLine(), sku: item.sku, name: item.name, unitPrice: isPurchase ? item.lastCost || "" : sellPrice(item) }] : [emptyLine()];
   };
-  const [head, setHead] = useState({ no: isPurchase ? "" : nextIssueNo, supplier: "", customer: "", plate: "", vehicle: "", note: "", date: todayKey() });
+  const [head, setHead] = useState({ no: isPurchase ? "" : nextIssueNo, supplier: "", customer: plan?.customer || "", plate: plan?.plate || "", vehicle: [plan?.brand, plan?.vehicleModel].filter(Boolean).join(" "), note: plan ? [`Ön tespit ${plan.no}`, plan.note].filter(Boolean).join(" · ") : "", date: todayKey() });
   const plateModels = useMemo(() => (isPurchase ? new Map() : buildCompat(data.issues, []).plateModels), [isPurchase, data.issues]);
   const setPlate = (plate) => { const known = plateModels.get(String(plate).trim().replace(/\s+/g, " ").toLocaleUpperCase("tr")); setHead((h) => ({ ...h, plate, vehicle: !h.vehicle && known ? [known.brand, known.model].filter(Boolean).join(" ") : h.vehicle })); };
   const [lines, setLines] = useState(initLines);
   const [paste, setPaste] = useState("");
   const [showPaste, setShowPaste] = useState(false);
-  const [labor, setLabor] = useState([]);
+  const [labor, setLabor] = useState(() => (plan?.labor || []).map((l) => ({ key: Math.random().toString(36).slice(2), name: l.name, qty: String(l.qty), unitPrice: String(l.unitPrice || "") })));
   const laborNames = useMemo(() => {
     const counts = new Map();
     data.issues.forEach((d) => (d.services || []).forEach((l) => { if (l.kind === "labor") counts.set(l.name, (counts.get(l.name) || 0) + 1); }));
@@ -111,7 +114,11 @@ export function DocForm({ mode, initialItemId, onDone }) {
       ? { no: head.no, supplier: head.supplier, date: head.date, source: "manual", lines: valid.map((l) => ({ sku: l.item ? l.item.sku : l.sku.trim(), name: l.name || l.sku, qty: l.q, unitPrice: l.price, discountPct: toNumber(l.discountPct), vatPct: 20 })) }
       : { no: head.no, customer: head.customer, plate: head.plate, brand: splitBrandModel(head.vehicle).brand, vehicleModel: splitBrandModel(head.vehicle).model, note: head.note, date: head.date, source: "manual", lines: valid.map((l) => ({ itemId: l.item.id, sku: l.item.sku, name: l.item.name, qty: l.q, unitPrice: l.price, discountPct: toNumber(l.discountPct), vatPct: 20 })), services: laborValid.map((l) => ({ kind: "labor", name: l.name.trim(), qty: l.q, unitPrice: l.price, vatPct: 20 })) };
     const ok = await run(async () => {
-      if (!isPurchase) return store.issue(payload);
+      if (!isPurchase) {
+        const doc = await store.issue(payload);
+        if (plan) await store.setPlanStatus(plan.id, "done", { issueId: doc?.id || null, issueNo: payload.no });
+        return doc;
+      }
       await store.purchase(payload);
       const open = data.issues.filter((d) => !d.cancelled && (d.shortages || []).some((x) => x.missing > 0)).map((d) => d.id);
       const settled = open.length ? await store.settleShortages(open) : [];
@@ -123,6 +130,7 @@ export function DocForm({ mode, initialItemId, onDone }) {
 
   return (
     <form className="docform panel" onSubmit={submit}>
+      {plan ? <p className="plan-banner"><Icon name="clipboard" size={15} /><span><b>{plan.no}</b> ön tespitinden dolduruldu ({plan.plate || plan.customer}). Kontrol edip kaydedin; tespit kapanır.</span></p> : null}
       <div className="form-grid cols-4">
         <Field label={isPurchase ? "Fatura no *" : "Belge no *"}><input value={head.no} onChange={(e) => setHead({ ...head, no: e.target.value })} required placeholder={isPurchase ? "DM2202600000…" : ""} /></Field>
         {isPurchase

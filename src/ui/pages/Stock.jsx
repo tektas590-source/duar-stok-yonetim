@@ -4,6 +4,7 @@ import { useApp } from "../context.js";
 import { ItemForm } from "../ItemForm.jsx";
 import { buildCompat, partVehicles, splitBrandModel, vehicleKey } from "../../core/vehicles.js";
 import { useMarkup, usePricing } from "../pricing.jsx";
+import { reservedMap } from "../../core/plans.js";
 import { LEVEL_LABEL, abcClasses, filterItems, level, stockSeries, summarize, usageMap } from "../../core/stock.js";
 import { MOVE_LABEL } from "../../core/ledger.js";
 import { dateLabel, money, moneyShort, qty } from "../../core/format.js";
@@ -88,6 +89,7 @@ function ItemDrawer({ item, onClose, onEdit }) {
                 <div key={l} style={{ "--i": i }}><span>{l}</span><strong>{v}</strong></div>
               ))}
             </div>
+            <ReservedNote item={item} />
             <PriceSection item={item} />
             <section className="dsec">
               <div className="dsec-head"><h3>Son 60 gün stok seyri</h3><span>{usage?.cover === null || !usage ? "Son 90 günde çıkış yok" : `Günlük ort. ${qty(usage.daily)} · ≈ ${usage.cover} gün yeter`}</span></div>
@@ -134,6 +136,20 @@ function ItemDrawer({ item, onClose, onEdit }) {
         </>
       )}
     </Drawer>
+  );
+}
+
+function ReservedNote({ item }) {
+  const { data, go } = useApp();
+  const r = useMemo(() => reservedMap(data.plans, data.items).get(item.id), [data.plans, data.items, item.id]);
+  if (!r) return null;
+  const free = (Number(item.stock) || 0) - r.qty;
+  return (
+    <p className={`reserved-note ${free < 0 ? "is-short" : ""}`}>
+      <Icon name="clipboard" size={15} />
+      <span><b>{qty(r.qty)} {item.unit} ön tespitte ayrıldı</b> · boşta {qty(Math.max(0, free))}{free < 0 ? ` · ${qty(-free)} eksik` : ""}<br /><small>{r.plans.map((x) => `${x.plate || x.customer} (${qty(x.qty)})`).join(", ")}</small></span>
+      <button type="button" className="link-btn" onClick={() => go("tespit")}>Tespitler →</button>
+    </p>
   );
 }
 
@@ -230,6 +246,7 @@ export function StockPage({ params }) {
   const categories = useMemo(() => [...new Set(data.items.map((i) => i.category).filter(Boolean))].sort((a, b) => a.localeCompare(b, "tr")), [data.items]);
   const brands = useMemo(() => [...new Set(data.items.map((i) => i.brand).filter(Boolean))].sort((a, b) => a.localeCompare(b, "tr")), [data.items]);
   const pricing = usePricing(data);
+  const reserved = useMemo(() => reservedMap(data.plans, data.items), [data.plans, data.items]);
   const priceAlerts = useMemo(() => data.items.filter((i) => !i.archived && pricing.get(i.id)?.needsUpdate), [data.items, pricing]);
   const list = useMemo(() => {
     const base = filterItems(data.items, { query, lvl, category, brand, favorites, archived, sort, dir });
@@ -302,7 +319,7 @@ export function StockPage({ params }) {
                       <td className="stack"><span>{item.category || "—"}</span><small>{item.brand}</small></td>
                       <td><div className="stockcell">
                         <button type="button" className="step" disabled={Number(item.stock) < 1} onClick={() => run(() => store.adjust(item.id, -1, "Hızlı düzeltme"))} aria-label={`${item.name} 1 düş`}><Icon name="minus" size={12} /></button>
-                        <span className="stocknum"><strong>{qty(item.stock)}</strong><small>{item.unit} · min {qty(item.minimum)}</small><Meter item={item} /></span>
+                        <span className="stocknum"><strong>{qty(item.stock)}</strong><small>{item.unit} · min {qty(item.minimum)}</small>{reserved.get(item.id) ? <small className="reserved" title={reserved.get(item.id).plans.map((x) => `${x.plate || x.customer}: ${x.qty}`).join(", ")}>{qty(reserved.get(item.id).qty)} ayrıldı</small> : null}<Meter item={item} /></span>
                         <button type="button" className="step" onClick={() => run(() => store.adjust(item.id, 1, "Hızlı düzeltme"))} aria-label={`${item.name} 1 ekle`}><Icon name="plus" size={12} /></button>
                       </div></td>
                       <td className="stack">{u?.cover === null || !u ? <span className="muted">Çıkış yok</span> : <span className={u.cover < 14 ? "warn" : ""}>{u.cover} gün</span>}{u?.used ? <small>90g: {qty(u.used)} çıkış</small> : null}</td>

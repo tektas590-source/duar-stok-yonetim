@@ -55,6 +55,14 @@ export function EdmsImport({ defaultTypes = ["purchase"] }) {
         const open = data.issues.filter((d) => !d.cancelled && (d.shortages || []).some((x) => x.missing > 0)).map((d) => d.id);
         settled = await store.settleShortages(open);
       }
+      // eDMS'ten gelen satışın plakasıyla açık ön tespit varsa kapat.
+      const soldPlates = new Set(res.filter((r) => r.ok && r.doc?.kind === "issue" && r.doc.plate).map((r) => r.doc.plate.replace(/\s+/g, "").toLocaleUpperCase("tr")));
+      const closePlans = (data.plans || []).filter((p) => p.status === "open" && p.plate && soldPlates.has(p.plate.replace(/\s+/g, "").toLocaleUpperCase("tr")));
+      for (const p of closePlans) {
+        const doc = res.find((r) => r.ok && r.doc?.kind === "issue" && r.doc.plate.replace(/\s+/g, "").toLocaleUpperCase("tr") === p.plate.replace(/\s+/g, "").toLocaleUpperCase("tr")).doc;
+        try { await store.setPlanStatus(p.id, "done", { issueId: doc.id, issueNo: doc.no }); } catch (error) { console.error(error); }
+      }
+      if (closePlans.length) toast(`${closePlans.length} ön tespit eDMS satışıyla kapatıldı (${closePlans.map((p) => p.plate).join(", ")}).`, "ok");
       setResults(res);
       if (settled.length) toast(`${settled.length} satışta stokta olmayan kalemler artık stoktan düşüldü (${settled.flatMap((x) => x.items).map((x) => x.sku).slice(0, 4).join(", ")}${settled.flatMap((x) => x.items).length > 4 ? "…" : ""}).`, "ok");
       const ok = res.filter((r) => r.ok).length;
