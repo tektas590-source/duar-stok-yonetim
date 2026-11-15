@@ -46,6 +46,9 @@ function PlanForm({ plan, onClose }) {
     const ok = await run(() => store.savePlan({
       id: plan?.id, no: plan?.no || nextPlanNo(data.plans), customer: head.customer, phone: head.phone, plate: head.plate, brand, vehicleModel: model,
       expected: head.expected, note: head.note, lines: draft.lines, labor: draft.labor,
+    }).catch((error) => {
+      if (/permission|insufficient/i.test(error?.message || "")) throw new Error("Ön tespit kaydedilemedi: Firebase güvenlik kuralına \"plans\" izni eklenmeli (Firestore → Kurallar).");
+      throw error;
     }), plan ? "Tespit güncellendi." : "Ön tespit kaydedildi; parçalar bu araca ayrıldı.");
     if (ok) onClose();
   };
