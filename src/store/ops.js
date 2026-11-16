@@ -118,6 +118,22 @@ export function createOps(runTx, getActor) {
       });
     },
 
+    // Birden çok kartı tek işlemde günceller (ör. toplu kategori). En fazla 400 kart.
+    async patchItems(list) {
+      const chunks = [];
+      for (let i = 0; i < (list || []).length; i += 400) chunks.push(list.slice(i, i + 400));
+      let done = 0;
+      for (const chunk of chunks) {
+        done += await runTx(async (tx) => {
+          const now = new Date().toISOString();
+          const docs = await Promise.all(chunk.map((x) => tx.get("items", x.id)));
+          docs.forEach((doc, i) => { if (doc) tx.set("items", doc.id || chunk[i].id, { ...doc, ...chunk[i].patch, updatedAt: now }); });
+          return docs.filter(Boolean).length;
+        });
+      }
+      return done;
+    },
+
     async patchItem(id, patch) {
       return runTx(async (tx) => {
         const existing = await tx.get("items", id);

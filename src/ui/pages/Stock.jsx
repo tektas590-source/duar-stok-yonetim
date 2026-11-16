@@ -1,10 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Button, Drawer, Empty, Icon, PageHead, Ring, Sparkline, useCountUp, useReady } from "../kit.jsx";
+import { Button, Drawer, Empty, Icon, Modal, PageHead, Ring, Sparkline, useCountUp, useReady } from "../kit.jsx";
 import { useApp } from "../context.js";
 import { ItemForm } from "../ItemForm.jsx";
 import { buildCompat, partVehicles, splitBrandModel, vehicleKey } from "../../core/vehicles.js";
 import { useMarkup, usePricing } from "../pricing.jsx";
 import { reservedMap } from "../../core/plans.js";
+import { CATEGORY_NAMES, isUncategorized, suggestCategory } from "../../core/categorize.js";
 import { LEVEL_LABEL, abcClasses, filterItems, level, stockSeries, summarize, usageMap } from "../../core/stock.js";
 import { MOVE_LABEL } from "../../core/ledger.js";
 import { dateLabel, money, moneyShort, qty } from "../../core/format.js";
@@ -215,6 +216,47 @@ function FitsSection({ item, onGo }) {
   );
 }
 
+// Toplu kategori: parça adından kategori önerir, önizlemede değiştirilebilir, tek seferde uygulanır.
+function CategorizeModal({ onClose }) {
+  const { data, store, run } = useApp();
+  const [all, setAll] = useState(false);
+  const [overrides, setOverrides] = useState({});
+  const [filter, setFilter] = useState("all");
+  const items = data.items.filter((i) => !i.archived);
+  const rows = useMemo(() => items.filter((i) => all || isUncategorized(i.category)).map((i) => ({ item: i, suggested: suggestCategory(i.name) })).sort((a, b) => a.suggested.localeCompare(b.suggested, "tr") || a.item.name.localeCompare(b.item.name, "tr")), [items, all]);
+  const target = (r) => overrides[r.item.id] ?? r.suggested;
+  const counts = rows.reduce((m, r) => { const c = target(r); m[c] = (m[c] || 0) + 1; return m; }, {});
+  const shown = filter === "all" ? rows : rows.filter((r) => target(r) === filter);
+  const changes = rows.filter((r) => target(r) !== r.item.category);
+  const options = [...new Set([...CATEGORY_NAMES, ...items.map((i) => i.category).filter((c) => c && !isUncategorized(c))])];
+  const apply = async () => {
+    if (await run(() => store.patchItems(changes.map((r) => ({ id: r.item.id, patch: { category: target(r) } }))), `${changes.length} parça kategorisine ayrıldı.`)) onClose();
+  };
+  return (
+    <Modal wide title="Parçaları kategorilere ayır" subtitle="Kategori, parça adından otomatik önerildi. Yanlış olanı listeden değiştirip uygulayın." onClose={onClose}
+      footer={<><label className="cat-all"><input type="checkbox" checked={all} onChange={(e) => setAll(e.target.checked)} />Kategorisi olanları da yeniden ata</label><Button onClick={onClose}>Vazgeç</Button><Button variant="primary" icon="check" disabled={!changes.length} onClick={apply}>{changes.length} parçaya uygula</Button></>}>
+      <div className="chips cat-sum">
+        <button type="button" className={`chip ${filter === "all" ? "on" : ""}`} onClick={() => setFilter("all")}>Tümü<b>{rows.length}</b></button>
+        {Object.entries(counts).sort((a, b) => b[1] - a[1]).map(([c, n]) => <button key={c} type="button" className={`chip ${filter === c ? "on" : ""}`} onClick={() => setFilter(c)}>{c}<b>{n}</b></button>)}
+      </div>
+      {shown.length ? (
+        <div className="table-scroll cat-table">
+          <table className="table">
+            <thead><tr><th>PARÇA</th><th>ŞU AN</th><th>YENİ KATEGORİ</th></tr></thead>
+            <tbody>{shown.map((r) => (
+              <tr key={r.item.id}>
+                <td className="stack"><span className="strong">{r.item.name}</span><small className="mono">{r.item.sku}</small></td>
+                <td className="muted">{r.item.category || "—"}</td>
+                <td><select value={target(r)} onChange={(e) => setOverrides({ ...overrides, [r.item.id]: e.target.value })} aria-label="Kategori">{options.map((o) => <option key={o}>{o}</option>)}</select></td>
+              </tr>
+            ))}</tbody>
+          </table>
+        </div>
+      ) : <Empty icon="check" title="Kategorisiz parça yok" text="Tüm parçaların kategorisi var. Yeniden atamak için alttaki kutuyu işaretleyin." />}
+    </Modal>
+  );
+}
+
 export function StockPage({ params }) {
   const { data, store, run, go } = useApp();
   const [query, setQuery] = useState(params?.q || "");
@@ -224,6 +266,7 @@ export function StockPage({ params }) {
   const [favorites, setFavorites] = useState(false);
   const [archived, setArchived] = useState(false);
   const [priceOnly, setPriceOnly] = useState(params?.price || false);
+  const [catOpen, setCatOpen] = useState(false);
   const [sort, setSort] = useState("level");
   const [dir, setDir] = useState("asc");
   const [limit, setLimit] = useState(PAGE);
@@ -244,6 +287,8 @@ export function StockPage({ params }) {
   const abc = useMemo(() => abcClasses(data.items), [data.items]);
   const usage = useMemo(() => usageMap(data.items, data.movements), [data.items, data.movements]);
   const categories = useMemo(() => [...new Set(data.items.map((i) => i.category).filter(Boolean))].sort((a, b) => a.localeCompare(b, "tr")), [data.items]);
+  const catCounts = useMemo(() => { const m = new Map(); data.items.filter((i) => !i.archived).forEach((i) => { const c = i.category || ""; m.set(c, (m.get(c) || 0) + 1); }); return m; }, [data.items]);
+  const uncategorized = useMemo(() => data.items.filter((i) => !i.archived && isUncategorized(i.category)).length, [data.items]);
   const brands = useMemo(() => [...new Set(data.items.map((i) => i.brand).filter(Boolean))].sort((a, b) => a.localeCompare(b, "tr")), [data.items]);
   const pricing = usePricing(data);
   const reserved = useMemo(() => reservedMap(data.plans, data.items), [data.plans, data.items]);
@@ -267,6 +312,7 @@ export function StockPage({ params }) {
   return (
     <div className="page">
       <PageHead eyebrow="STOK TAKİP" title="Stok" text="Tüm stok kartları, seviyeler ve hareketler tek ekranda." actions={<>
+        <Button icon="grid" onClick={() => setCatOpen(true)}>Kategorilere ayır{uncategorized ? <b className="btn-badge">{uncategorized}</b> : null}</Button>
         <Button icon="download" onClick={exportExcel} disabled={!list.length}>Excel</Button>
         <Button icon="inbox" onClick={() => go("alis")}>Alış faturası</Button>
         <Button variant="primary" icon="plus" onClick={() => setEditing("new")}>Stok kartı</Button>
@@ -278,6 +324,12 @@ export function StockPage({ params }) {
           <span><strong>{priceAlerts.length} parçanın alış fiyatı değişti</strong><small>Son satıştan sonra alış arttı ya da kayıtlı satış fiyatı güncel alışın gerisinde kaldı. Müşteriye fiyat vermeden önce kontrol edin.</small></span>
           <b>{priceOnly ? "Tümünü göster" : "Listele"}</b>
         </button>
+      ) : null}
+      {categories.filter((c) => !isUncategorized(c)).length ? (
+        <div className="cat-strip" role="tablist" aria-label="Kategoriler">
+          <button type="button" className={category === "all" ? "on" : ""} onClick={() => setCategory("all")}>Tümü</button>
+          {categories.filter((c) => !isUncategorized(c)).sort((a, b) => (catCounts.get(b) || 0) - (catCounts.get(a) || 0)).map((c) => <button key={c} type="button" className={category === c ? "on" : ""} onClick={() => setCategory(category === c ? "all" : c)}>{c}<b>{catCounts.get(c) || 0}</b></button>)}
+        </div>
       ) : null}
       <div className="toolbar">
         <label className="search">
@@ -347,6 +399,7 @@ export function StockPage({ params }) {
         {list.length > limit ? <button type="button" className="more" onClick={() => setLimit(limit + PAGE)}>{list.length - limit} kart daha göster</button> : null}
       </section>
       {openItem ? <ItemDrawer key={openItem.id} item={openItem} onClose={() => setOpenId(null)} onEdit={setEditing} /> : null}
+      {catOpen ? <CategorizeModal onClose={() => setCatOpen(false)} /> : null}
       {editing ? <ItemForm item={editing === "new" || editing.prefill ? null : editing} prefill={editing.prefill} onClose={() => setEditing(null)} /> : null}
     </div>
   );

@@ -151,3 +151,13 @@ test("plans: manual parts don't reserve; arrived toggle", async () => {
   await store.togglePlanLine(p.id, 0);
   assert.equal(state(store).plans[0].lines[0].arrived, false);
 });
+
+test("patchItems updates many cards at once", async () => {
+  const store = createMemoryStore();
+  await store.saveItem({ sku: "A", name: "Hava filtresi", unit: "adet" }, { isNew: true });
+  await store.saveItem({ sku: "B", name: "Balata", unit: "adet" }, { isNew: true });
+  const n = await store.patchItems([{ id: itemIdFromSku("A"), patch: { category: "Filtreler" } }, { id: itemIdFromSku("B"), patch: { category: "Fren sistemi" } }, { id: "yok", patch: { category: "x" } }]);
+  assert.equal(n, 2);
+  const s = state(store);
+  assert.deepEqual(s.items.map((i) => i.category).sort(), ["Filtreler", "Fren sistemi"]);
+});

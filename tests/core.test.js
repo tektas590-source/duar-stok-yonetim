@@ -295,3 +295,17 @@ test("pricing: last buy/sale, cost change, suggestion from historical markup", a
   assert.equal(b.suggested, 270);
   assert.ok(b.priceLow);
 });
+
+test("categorize: part names map to categories", async () => {
+  const { suggestCategory, isUncategorized } = await import("../src/core/categorize.js");
+  const cases = {
+    "BALATA SPREYİ 500 ML": "Bakım kimyasalları & katkılar", "E:4 FR BR PADS": "Fren sistemi", "2Lİ FR DİS KİTİ": "Fren sistemi",
+    "HAVA F?LTRES?": "Filtreler", "E:FILTRE GAZOL": "Filtreler", "DİZEL KATKI PARTİKÜL FİLTRE TEMİZLEYİCİ": "Bakım kimyasalları & katkılar",
+    "PREMIUM C3 5W-30 5LT": "Motor yağları & sıvılar", "OPAR OLIO 0W-20": "Motor yağları & sıvılar", "9802840180 BUJİ EP6": "Ateşleme",
+    "ALTERNATOR KAYIS KIT ERUPAR": "Triger, zincir & kayışlar", "ALTERNATOR RULMAN KIA": "Elektrik & aydınlatma", "MOTORL FAN GRUBU KUM ELEK KUTU": "Soğutma sistemi",
+    "DEBRIYAJ RULMANI VWSKODA": "Debriyaj & aktarma", "SAĞ ROTBAŞI 308": "Süspansiyon & direksiyon", "KRANK KEÇE ARKA": "Motor parçaları",
+    "CAMURLUK DAVLUMBAZI ON SAG": "Kaporta & dış aksam", "RADYATÖR TEMİZLEYİCİ 300 ML": "Bakım kimyasalları & katkılar", "XYZ 123": "Diğer",
+  };
+  Object.entries(cases).forEach(([name, cat]) => assert.equal(suggestCategory(name), cat, name));
+  assert.ok(isUncategorized("YPARCA") && isUncategorized("") && !isUncategorized("Filtreler"));
+});
