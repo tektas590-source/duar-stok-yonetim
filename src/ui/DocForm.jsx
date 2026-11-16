@@ -45,7 +45,9 @@ export function DocForm({ mode, initialItemId, initialPlanId, onDone }) {
   // Ön tespitten satış: müşteri, plaka, araç, parçalar ve işçilik hazır gelir.
   const plan = useMemo(() => (initialPlanId ? (data.plans || []).find((p) => p.id === initialPlanId && p.status === "open") : null), [initialPlanId]); // eslint-disable-line react-hooks/exhaustive-deps
   const initLines = () => {
-    if (plan?.lines?.length) return plan.lines.map((l) => ({ ...emptyLine(), sku: l.sku, name: l.name, qty: String(l.qty), unitPrice: String(l.unitPrice || "") }));
+    const stockLines = (plan?.lines || []).filter((l) => (l.source || (l.itemId ? "stock" : "manual")) === "stock" && findItem(items, l.sku));
+    if (stockLines.length) return stockLines.map((l) => ({ ...emptyLine(), sku: l.sku, name: l.name, qty: String(l.qty), unitPrice: String(l.unitPrice || "") }));
+    if (plan) return [emptyLine()];
     if (!initialItemId) return [emptyLine()];
     const item = items.find((i) => i.id === initialItemId);
     return item ? [{ ...emptyLine(), sku: item.sku, name: item.name, unitPrice: isPurchase ? item.lastCost || "" : sellPrice(item) }] : [emptyLine()];
@@ -56,13 +58,17 @@ export function DocForm({ mode, initialItemId, initialPlanId, onDone }) {
   const [lines, setLines] = useState(initLines);
   const [paste, setPaste] = useState("");
   const [showPaste, setShowPaste] = useState(false);
-  const [labor, setLabor] = useState(() => (plan?.labor || []).map((l) => ({ key: Math.random().toString(36).slice(2), name: l.name, qty: String(l.qty), unitPrice: String(l.unitPrice || "") })));
+  // Tespitte elle girilen (stok kartı olmayan) parçalar "kartsız parça" olarak gelir: ciroya girer, stoğa dokunmaz.
+  const [labor, setLabor] = useState(() => [
+    ...(plan?.lines || []).filter((l) => (l.source || (l.itemId ? "stock" : "manual")) !== "stock" || !findItem(items, l.sku)).map((l) => ({ key: Math.random().toString(36).slice(2), kind: "part", code: l.sku || "", name: [l.name, l.brand].filter(Boolean).join(" · "), qty: String(l.qty), unitPrice: String(l.unitPrice || "") })),
+    ...(plan?.labor || []).map((l) => ({ key: Math.random().toString(36).slice(2), name: l.name, qty: String(l.qty), unitPrice: String(l.unitPrice || "") })),
+  ]);
   const laborNames = useMemo(() => {
     const counts = new Map();
     data.issues.forEach((d) => (d.services || []).forEach((l) => { if (l.kind === "labor") counts.set(l.name, (counts.get(l.name) || 0) + 1); }));
     return [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([n]) => n).slice(0, 6);
   }, [data.issues]);
-  const addLabor = (name = "") => setLabor((ls) => [...ls, { key: Math.random().toString(36).slice(2), name, qty: "1", unitPrice: "" }]);
+  const addLabor = (name = "", kind = "labor") => setLabor((ls) => [...ls, { key: Math.random().toString(36).slice(2), kind, code: "", name, qty: "1", unitPrice: "" }]);
   const setLaborLine = (key, patch) => setLabor((ls) => ls.map((l) => (l.key === key ? { ...l, ...patch } : l)));
   const laborComputed = labor.map((l) => ({ ...l, q: toNumber(l.qty) || 1, price: toNumber(l.unitPrice), net: round((toNumber(l.qty) || 1) * toNumber(l.unitPrice)) }));
   const laborValid = laborComputed.filter((l) => l.name.trim() && l.net > 0);
@@ -112,7 +118,7 @@ export function DocForm({ mode, initialItemId, initialPlanId, onDone }) {
     if (blocked) return;
     const payload = isPurchase
       ? { no: head.no, supplier: head.supplier, date: head.date, source: "manual", lines: valid.map((l) => ({ sku: l.item ? l.item.sku : l.sku.trim(), name: l.name || l.sku, qty: l.q, unitPrice: l.price, discountPct: toNumber(l.discountPct), vatPct: 20 })) }
-      : { no: head.no, customer: head.customer, plate: head.plate, brand: splitBrandModel(head.vehicle).brand, vehicleModel: splitBrandModel(head.vehicle).model, note: head.note, date: head.date, source: "manual", lines: valid.map((l) => ({ itemId: l.item.id, sku: l.item.sku, name: l.item.name, qty: l.q, unitPrice: l.price, discountPct: toNumber(l.discountPct), vatPct: 20 })), services: laborValid.map((l) => ({ kind: "labor", name: l.name.trim(), qty: l.q, unitPrice: l.price, vatPct: 20 })) };
+      : { no: head.no, customer: head.customer, plate: head.plate, brand: splitBrandModel(head.vehicle).brand, vehicleModel: splitBrandModel(head.vehicle).model, note: head.note, date: head.date, source: "manual", lines: valid.map((l) => ({ itemId: l.item.id, sku: l.item.sku, name: l.item.name, qty: l.q, unitPrice: l.price, discountPct: toNumber(l.discountPct), vatPct: 20 })), services: laborValid.map((l) => ({ kind: l.kind === "part" ? "part" : "labor", ...(l.kind === "part" && l.code ? { code: String(l.code).trim() } : {}), name: l.name.trim(), qty: l.q, unitPrice: l.price, vatPct: 20 })) };
     const ok = await run(async () => {
       if (!isPurchase) {
         const doc = await store.issue(payload);
@@ -174,11 +180,12 @@ export function DocForm({ mode, initialItemId, initialPlanId, onDone }) {
         <div className="services">
           <div className="services-head">
             <h4><Icon name="bolt" size={16} />İşçilik / hizmet</h4>
-            <small>Stoğa dokunmaz; ciroya ve kâra eklenir.</small>
+            <small>Stoğa dokunmaz; ciroya eklenir. İşçilik kâra, kartsız parça yalnız ciroya yazılır.</small>
           </div>
           {laborComputed.map((l) => (
-            <div key={l.key} className="service-row">
-              <input value={l.name} onChange={(e) => setLaborLine(l.key, { name: e.target.value })} placeholder="Örn. Periyodik bakım işçiliği" aria-label="İşçilik açıklaması" list="labor-list" />
+            <div key={l.key} className={`service-row ${l.kind === "part" ? "is-part" : ""}`}>
+              {l.kind === "part" ? <span className="svc-tag" title={l.code ? `Kod: ${l.code}` : "Kartsız parça"}>parça</span> : null}
+              <input value={l.name} onChange={(e) => setLaborLine(l.key, { name: e.target.value })} placeholder={l.kind === "part" ? "Parça adı · marka" : "Örn. Periyodik bakım işçiliği"} aria-label="İşçilik açıklaması" list={l.kind === "part" ? undefined : "labor-list"} />
               <input type="number" min="0" step="0.01" value={l.unitPrice} onChange={(e) => setLaborLine(l.key, { unitPrice: e.target.value })} placeholder="Tutar (KDV hariç)" aria-label="İşçilik tutarı" />
               <input type="number" min="0" step="any" value={l.qty} onChange={(e) => setLaborLine(l.key, { qty: e.target.value })} aria-label="Saat / adet" title="Saat veya adet" />
               <span className="num">{money(l.net)}</span>
@@ -188,6 +195,7 @@ export function DocForm({ mode, initialItemId, initialPlanId, onDone }) {
           <datalist id="labor-list">{laborNames.map((n) => <option key={n} value={n} />)}</datalist>
           <div className="quick-labor">
             <Button icon="plus" onClick={() => addLabor()}>İşçilik ekle</Button>
+            <Button icon="box" onClick={() => addLabor("", "part")} title="Stok kartı olmayan parça: ciroya girer, stoğa dokunmaz">Kartsız parça</Button>
             {laborNames.slice(0, 4).map((n) => <button key={n} type="button" onClick={() => addLabor(n)}>+ {n}</button>)}
           </div>
         </div>

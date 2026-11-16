@@ -70,10 +70,14 @@ export function createOps(runTx, getActor) {
         const id = input.id || `t_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
         const existing = input.id ? await tx.get("plans", id) : null;
         const clean = (v) => String(v ?? "").trim();
-        const lines = (input.lines || []).filter((l) => clean(l.sku) || clean(l.name)).map((l) => ({
-          itemId: l.itemId || null, sku: clean(l.sku), name: clean(l.name) || clean(l.sku),
-          qty: Math.max(0.001, Number(l.qty) || 1), unitPrice: Math.max(0, Number(l.unitPrice) || 0),
-        }));
+        const lines = (input.lines || []).filter((l) => clean(l.sku) || clean(l.name)).map((l) => {
+          const source = l.source === "manual" || (!l.itemId && l.source !== "stock") ? "manual" : "stock";
+          return {
+            source, itemId: source === "stock" ? l.itemId || null : null, sku: clean(l.sku), name: clean(l.name) || clean(l.sku), brand: clean(l.brand),
+            qty: Math.max(0.001, Number(l.qty) || 1), unitPrice: Math.max(0, Number(l.unitPrice) || 0),
+            arrived: Boolean(l.arrived), ...(l.arrived ? { arrivedAt: l.arrivedAt || now } : {}),
+          };
+        });
         const labor = (input.labor || []).filter((l) => clean(l.name)).map((l) => ({ name: clean(l.name), qty: Math.max(0.001, Number(l.qty) || 1), unitPrice: Math.max(0, Number(l.unitPrice) || 0) }));
         if (!clean(input.plate) && !clean(input.customer)) throw new Error("Plaka veya müşteri adı girin.");
         if (!lines.length && !labor.length) throw new Error("En az bir parça veya işçilik ekleyin.");
@@ -85,6 +89,19 @@ export function createOps(runTx, getActor) {
           expected: clean(input.expected), note: clean(input.note), lines, labor,
           updatedAt: now, updatedBy: actor,
         };
+        tx.set("plans", id, next);
+        return next;
+      });
+    },
+
+    // Tespitteki bir parçanın "geldi / gelmedi" işaretini değiştirir.
+    async togglePlanLine(id, index) {
+      return runTx(async (tx) => {
+        const doc = await tx.get("plans", id);
+        if (!doc || !doc.lines?.[index]) throw new Error("Tespit satırı bulunamadı.");
+        const { now, actor } = meta();
+        const lines = doc.lines.map((l, i) => (i === index ? { ...l, arrived: !l.arrived, arrivedAt: !l.arrived ? now : null, arrivedBy: !l.arrived ? actor : null } : l));
+        const next = { ...doc, lines, updatedAt: now };
         tx.set("plans", id, next);
         return next;
       });

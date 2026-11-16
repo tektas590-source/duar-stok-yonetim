@@ -2,12 +2,12 @@ import React, { useMemo, useState } from "react";
 import { Button, Empty, Field, Icon, Modal, PageHead } from "../kit.jsx";
 import { useApp } from "../context.js";
 import { dateLabel, looseKey, money, qty, todayKey, toNumber } from "../../core/format.js";
-import { nextPlanNo, PLAN_STATUS, planReadiness, planTotals, reservedMap } from "../../core/plans.js";
+import { isWaiting, nextPlanNo, PLAN_STATUS, planReadiness, planTotals, reservedMap } from "../../core/plans.js";
 import { buildCompat, splitBrandModel } from "../../core/vehicles.js";
 import { usePricing } from "../pricing.jsx";
 
 const key = () => Math.random().toString(36).slice(2);
-const emptyLine = () => ({ key: key(), sku: "", name: "", qty: "1", unitPrice: "" });
+const emptyLine = (source = "stock") => ({ key: key(), source, sku: "", name: "", brand: "", qty: "1", unitPrice: "", arrived: false });
 const emptyLabor = (name = "") => ({ key: key(), name, qty: "1", unitPrice: "" });
 const norm = (s) => String(s || "").replace(/\s+/g, "").toLocaleUpperCase("tr");
 
@@ -20,7 +20,7 @@ function PlanForm({ plan, onClose }) {
     customer: plan?.customer || "", phone: plan?.phone || "", plate: plan?.plate || "",
     vehicle: [plan?.brand, plan?.vehicleModel].filter(Boolean).join(" "), expected: plan?.expected || "", note: plan?.note || "",
   }));
-  const [lines, setLines] = useState(() => (plan?.lines?.length ? plan.lines.map((l) => ({ ...l, key: key(), qty: String(l.qty), unitPrice: String(l.unitPrice || "") })) : [emptyLine()]));
+  const [lines, setLines] = useState(() => (plan?.lines?.length ? plan.lines.map((l) => ({ ...l, key: key(), source: l.source || (l.itemId ? "stock" : "manual"), brand: l.brand || "", qty: String(l.qty), unitPrice: String(l.unitPrice || ""), arrived: Boolean(l.arrived) })) : [emptyLine()]));
   const [labor, setLabor] = useState(() => (plan?.labor || []).map((l) => ({ ...l, key: key(), qty: String(l.qty), unitPrice: String(l.unitPrice || "") })));
   const find = (sku) => { const k = looseKey(sku); return k ? items.find((i) => looseKey(i.sku) === k) : null; };
 
@@ -32,7 +32,9 @@ function PlanForm({ plan, onClose }) {
   const setLine = (k, patch) => setLines((ls) => ls.map((l) => {
     if (l.key !== k) return l;
     const next = { ...l, ...patch };
-    if (patch.sku !== undefined) {
+    if (patch.source === "manual") { next.itemId = null; }
+    if (patch.source === "stock") { const item = find(next.sku); next.itemId = item?.id || null; if (item) next.name = item.name; }
+    if (patch.sku !== undefined && next.source === "stock") {
       const item = find(patch.sku);
       if (item) { next.name = item.name; next.itemId = item.id; if (!next.unitPrice) next.unitPrice = String(item.price ?? pricing.get(item.id)?.suggested ?? ""); } else next.itemId = null;
     }
@@ -64,28 +66,39 @@ function PlanForm({ plan, onClose }) {
         <Field label="Geliş tarihi"><input type="date" value={head.expected} onChange={(e) => setHead({ ...head, expected: e.target.value })} /></Field>
         <Field label="Not"><input value={head.note} onChange={(e) => setHead({ ...head, note: e.target.value })} placeholder="Şikâyet, tespit notu…" /></Field>
       </div>
-      <h4 className="plan-h">Parçalar</h4>
-      <div className="table-scroll">
-        <table className="table plan-lines">
-          <thead><tr><th>STOK KODU</th><th>PARÇA</th><th className="num">ADET</th><th className="num">BİRİM FİYAT</th><th className="num">TUTAR</th><th /></tr></thead>
-          <tbody>{lines.map((l) => {
-            const item = l.itemId ? items.find((i) => i.id === l.itemId) : find(l.sku);
-            return (
-              <tr key={l.key}>
-                <td><input className="mono" list="plan-skus" value={l.sku} onChange={(e) => setLine(l.key, { sku: e.target.value })} placeholder="Kod (stoktan seç)" aria-label="Stok kodu" />
-                  {item ? <small className={Number(item.stock) >= (toNumber(l.qty) || 1) ? "muted" : "warn"}>Stok {qty(item.stock)} {item.unit}</small> : l.sku ? <small className="warn">Stokta kart yok · sipariş gerekir</small> : null}</td>
-                <td><input value={l.name} onChange={(e) => setLine(l.key, { name: e.target.value })} placeholder="Parça adı" disabled={Boolean(item)} aria-label="Parça adı" /></td>
-                <td className="num"><input type="number" min="0" step="any" value={l.qty} onChange={(e) => setLine(l.key, { qty: e.target.value })} aria-label="Adet" /></td>
-                <td className="num"><input type="number" min="0" step="0.01" value={l.unitPrice} onChange={(e) => setLine(l.key, { unitPrice: e.target.value })} aria-label="Birim fiyat" />{item && pricing.get(item.id)?.suggested ? <small className="muted">öneri {money(pricing.get(item.id).suggested)}</small> : null}</td>
-                <td className="num">{money((toNumber(l.qty) || 1) * toNumber(l.unitPrice))}</td>
-                <td><button type="button" className="icon-btn sm danger" onClick={() => setLines((ls) => (ls.length > 1 ? ls.filter((x) => x.key !== l.key) : [emptyLine()]))} aria-label="Satırı sil"><Icon name="close" size={14} /></button></td>
-              </tr>
-            );
-          })}</tbody>
-        </table>
+      <h4 className="plan-h">Parçalar <small>Stoktan seçin ya da sistemde olmayan / başka marka parçayı elle yazın. "Geldi" işaretiyle takip edin.</small></h4>
+      <div className="plan-lines2">
+        {lines.map((l) => {
+          const item = l.source === "stock" ? (l.itemId ? items.find((i) => i.id === l.itemId) : find(l.sku)) : null;
+          return (
+            <div key={l.key} className={`pl-row is-${l.source}`}>
+              <div className="pl-src" role="group" aria-label="Parça kaynağı">
+                <button type="button" className={l.source === "stock" ? "on" : ""} onClick={() => setLine(l.key, { source: "stock" })}>Stoktan</button>
+                <button type="button" className={l.source === "manual" ? "on" : ""} onClick={() => setLine(l.key, { source: "manual" })}>Elle</button>
+              </div>
+              {l.source === "stock" ? <>
+                <label className="pl-f pl-code"><span>Stok kodu</span><input className="mono" list="plan-skus" value={l.sku} onChange={(e) => setLine(l.key, { sku: e.target.value })} placeholder="Kod yaz / seç" />
+                  {item ? <small className={Number(item.stock) >= (toNumber(l.qty) || 1) ? "ok" : "warn"}>Stok {qty(item.stock)} {item.unit}</small> : l.sku ? <small className="warn">Stokta yok — "Elle"ye geçin</small> : null}</label>
+                <label className="pl-f pl-name"><span>Parça</span><input value={item?.name || l.name} disabled placeholder="Koddan gelir" /></label>
+              </> : <>
+                <label className="pl-f pl-code"><span>Kod (isteğe bağlı)</span><input className="mono" value={l.sku} onChange={(e) => setLine(l.key, { sku: e.target.value })} placeholder="Parça no" /></label>
+                <label className="pl-f pl-name"><span>Parça adı</span><input value={l.name} onChange={(e) => setLine(l.key, { name: e.target.value })} placeholder="Ör: Ön fren balatası" /></label>
+                <label className="pl-f pl-brand"><span>Marka</span><input value={l.brand} onChange={(e) => setLine(l.key, { brand: e.target.value })} placeholder="Bosch, Valeo…" /></label>
+              </>}
+              <label className="pl-f pl-qty"><span>Adet</span><input type="number" min="0" step="any" value={l.qty} onChange={(e) => setLine(l.key, { qty: e.target.value })} /></label>
+              <label className="pl-f pl-price"><span>Birim fiyat</span><input type="number" min="0" step="0.01" value={l.unitPrice} onChange={(e) => setLine(l.key, { unitPrice: e.target.value })} />{item && pricing.get(item.id)?.suggested ? <small className="muted">öneri {money(pricing.get(item.id).suggested)}</small> : null}</label>
+              <button type="button" className={`pl-arrived ${l.arrived ? "on" : ""}`} onClick={() => setLine(l.key, { arrived: !l.arrived })} aria-pressed={l.arrived}>{l.arrived ? <><Icon name="check" size={13} />Geldi</> : "Gelmedi"}</button>
+              <span className="pl-sum">{money((toNumber(l.qty) || 1) * toNumber(l.unitPrice))}</span>
+              <button type="button" className="icon-btn sm danger" onClick={() => setLines((ls) => (ls.length > 1 ? ls.filter((x) => x.key !== l.key) : [emptyLine()]))} aria-label="Satırı sil"><Icon name="close" size={14} /></button>
+            </div>
+          );
+        })}
         <datalist id="plan-skus">{items.map((i) => <option key={i.id} value={i.sku}>{i.name} · stok {qty(i.stock)}</option>)}</datalist>
       </div>
-      <Button icon="plus" onClick={() => setLines([...lines, emptyLine()])}>Parça ekle</Button>
+      <div className="chips">
+        <Button icon="plus" onClick={() => setLines([...lines, emptyLine("stock")])}>Stoktan parça</Button>
+        <Button icon="edit" onClick={() => setLines([...lines, emptyLine("manual")])}>Elle parça</Button>
+      </div>
       <h4 className="plan-h">İşçilik</h4>
       {labor.map((l) => (
         <div key={l.key} className="plan-labor">
@@ -107,7 +120,7 @@ function printPlan(plan, totals) {
   const w = window.open("", "_blank", "width=800,height=900");
   if (!w) return;
   const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-  const rows = [...(plan.lines || []).map((l) => [l.sku, l.name, l.qty, l.unitPrice]), ...(plan.labor || []).map((l) => ["", l.name, l.qty, l.unitPrice])]
+  const rows = [...(plan.lines || []).map((l) => [l.sku, [l.name, l.brand].filter(Boolean).join(" · "), l.qty, l.unitPrice]), ...(plan.labor || []).map((l) => ["", l.name, l.qty, l.unitPrice])]
     .map(([s, n, q, p]) => `<tr><td>${esc(s)}</td><td>${esc(n)}</td><td class="r">${esc(q)}</td><td class="r">${esc(money(p))}</td><td class="r">${esc(money(q * p))}</td></tr>`).join("");
   w.document.write(`<!doctype html><html lang="tr"><head><meta charset="utf-8"><title>${esc(plan.no)} · ${esc(plan.plate)}</title><style>body{font:14px system-ui,sans-serif;margin:32px;color:#111}h1{font-size:20px;margin:0 0 4px}table{width:100%;border-collapse:collapse;margin-top:18px}td,th{border-bottom:1px solid #ddd;padding:7px 6px;text-align:left}th{font-size:11px;color:#666;text-transform:uppercase}.r{text-align:right}.tot{margin-top:14px;text-align:right;font-size:15px}.muted{color:#666}</style></head><body>
     <h1>Ön tespit · ${esc(plan.no)}</h1><div class="muted">${esc(dateLabel(todayKey()))}</div>
@@ -130,7 +143,7 @@ export function PlansPage({ params }) {
   const list = useMemo(() => {
     const q = query.trim().toLocaleLowerCase("tr");
     const nq = norm(query);
-    return plans.filter((p) => p.status === status).filter((p) => !q || `${p.no} ${p.customer} ${p.plate} ${p.brand} ${p.vehicleModel} ${p.note} ${(p.lines || []).map((l) => `${l.sku} ${l.name}`).join(" ")}`.toLocaleLowerCase("tr").includes(q) || (nq.length >= 3 && norm(p.plate).includes(nq)))
+    return plans.filter((p) => p.status === status).filter((p) => !q || `${p.no} ${p.customer} ${p.plate} ${p.brand} ${p.vehicleModel} ${p.note} ${(p.lines || []).map((l) => `${l.sku} ${l.name} ${l.brand || ""}`).join(" ")}`.toLocaleLowerCase("tr").includes(q) || (nq.length >= 3 && norm(p.plate).includes(nq)))
       .sort((a, b) => (status === "open" ? String(a.expected || "9999").localeCompare(String(b.expected || "9999")) : 0) || String(b.createdAt).localeCompare(String(a.createdAt)));
   }, [plans, status, query]);
 
@@ -146,7 +159,7 @@ export function PlansPage({ params }) {
           {list.map((p, i) => {
             const t = planTotals(p);
             const ready = planReadiness(p, data.items, reserved);
-            const short = ready.filter((x) => x.state !== "ready");
+            const short = ready.filter(isWaiting);
             const overdue = p.status === "open" && p.expected && p.expected < todayKey();
             return (
               <article key={p.id} className={`plan-card is-${p.status}`} style={{ "--i": Math.min(i, 12) }}>
@@ -158,11 +171,13 @@ export function PlansPage({ params }) {
                 {p.expected || p.status !== "open" ? <p className={`plan-when ${overdue ? "warn" : ""}`}><Icon name="clipboard" size={13} />{p.status === "open" ? `Geliş: ${dateLabel(p.expected)}${overdue ? " · gecikti" : ""}` : `${PLAN_STATUS[p.status]} · ${dateLabel(String(p.statusAt || "").slice(0, 10))}${p.issueNo ? ` · ${p.issueNo}` : ""}`}</p> : null}
                 {p.note ? <p className="plan-note">{p.note}</p> : null}
                 <ul className="plan-items">
-                  {ready.map((l, j) => (
-                    <li key={j} className={`is-${l.state}`}>
+                  {ready.map((l) => (
+                    <li key={l.index} className={`is-${l.state}`}>
                       <i />
-                      <span><b>{l.item?.name || l.name}</b><small className="mono">{l.sku || "kodsuz"} · {qty(l.qty)} {l.item?.unit || "adet"}</small></span>
-                      <em>{p.status !== "open" ? money(l.qty * l.unitPrice) : l.state === "ready" ? "hazır" : l.state === "short" ? `eksik · boşta ${qty(Math.max(0, l.free))}` : "kart yok"}</em>
+                      <span><b>{l.item?.name || l.name}{l.source === "manual" ? <u className="src-tag">elle</u> : null}</b><small className="mono">{l.sku || "kodsuz"}{l.brand ? ` · ${l.brand}` : ""} · {qty(l.qty)} {l.item?.unit || "adet"}{l.state === "short" ? ` · stok boşta ${qty(Math.max(0, l.free))}` : ""}</small></span>
+                      {p.status !== "open" ? <em>{money(l.qty * l.unitPrice)}</em>
+                        : l.state === "ready" ? <em className="ok">stokta var</em>
+                        : <button type="button" className={`arr-btn ${l.state === "arrived" ? "on" : ""}`} onClick={() => run(() => store.togglePlanLine(p.id, l.index))} title="Geldi / gelmedi olarak işaretle">{l.state === "arrived" ? <><Icon name="check" size={12} />Geldi</> : "Gelmedi"}</button>}
                     </li>
                   ))}
                   {(p.labor || []).map((l, j) => <li key={`l${j}`} className="is-labor"><i /><span><b>{l.name}</b><small>işçilik</small></span><em>{money(l.qty * l.unitPrice)}</em></li>)}
@@ -170,7 +185,7 @@ export function PlansPage({ params }) {
                 <footer>
                   <span className="plan-sum"><strong>{money(t.net)}</strong><small>KDV dahil {money(t.gross)}</small></span>
                   {p.status === "open" ? <>
-                    {short.length ? <span className="pill is-warn">{short.length} parça eksik</span> : <span className="pill is-ok">Parçalar hazır</span>}
+                    {short.length ? <span className="pill is-warn">{short.length} parça bekleniyor</span> : <span className="pill is-ok">Parçalar hazır</span>}
                     <div className="plan-actions">
                       <button type="button" className="icon-btn sm" onClick={() => printPlan(p, t)} aria-label="Yazdır" title="Müşteriye teklif olarak yazdır"><Icon name="receipt" size={14} /></button>
                       <button type="button" className="icon-btn sm" onClick={() => setEditing(p)} aria-label="Düzenle"><Icon name="edit" size={14} /></button>

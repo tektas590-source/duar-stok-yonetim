@@ -3,6 +3,8 @@ import { looseKey, round, VAT_RATE } from "./format.js";
 
 export const PLAN_STATUS = { open: "Bekliyor", done: "Satışa döndü", cancelled: "İptal" };
 
+export const lineSource = (l) => l.source || (l.itemId ? "stock" : "manual");
+
 export function planTotals(plan) {
   const parts = round((plan.lines || []).reduce((s, l) => s + (Number(l.qty) || 0) * (Number(l.unitPrice) || 0), 0));
   const labor = round((plan.labor || []).reduce((s, l) => s + (Number(l.qty) || 0) * (Number(l.unitPrice) || 0), 0));
@@ -15,6 +17,7 @@ export function reservedMap(plans, items) {
   const bySku = new Map((items || []).map((i) => [looseKey(i.sku), i]));
   const map = new Map();
   (plans || []).filter((p) => p.status === "open").forEach((p) => (p.lines || []).forEach((l) => {
+    if (lineSource(l) !== "stock") return; // elle girilen parça stoktan ayırmaz
     const id = l.itemId || bySku.get(looseKey(l.sku))?.id;
     if (!id) return;
     const r = map.get(id) || { qty: 0, plans: [] };
@@ -29,14 +32,17 @@ export function reservedMap(plans, items) {
 export function planReadiness(plan, items, reserved) {
   const bySku = new Map((items || []).map((i) => [looseKey(i.sku), i]));
   const byId = new Map((items || []).map((i) => [i.id, i]));
-  return (plan.lines || []).map((l) => {
+  // state: ready (stokta var) · short (stok yetmiyor) · waiting (elle, gelmedi) · arrived (geldi işaretli) · nocard
+  return (plan.lines || []).map((l, index) => {
+    const source = lineSource(l);
+    if (source === "manual") return { ...l, index, source, item: null, state: l.arrived ? "arrived" : "waiting" };
     const item = (l.itemId && byId.get(l.itemId)) || bySku.get(looseKey(l.sku)) || null;
-    if (!item) return { ...l, item: null, state: "nocard" };
+    if (!item) return { ...l, index, source, item: null, state: l.arrived ? "arrived" : "nocard" };
     const stock = Number(item.stock) || 0;
     // Bu tespit dışındaki açık tespitlerin ayırdığı miktar.
     const others = (reserved?.get(item.id)?.plans || []).filter((x) => x.id !== plan.id).reduce((s, x) => s + (Number(x.qty) || 0), 0);
     const free = round(stock - others, 3);
-    return { ...l, item, stock, free, state: free >= l.qty ? "ready" : "short" };
+    return { ...l, index, source, item, stock, free, state: free >= l.qty ? "ready" : l.arrived ? "arrived" : "short" };
   });
 }
 
@@ -44,3 +50,5 @@ export function nextPlanNo(plans) {
   const n = (plans || []).map((p) => Number(String(p.no || "").replace(/\D/g, "")) || 0).reduce((a, b) => Math.max(a, b), 0);
   return `T-${String(n + 1).padStart(4, "0")}`;
 }
+
+export const isWaiting = (line) => ["short", "waiting", "nocard"].includes(line.state);

@@ -114,8 +114,8 @@ test("pre-job plans: save, reserve, readiness, close", async () => {
   await store.saveItem({ sku: "F-1", name: "Filtre", unit: "adet", minimum: 0, cost: 100 }, { isNew: true });
   await store.adjust(itemIdFromSku("F-1"), 2, "test");
   await assert.rejects(() => store.savePlan({ plate: "", customer: "", lines: [{ sku: "F-1", qty: 1 }] }));
-  const p1 = await store.savePlan({ no: "T-0001", plate: "55 abc 1", customer: "Ali", lines: [{ sku: "F-1", qty: 1, unitPrice: 150 }, { sku: "YOK-9", name: "Silecek", qty: 2, unitPrice: 50 }], labor: [{ name: "Bakım", qty: 1, unitPrice: 500 }] });
-  const p2 = await store.savePlan({ no: "T-0002", plate: "55 XY 2", lines: [{ sku: "F-1", qty: 2 }] });
+  const p1 = await store.savePlan({ no: "T-0001", plate: "55 abc 1", customer: "Ali", lines: [{ source: "stock", sku: "F-1", qty: 1, unitPrice: 150 }, { sku: "YOK-9", name: "Silecek", qty: 2, unitPrice: 50 }], labor: [{ name: "Bakım", qty: 1, unitPrice: 500 }] });
+  const p2 = await store.savePlan({ no: "T-0002", plate: "55 XY 2", lines: [{ source: "stock", sku: "F-1", qty: 2 }] });
   assert.equal(p1.plate, "55 ABC 1");
   assert.equal(planTotals(p1).net, 750);
   let s = state(store);
@@ -123,9 +123,31 @@ test("pre-job plans: save, reserve, readiness, close", async () => {
   assert.equal(r.get(itemIdFromSku("F-1")).qty, 3);
   const ready = planReadiness(p2, s.items, r);
   assert.equal(ready[0].state, "short");
-  assert.equal(planReadiness(p1, s.items, r)[1].state, "nocard");
+  assert.equal(planReadiness(p1, s.items, r)[1].state, "waiting");
   await store.setPlanStatus(p1.id, "done", { issueNo: "S-1" });
   s = state(store);
   assert.equal(reservedMap(s.plans, s.items).get(itemIdFromSku("F-1")).qty, 2);
   assert.equal(planReadiness(s.plans.find((p) => p.id === p2.id), s.items, reservedMap(s.plans, s.items))[0].state, "ready");
+});
+
+test("plans: manual parts don't reserve; arrived toggle", async () => {
+  const { reservedMap, planReadiness, isWaiting } = await import("../src/core/plans.js");
+  const store = createMemoryStore();
+  await store.saveItem({ sku: "F-1", name: "Filtre", unit: "adet", minimum: 0 }, { isNew: true });
+  const p = await store.savePlan({ plate: "55 A 1", lines: [{ source: "manual", sku: "F-1", name: "Filtre (Bosch)", brand: "Bosch", qty: 1, unitPrice: 200 }, { source: "stock", itemId: itemIdFromSku("F-1"), sku: "F-1", qty: 1 }] });
+  assert.equal(p.lines[0].source, "manual");
+  assert.equal(p.lines[0].brand, "Bosch");
+  let s = state(store);
+  assert.equal(reservedMap(s.plans, s.items).get(itemIdFromSku("F-1")).qty, 1);
+  let r = planReadiness(p, s.items, reservedMap(s.plans, s.items));
+  assert.deepEqual(r.map((x) => x.state), ["waiting", "short"]);
+  assert.equal(r.filter(isWaiting).length, 2);
+  await store.togglePlanLine(p.id, 0);
+  await store.togglePlanLine(p.id, 1);
+  s = state(store);
+  r = planReadiness(s.plans[0], s.items, reservedMap(s.plans, s.items));
+  assert.deepEqual(r.map((x) => x.state), ["arrived", "arrived"]);
+  assert.equal(r.filter(isWaiting).length, 0);
+  await store.togglePlanLine(p.id, 0);
+  assert.equal(state(store).plans[0].lines[0].arrived, false);
 });

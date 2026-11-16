@@ -827,3 +827,32 @@ td.num.stack { text-align: right; } td.num.stack > * { justify-content: flex-end
 .reserved-note span { flex: 1; } .reserved-note small { color: var(--text-3); }
 .reserved-note.is-short { border-color: color-mix(in srgb, var(--warn) 45%, transparent); background: color-mix(in srgb, var(--warn) 10%, transparent); }
 @media (max-width: 560px) { .plan-labor { grid-template-columns: 1fr 64px 96px auto; } .plan-grid { grid-template-columns: 1fr; } }
+
+/* Ön tespit: stoktan / elle parça, geldi işareti */
+.plan-h small { display: block; margin-top: 3px; font: 500 12px var(--font); letter-spacing: 0; color: var(--text-3); }
+.plan-lines2 { display: grid; gap: 8px; margin-bottom: 10px; }
+.pl-row { display: grid; grid-template-columns: auto minmax(120px, 1fr) minmax(160px, 1.6fr) 70px 110px auto 90px auto; align-items: end; gap: 8px; padding: 10px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--surface-2); }
+.pl-row.is-manual { grid-template-columns: auto minmax(100px, 0.8fr) minmax(150px, 1.4fr) minmax(90px, 0.8fr) 70px 110px auto 90px auto; border-style: dashed; }
+.pl-src { display: inline-flex; align-self: center; padding: 2px; border-radius: 99px; background: var(--surface-3); }
+.pl-src button { padding: 5px 10px; border: 0; border-radius: 99px; background: none; color: var(--text-3); font-size: 11.5px; font-weight: 700; }
+.pl-src button.on { background: var(--accent); color: var(--accent-ink); }
+.pl-f { display: grid; gap: 3px; min-width: 0; }
+.pl-f > span { font-size: 10.5px; font-weight: 600; letter-spacing: 0.04em; color: var(--text-3); text-transform: uppercase; }
+.pl-f input { width: 100%; min-width: 0; }
+.pl-f small { font-size: 10.5px; } .pl-f small.ok { color: var(--ok); } .pl-f small.warn { color: var(--warn); }
+.pl-arrived, .arr-btn { display: inline-flex; align-items: center; justify-content: center; gap: 4px; align-self: center; padding: 6px 10px; border-radius: 99px; border: 1px solid color-mix(in srgb, var(--warn) 45%, transparent); background: color-mix(in srgb, var(--warn) 10%, transparent); color: var(--warn); font-size: 11.5px; font-weight: 700; white-space: nowrap; cursor: pointer; transition: background 0.2s, color 0.2s, border-color 0.2s, transform 0.15s; }
+.pl-arrived.on, .arr-btn.on { border-color: color-mix(in srgb, var(--ok) 45%, transparent); background: color-mix(in srgb, var(--ok) 13%, transparent); color: var(--ok); }
+.pl-arrived:active, .arr-btn:active { transform: scale(0.95); }
+.pl-sum { align-self: center; text-align: right; font-weight: 650; font-size: 13px; }
+.arr-btn { padding: 4px 9px; font-size: 11px; }
+.plan-items em.ok { color: var(--ok); }
+.plan-items li.is-arrived > i { background: var(--ok); } .plan-items li.is-waiting > i { background: var(--warn); }
+.src-tag { margin-left: 6px; padding: 1px 6px; border-radius: 4px; background: var(--surface-3); color: var(--text-3); font-size: 9.5px; font-weight: 700; text-decoration: none; text-transform: uppercase; letter-spacing: 0.05em; vertical-align: middle; }
+.service-row.is-part { grid-template-columns: auto 1.6fr 0.9fr 0.6fr 0.9fr auto; }
+.svc-tag { align-self: center; padding: 3px 7px; border-radius: 4px; background: var(--accent-soft); color: var(--accent); font-size: 10px; font-weight: 700; text-transform: uppercase; }
+@media (max-width: 900px) {
+  .pl-row, .pl-row.is-manual { grid-template-columns: 1fr 1fr; }
+  .pl-row .pl-src { grid-column: 1 / -1; justify-self: start; }
+  .pl-row .pl-name { grid-column: 1 / -1; }
+  .pl-sum { text-align: left; }
+}
