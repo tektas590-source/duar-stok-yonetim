@@ -63,7 +63,7 @@ function PolicyEditor({ policy, onClose }) {
       <div className="policy-foot">
         <Button onClick={() => setP(JSON.parse(JSON.stringify(DEFAULT_POLICY)))}>Varsayılana dön</Button>
         <Button onClick={onClose}>Kapat</Button>
-        <Button variant="primary" icon="check" onClick={async () => { if (await run(() => store.savePricePolicy(normalizePolicy(p)), "Kâr kuralları kaydedildi; tüm öneriler güncellendi.")) onClose(); }}>Kaydet</Button>
+        <Button variant="primary" icon="check" onClick={async () => { if (await run(() => store.savePricePolicy(normalizePolicy(p)).catch((error) => { if (/permission|insufficient/i.test(error?.message || "")) throw new Error("Kâr kuralları kaydedilemedi: Firebase kuralına \"settings\" izni eklenmeli (Firestore → Kurallar)."); throw error; }), "Kâr kuralları kaydedildi; tüm öneriler güncellendi.")) onClose(); }}>Kaydet</Button>
       </div>
     </section>
   );
