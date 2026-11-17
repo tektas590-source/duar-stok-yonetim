@@ -24,5 +24,6 @@ service cloud.firestore {
     match /counts/{id} { allow read, create: if member(); }
     match /movements/{id} { allow read, create: if member(); }
     match /plans/{id} { allow read, create, update: if member(); }
+    match /settings/{id} { allow read, create, update: if member(); }
   }
 }

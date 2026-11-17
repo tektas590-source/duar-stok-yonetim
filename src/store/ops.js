@@ -119,6 +119,16 @@ export function createOps(runTx, getActor) {
     },
 
     // Birden çok kartı tek işlemde günceller (ör. toplu kategori). En fazla 400 kart.
+    // Fiyat politikası (kâr kademeleri, kategori oranları) tüm cihazlarda ortak.
+    async savePricePolicy(policy) {
+      return runTx(async (tx) => {
+        const { now, actor } = meta();
+        const next = { id: "pricing", policy, updatedAt: now, updatedBy: actor };
+        tx.set("settings", "pricing", next);
+        return next;
+      });
+    },
+
     async patchItems(list) {
       const chunks = [];
       for (let i = 0; i < (list || []).length; i += 400) chunks.push(list.slice(i, i + 400));

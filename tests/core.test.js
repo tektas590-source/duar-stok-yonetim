@@ -309,3 +309,37 @@ test("categorize: part names map to categories", async () => {
   Object.entries(cases).forEach(([name, cat]) => assert.equal(suggestCategory(name), cat, name));
   assert.ok(isUncategorized("YPARCA") && isUncategorized("") && !isUncategorized("Filtreler"));
 });
+
+test("price policy: bands, category override, floor, last sale kept, fit to target", async () => {
+  const { tierPrices, quoteTotals, fitToTarget, DEFAULT_POLICY } = await import("../src/core/pricePolicy.js");
+  const cheap = tierPrices(50, { policy: DEFAULT_POLICY });
+  assert.equal(cheap.markup, 70);
+  assert.ok(cheap.uygun < cheap.dengeli && cheap.dengeli < cheap.karli);
+  assert.ok(cheap.dengeli - 50 >= 40, "min profit applies to cheap parts");
+  const dear = tierPrices(8000, { policy: DEFAULT_POLICY });
+  assert.equal(dear.markup, 25);
+  assert.equal(dear.dengeli, 10000);
+  assert.equal(dear.floor, 8640);
+  const cat = tierPrices(1000, { category: "Motor yağları & sıvılar", policy: { ...DEFAULT_POLICY, categories: { "Motor yağları & sıvılar": 20 } } });
+  assert.equal(cat.markup, 20);
+  assert.equal(cat.dengeli, 1200);
+  const kept = tierPrices(1000, { lastSale: { unit: 1300 }, policy: DEFAULT_POLICY });
+  assert.equal(kept.recommended, 1300);
+  assert.equal(kept.reason, "son satış fiyatı korunuyor");
+  const notKept = tierPrices(1000, { lastSale: { unit: 1050 }, policy: DEFAULT_POLICY });
+  assert.equal(notKept.recommended, notKept.dengeli);
+  assert.equal(tierPrices(0, { policy: DEFAULT_POLICY }), null);
+  const lines = [{ key: "a", qty: 1, price: 1350, cost: 1000, floor: 1080 }, { key: "b", qty: 2, price: 150, cost: 100, floor: 108 }];
+  const labor = [{ qty: 1, price: 500 }];
+  const t = quoteTotals(lines, labor);
+  assert.equal(t.net, 2150);
+  assert.equal(t.profit, 950);
+  const fit = fitToTarget(lines, labor, 2400);
+  const after = quoteTotals(fit.lines, labor);
+  assert.ok(fit.reachable);
+  assert.ok(Math.abs(after.gross - 2400) < 1, String(after.gross));
+  const tooLow = fitToTarget(lines, labor, 1500);
+  assert.equal(tooLow.reachable, false);
+  assert.ok(tooLow.lines.every((l) => l.price >= l.floor));
+  assert.equal(tooLow.minGross, 2155.2);
+});

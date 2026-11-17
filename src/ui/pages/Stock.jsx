@@ -3,7 +3,7 @@ import { Button, Drawer, Empty, Icon, Modal, PageHead, Ring, Sparkline, useCount
 import { useApp } from "../context.js";
 import { ItemForm } from "../ItemForm.jsx";
 import { buildCompat, partVehicles, splitBrandModel, vehicleKey } from "../../core/vehicles.js";
-import { useMarkup, usePricing } from "../pricing.jsx";
+import { usePricing } from "../pricing.jsx";
 import { reservedMap } from "../../core/plans.js";
 import { CATEGORY_NAMES, isUncategorized, suggestCategory } from "../../core/categorize.js";
 import { LEVEL_LABEL, abcClasses, filterItems, level, stockSeries, summarize, usageMap } from "../../core/stock.js";
@@ -158,7 +158,7 @@ function ReservedNote({ item }) {
 function PriceSection({ item }) {
   const { data, store, run } = useApp();
   const pricing = usePricing(data);
-  const [markup, setMarkup] = useMarkup();
+  const { go } = useApp();
   const pr = pricing.get(item.id);
   const [custom, setCustom] = useState("");
   if (!pr) return null;
@@ -187,7 +187,16 @@ function PriceSection({ item }) {
           <div><b>Satış geçmişi</b>{pr.history.sales.slice(0, 5).map((p, i) => <p key={i}><span>{dateLabel(p.date)}</span><span className="muted">{p.plate || p.customer}</span><strong>{money(p.unit)}</strong></p>)}{!pr.history.sales.length ? <p className="muted">—</p> : null}</div>
         </div>
       ) : null}
-      <label className="markup-set">Geçmiş satışı olmayan parçalarda varsayılan kâr: %<input type="number" min="1" max="300" value={markup} onChange={(e) => setMarkup(e.target.value)} aria-label="Varsayılan kâr oranı" /></label>
+      {pr.tiers ? (
+        <div className="tier-row">
+          {[["uygun", "Uygun"], ["dengeli", "Dengeli"], ["karli", "Kârlı"]].map(([k, l]) => (
+            <button key={k} type="button" className={`tier is-${k} ${pr.tiers[k] === price ? "on" : ""}`} onClick={() => save(pr.tiers[k])} title={`Satış fiyatı olarak kaydet (%${pr.tiers.markups[k]} kâr)`}>
+              <span>{l}</span><strong>{money(pr.tiers[k])}</strong><small>%{pr.tiers.markups[k]} · KDV dahil {money(Math.round(pr.tiers[k] * 120) / 100)}</small>
+            </button>
+          ))}
+        </div>
+      ) : null}
+      <button type="button" className="link-btn markup-set" onClick={() => go("teklif", { policy: true })}>Kâr kurallarını düzenle →</button>
     </section>
   );
 }

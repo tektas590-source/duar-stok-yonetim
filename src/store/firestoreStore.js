@@ -28,7 +28,7 @@ export function createFirestoreStore(getActor) {
   return {
     kind: "firestore",
     subscribe(onState, onError) {
-      const state = { ready: false, items: [], movements: [], invoices: [], issues: [], plans: [] };
+      const state = { ready: false, items: [], movements: [], invoices: [], issues: [], plans: [], settings: [] };
       const loaded = new Set();
       const CORE = ["items", "movements", "invoices", "issues"];
       const emit = () => onState({ ...state, ready: CORE.every((k) => loaded.has(k)) });
@@ -46,6 +46,7 @@ export function createFirestoreStore(getActor) {
         listen("invoices", collection(db, "invoices"), byDate),
         listen("issues", collection(db, "issues"), byDate),
         listen("plans", collection(db, "plans"), (a, b) => String(b.createdAt).localeCompare(String(a.createdAt)), true),
+        listen("settings", collection(db, "settings"), null, true),
       ];
       return () => stops.forEach((stop) => stop());
     },

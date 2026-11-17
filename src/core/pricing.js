@@ -1,6 +1,7 @@
 // Fiyatlandırma: her parçanın son alış ve son satış fiyatı, alış fiyatındaki
 // değişim ve güncel alışa göre önerilen satış fiyatı. Tutarlar KDV hariç.
 import { round, VAT_RATE } from "./format.js";
+import { tierPrices } from "./pricePolicy.js";
 
 export const DEFAULT_MARKUP = 35; // %
 
@@ -44,7 +45,10 @@ export function priceHistory(invoices, issues) {
 }
 
 // Tek parça için fiyat özeti.
-export function itemPricing(item, history, defaultMarkup = DEFAULT_MARKUP) {
+// policyOrMarkup: fiyat politikası nesnesi (kademe/kategori) ya da eski usul varsayılan kâr %.
+export function itemPricing(item, history, policyOrMarkup = DEFAULT_MARKUP) {
+  const policy = typeof policyOrMarkup === "object" && policyOrMarkup ? policyOrMarkup : null;
+  const defaultMarkup = policy ? DEFAULT_MARKUP : policyOrMarkup;
   const h = history || { purchases: [], sales: [] };
   const lastBuy = h.purchases[0] || null;
   const prevBuy = h.purchases.find((p) => lastBuy && Math.abs(p.unit - lastBuy.unit) > 0.0001) || null;
@@ -57,7 +61,9 @@ export function itemPricing(item, history, defaultMarkup = DEFAULT_MARKUP) {
   const historical = markups.length ? Math.min(150, Math.max(5, median(markups))) : null;
   const markup = round(historical ?? (Number(defaultMarkup) || DEFAULT_MARKUP), 1);
   const base = lastCost || Number(item.cost) || 0;
-  const suggested = base > 0 ? roundPrice(base * (1 + markup / 100)) : null;
+  // Politika varsa üç seviyeli fiyat (Uygun / Dengeli / Kârlı) ve önerilen fiyat ondan gelir.
+  const tiers = policy && base > 0 ? tierPrices(base, { category: item.category, lastSale: h.sales[0] || null, policy }) : null;
+  const suggested = tiers ? tiers.recommended : base > 0 ? roundPrice(base * (1 + markup / 100)) : null;
 
   // Son satıştan bu yana alış fiyatı arttı mı?
   const saleCost = lastSale?.buyUnit || 0;
@@ -68,14 +74,15 @@ export function itemPricing(item, history, defaultMarkup = DEFAULT_MARKUP) {
   return {
     lastCost, lastBuy, prevBuy, costChangePct,
     lastSale, lastSaleMarginNow,
-    markup, markupSource: historical !== null ? "geçmiş satışlar" : "varsayılan",
+    markup: tiers ? tiers.markups.recommended : markup, markupSource: tiers ? tiers.reason : historical !== null ? "geçmiş satışlar" : "varsayılan",
+    tiers,
     suggested, suggestedGross: suggested !== null ? roundPrice(suggested * (1 + VAT_RATE)) : null,
     costRiseSinceSale, priceLow,
     needsUpdate: Boolean(costRiseSinceSale !== null || priceLow || (costChangePct !== null && costChangePct > 1 && (!lastSale || lastSale.date < lastBuy.date))),
   };
 }
 
-export function buildPricing(items, invoices, issues, defaultMarkup = DEFAULT_MARKUP) {
+export function buildPricing(items, invoices, issues, policyOrMarkup = DEFAULT_MARKUP) {
   const history = priceHistory(invoices, issues);
-  return new Map((items || []).map((i) => [i.id, { ...itemPricing(i, history.get(i.id), defaultMarkup), history: history.get(i.id) || { purchases: [], sales: [] } }]));
+  return new Map((items || []).map((i) => [i.id, { ...itemPricing(i, history.get(i.id), policyOrMarkup), history: history.get(i.id) || { purchases: [], sales: [] } }]));
 }

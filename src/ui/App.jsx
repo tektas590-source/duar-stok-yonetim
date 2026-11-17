@@ -10,6 +10,7 @@ import { IssuesPage, PurchasesPage } from "./pages/Docs.jsx";
 import { CountPage, MovementsPage, OrdersPage, SettingsPage } from "./pages/Ops.jsx";
 import { VehiclesPage } from "./pages/Vehicles.jsx";
 import { PlansPage } from "./pages/Plans.jsx";
+import { QuotePage } from "./pages/Quote.jsx";
 import { firebaseConfigured, hasAccess, logOut, OWNER_EMAIL, watchAuth } from "../firebase.js";
 import { level } from "../core/stock.js";
 
@@ -18,6 +19,7 @@ const NAV = [
   ["stok", "Stok", "box"],
   ["alis", "Alış faturaları", "inbox"],
   ["satis", "Satış / çıkış", "out"],
+  ["teklif", "Fiyat teklifi", "receipt"],
   ["tespit", "Ön tespit", "clipboard"],
   ["arac", "Araç & parça", "car"],
   ["hareket", "Hareketler", "swap"],
@@ -26,7 +28,7 @@ const NAV = [
   ["rapor", "Raporlar", "chart"],
   ["ayarlar", "Ayarlar", "users"],
 ];
-const PAGES = { genel: DashboardPage, stok: StockPage, alis: PurchasesPage, satis: IssuesPage, tespit: PlansPage, arac: VehiclesPage, hareket: MovementsPage, sayim: CountPage, siparis: OrdersPage, rapor: ReportsPage, ayarlar: SettingsPage };
+const PAGES = { genel: DashboardPage, stok: StockPage, alis: PurchasesPage, satis: IssuesPage, teklif: QuotePage, tespit: PlansPage, arac: VehiclesPage, hareket: MovementsPage, sayim: CountPage, siparis: OrdersPage, rapor: ReportsPage, ayarlar: SettingsPage };
 
 // Sinematik sayfa geçişi: perde açılır, ışık çizgisi süpürür, sayfa adı
 // büyük harflerle belirip kaybolur. Tıklamaları engellemez.

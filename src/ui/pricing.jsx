@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { buildPricing, DEFAULT_MARKUP } from "../core/pricing.js";
+import { normalizePolicy } from "../core/pricePolicy.js";
 
 const KEY = "duar-markup";
 const read = () => { try { const v = Number(localStorage.getItem(KEY)); return Number.isFinite(v) && v > 0 ? v : DEFAULT_MARKUP; } catch { return DEFAULT_MARKUP; } };
@@ -22,7 +23,13 @@ export function useMarkup() {
   return [markup, update];
 }
 
+// Ortak fiyat politikası (Firestore settings/pricing), yoksa varsayılan.
+export function usePolicy(data) {
+  const saved = (data.settings || []).find((x) => x.id === "pricing")?.policy;
+  return useMemo(() => normalizePolicy(saved), [saved]);
+}
+
 export function usePricing(data) {
-  const [markup] = useMarkup();
-  return useMemo(() => buildPricing(data.items, data.invoices, data.issues, markup), [data.items, data.invoices, data.issues, markup]);
+  const policy = usePolicy(data);
+  return useMemo(() => buildPricing(data.items, data.invoices, data.issues, policy), [data.items, data.invoices, data.issues, policy]);
 }
