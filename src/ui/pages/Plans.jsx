@@ -4,7 +4,7 @@ import { useApp } from "../context.js";
 import { dateLabel, looseKey, money, qty, todayKey, toNumber } from "../../core/format.js";
 import { isWaiting, nextPlanNo, PLAN_STATUS, planReadiness, planTotals, reservedMap } from "../../core/plans.js";
 import { buildCompat, splitBrandModel } from "../../core/vehicles.js";
-import { usePricing } from "../pricing.jsx";
+import { usePolicy, usePricing } from "../pricing.jsx";
 
 const key = () => Math.random().toString(36).slice(2);
 const emptyLine = (source = "stock") => ({ key: key(), source, sku: "", name: "", brand: "", qty: "1", unitPrice: "", arrived: false });
@@ -14,6 +14,8 @@ const norm = (s) => String(s || "").replace(/\s+/g, "").toLocaleUpperCase("tr");
 function PlanForm({ plan, onClose }) {
   const { data, store, run } = useApp();
   const pricing = usePricing(data);
+  const policy = usePolicy(data);
+  const jobLabor = (name = "") => { const j = policy.laborJobs.find((x) => x.name === name); return { ...emptyLabor(name), qty: j ? String(j.hours) : "1", unitPrice: String(policy.laborRate) }; };
   const items = data.items.filter((i) => !i.archived);
   const plateModels = useMemo(() => buildCompat(data.issues, []).plateModels, [data.issues]);
   const [head, setHead] = useState(() => ({
@@ -99,18 +101,18 @@ function PlanForm({ plan, onClose }) {
         <Button icon="plus" onClick={() => setLines([...lines, emptyLine("stock")])}>Stoktan parça</Button>
         <Button icon="edit" onClick={() => setLines([...lines, emptyLine("manual")])}>Elle parça</Button>
       </div>
-      <h4 className="plan-h">İşçilik</h4>
+      <h4 className="plan-h">İşçilik <small>Saat × {money(policy.laborRate)} (KDV hariç)</small></h4>
       {labor.map((l) => (
         <div key={l.key} className="plan-labor">
           <input value={l.name} onChange={(e) => setLabor((ls) => ls.map((x) => (x.key === l.key ? { ...x, name: e.target.value } : x)))} placeholder="İşçilik adı" aria-label="İşçilik adı" />
-          <input type="number" min="0" step="any" value={l.qty} onChange={(e) => setLabor((ls) => ls.map((x) => (x.key === l.key ? { ...x, qty: e.target.value } : x)))} aria-label="Miktar" />
-          <input type="number" min="0" step="0.01" value={l.unitPrice} onChange={(e) => setLabor((ls) => ls.map((x) => (x.key === l.key ? { ...x, unitPrice: e.target.value } : x)))} placeholder="Tutar" aria-label="Tutar" />
+          <input type="number" min="0" step="0.25" value={l.qty} onChange={(e) => setLabor((ls) => ls.map((x) => (x.key === l.key ? { ...x, qty: e.target.value } : x)))} aria-label="Saat" title="Saat" />
+          <input type="number" min="0" step="0.01" value={l.unitPrice} onChange={(e) => setLabor((ls) => ls.map((x) => (x.key === l.key ? { ...x, unitPrice: e.target.value } : x)))} placeholder="Saat ücreti" aria-label="Saat ücreti" title="Saat ücreti (KDV hariç)" />
           <button type="button" className="icon-btn sm danger" onClick={() => setLabor((ls) => ls.filter((x) => x.key !== l.key))} aria-label="İşçiliği sil"><Icon name="close" size={14} /></button>
         </div>
       ))}
       <div className="chips">
-        <Button icon="plus" onClick={() => setLabor([...labor, emptyLabor()])}>İşçilik ekle</Button>
-        {["Bakım işçiliği", "Mekanik işçilik", "Balata değişim işçiliği"].map((n) => <button key={n} type="button" className="chip" onClick={() => setLabor([...labor, emptyLabor(n)])}>+ {n}</button>)}
+        <Button icon="plus" onClick={() => setLabor([...labor, jobLabor()])}>İşçilik ekle</Button>
+        {policy.laborJobs.map((j) => <button key={j.name} type="button" className="chip" onClick={() => setLabor([...labor, jobLabor(j.name)])}>+ {j.name}<b>{String(j.hours).replace(".", ",")} sa</b></button>)}
       </div>
     </Modal>
   );

@@ -343,3 +343,13 @@ test("price policy: bands, category override, floor, last sale kept, fit to targ
   assert.ok(tooLow.lines.every((l) => l.price >= l.floor));
   assert.equal(tooLow.minGross, 2155.2);
 });
+
+test("labor: default rate 2750/h and job hours", async () => {
+  const { normalizePolicy, laborPrice } = await import("../src/core/pricePolicy.js");
+  const p = normalizePolicy(undefined);
+  assert.equal(p.laborRate, 2750);
+  const triger = p.laborJobs.find((j) => j.name === "Triger seti değişimi");
+  assert.equal(laborPrice(triger.hours, p.laborRate), 9625);
+  assert.equal(laborPrice(0.75, 2750), 2062.5);
+  assert.equal(normalizePolicy({ laborRate: 3000, laborJobs: [{ name: " Yağ değişimi ", hours: "0.5" }, { name: "" }] }).laborJobs.length, 1);
+});

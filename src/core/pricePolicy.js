@@ -17,6 +17,22 @@ export const DEFAULT_POLICY = {
   minProfit: 40, // parça başına en az kâr (₺, KDV hariç)
   floorPct: 8, // alt sınır: alış + %8 (masraf payı)
   keepLastSale: true, // son satış fiyatı aralıktaysa korunur (müşteri tutarlılığı)
+  laborRate: 2750, // saatlik işçilik ücreti (₺, KDV hariç)
+  // Sık yapılan işler ve standart süreleri (saat). Atölyeye göre düzenlenebilir.
+  laborJobs: [
+    { name: "Periyodik bakım", hours: 1 },
+    { name: "Arıza tespiti / diyagnoz", hours: 0.5 },
+    { name: "Ön balata değişimi", hours: 0.75 },
+    { name: "Arka balata değişimi", hours: 0.75 },
+    { name: "Ön disk + balata değişimi", hours: 1.5 },
+    { name: "Buji değişimi", hours: 0.5 },
+    { name: "Polen filtresi değişimi", hours: 0.25 },
+    { name: "Devirdaim değişimi", hours: 2 },
+    { name: "Triger seti değişimi", hours: 3.5 },
+    { name: "Debriyaj seti değişimi", hours: 5 },
+    { name: "Ön amortisör değişimi (çift)", hours: 2 },
+    { name: "Rot ayarı", hours: 0.75 },
+  ],
 };
 
 export function normalizePolicy(p) {
@@ -30,6 +46,8 @@ export function normalizePolicy(p) {
     minProfit: Number.isFinite(Number(p?.minProfit)) ? Math.max(0, Number(p.minProfit)) : d.minProfit,
     floorPct: Number.isFinite(Number(p?.floorPct)) ? Math.max(0, Number(p.floorPct)) : d.floorPct,
     keepLastSale: p?.keepLastSale !== undefined ? Boolean(p.keepLastSale) : d.keepLastSale,
+    laborRate: Number(p?.laborRate) > 0 ? Number(p.laborRate) : d.laborRate,
+    laborJobs: (Array.isArray(p?.laborJobs) ? p.laborJobs : d.laborJobs).map((j) => ({ name: String(j.name || "").trim(), hours: Math.max(0, Number(j.hours) || 0) })).filter((j) => j.name),
   };
 }
 
@@ -111,4 +129,9 @@ export function fitToTarget(lines, labor, targetGross, vatRate = 0.2) {
     if (!changed) break;
   }
   return { lines: out, reachable: targetParts >= minParts - 0.01, minGross };
+}
+
+// İşçilik tutarı = saat × saatlik ücret (KDV hariç).
+export function laborPrice(hours, rate) {
+  return Math.round((Number(hours) || 0) * (Number(rate) || 0) * 100) / 100;
 }

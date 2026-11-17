@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Button, Empty, Field, Icon, PageHead } from "../kit.jsx";
 import { useApp } from "../context.js";
 import { looseKey, money, qty, round, toNumber } from "../../core/format.js";
-import { DEFAULT_POLICY, fitToTarget, normalizePolicy, quoteTotals, roundPrice, tierPrices, TIERS } from "../../core/pricePolicy.js";
+import { DEFAULT_POLICY, fitToTarget, laborPrice, normalizePolicy, quoteTotals, roundPrice, tierPrices, TIERS } from "../../core/pricePolicy.js";
 import { CATEGORY_NAMES } from "../../core/categorize.js";
 import { nextPlanNo } from "../../core/plans.js";
 import { buildCompat, splitBrandModel } from "../../core/vehicles.js";
@@ -54,6 +54,21 @@ function PolicyEditor({ policy, onClose }) {
             <Field label="Alt sınır (alış + %)" hint="Bunun altı zarar sayılır; uyarı verir"><input type="number" min="0" max="50" value={p.floorPct} onChange={(e) => setP({ ...p, floorPct: e.target.value })} /></Field>
             <Field label="Son satış fiyatını koru" hint="Aralıktaysa müşteriye aynı fiyatı ver"><select value={p.keepLastSale ? "1" : "0"} onChange={(e) => setP({ ...p, keepLastSale: e.target.value === "1" })}><option value="1">Evet</option><option value="0">Hayır</option></select></Field>
           </div>
+          <h4>İşçilik</h4>
+          <div className="form-grid cols-2">
+            <Field label="Saatlik işçilik ücreti (₺, KDV hariç)"><input type="number" min="0" step="10" value={p.laborRate} onChange={(e) => setP({ ...p, laborRate: e.target.value })} /></Field>
+          </div>
+          <div className="job-edit">
+            {p.laborJobs.map((j, i) => (
+              <div key={i}>
+                <input value={j.name} onChange={(e) => setP({ ...p, laborJobs: p.laborJobs.map((x, y) => (y === i ? { ...x, name: e.target.value } : x)) })} aria-label="İş adı" />
+                <input type="number" min="0" step="0.25" value={j.hours} onChange={(e) => setP({ ...p, laborJobs: p.laborJobs.map((x, y) => (y === i ? { ...x, hours: e.target.value } : x)) })} aria-label="Saat" />
+                <span className="muted">{money(laborPrice(j.hours, p.laborRate))}</span>
+                <button type="button" className="icon-btn sm danger" onClick={() => setP({ ...p, laborJobs: p.laborJobs.filter((_, y) => y !== i) })} aria-label="Sil"><Icon name="close" size={13} /></button>
+              </div>
+            ))}
+            <Button icon="plus" onClick={() => setP({ ...p, laborJobs: [...p.laborJobs, { name: "", hours: 1 }] })}>İş ekle</Button>
+          </div>
           <h4>Kategoriye özel kâr % <small className="muted">(boş = kademe)</small></h4>
           <div className="policy-cats">{CATEGORY_NAMES.filter((c) => c !== "Diğer").map((c) => (
             <label key={c}><span>{c}</span><input type="number" min="0" max="300" value={p.categories[c] ?? ""} placeholder="—" onChange={(e) => setP({ ...p, categories: { ...p.categories, [c]: e.target.value } })} /></label>
@@ -95,7 +110,9 @@ export function QuotePage({ params }) {
     return { ...l, item, pr, cost, t, price, floor: t?.floor || cost, q: toNumber(l.qty) || 1 };
   };
   const rows = lines.map(calc);
-  const laborRows = labor.map((l) => ({ ...l, q: toNumber(l.qty) || 1, price: toNumber(l.price) }));
+  // İşçilik: saat × saatlik ücret. q = saat, price = saat ücreti.
+  const laborRows = labor.map((l) => ({ ...l, q: toNumber(l.hours ?? l.qty) || 0, price: toNumber(l.rate ?? l.price) }));
+  const addJob = (job) => setLabor((ls) => [...ls, { key: k(), name: job?.name || "", hours: job ? String(job.hours) : "1", rate: String(policy.laborRate) }]);
   const totals = quoteTotals(rows.map((r) => ({ qty: r.q, price: r.price, cost: r.cost })), laborRows.map((l) => ({ qty: l.q, price: l.price })));
   const below = rows.filter((r) => r.cost > 0 && r.price < r.floor - 0.009);
 
@@ -227,18 +244,21 @@ export function QuotePage({ params }) {
           ) : <section className="panel pad"><Empty icon="receipt" title="Teklife parça ekleyin" text="Yukarıdan stoktaki parçayı seçin ya da sistemde olmayan parçayı alış fiyatıyla elle girin." /></section>}
 
           <section className="panel pad">
-            <div className="panel-head"><h3>İşçilik</h3><span className="muted">Maliyeti yok, tamamı kâr</span></div>
-            {labor.map((l) => (
-              <div key={l.key} className="plan-labor">
-                <input value={l.name} onChange={(e) => setLabor((ls) => ls.map((x) => (x.key === l.key ? { ...x, name: e.target.value } : x)))} placeholder="İşçilik adı" aria-label="İşçilik adı" />
-                <input type="number" min="0" step="any" value={l.qty} onChange={(e) => setLabor((ls) => ls.map((x) => (x.key === l.key ? { ...x, qty: e.target.value } : x)))} aria-label="Adet / saat" />
-                <input type="number" min="0" step="0.01" value={l.price} onChange={(e) => setLabor((ls) => ls.map((x) => (x.key === l.key ? { ...x, price: e.target.value } : x)))} placeholder="Tutar (KDV hariç)" aria-label="Tutar" />
+            <div className="panel-head"><h3>İşçilik</h3><span className="muted">Saat ücreti {money(policy.laborRate)} (KDV hariç) · tamamı kâr</span></div>
+            {laborRows.length ? <div className="labor-head"><span>İş</span><span>Saat</span><span>Saat ücreti</span><span>Tutar</span><span /></div> : null}
+            {laborRows.map((l) => (
+              <div key={l.key} className="labor-row">
+                <input value={l.name} onChange={(e) => setLabor((ls) => ls.map((x) => (x.key === l.key ? { ...x, name: e.target.value } : x)))} placeholder="Yapılacak iş" aria-label="İşçilik adı" list="quote-jobs" />
+                <input type="number" min="0" step="0.25" value={l.hours ?? l.qty ?? ""} onChange={(e) => setLabor((ls) => ls.map((x) => (x.key === l.key ? { ...x, hours: e.target.value } : x)))} aria-label="Saat" />
+                <input type="number" min="0" step="1" value={l.rate ?? l.price ?? ""} onChange={(e) => setLabor((ls) => ls.map((x) => (x.key === l.key ? { ...x, rate: e.target.value } : x)))} aria-label="Saat ücreti" />
+                <strong className="num">{money(laborPrice(l.q, l.price))}</strong>
                 <button type="button" className="icon-btn sm danger" onClick={() => setLabor((ls) => ls.filter((x) => x.key !== l.key))} aria-label="Sil"><Icon name="close" size={14} /></button>
               </div>
             ))}
-            <div className="chips">
-              <Button icon="plus" onClick={() => setLabor([...labor, { key: k(), name: "", qty: "1", price: "" }])}>İşçilik ekle</Button>
-              {["Bakım işçiliği", "Mekanik işçilik", "Balata değişim işçiliği"].map((n) => <button key={n} type="button" className="chip" onClick={() => setLabor([...labor, { key: k(), name: n, qty: "1", price: "" }])}>+ {n}</button>)}
+            <datalist id="quote-jobs">{policy.laborJobs.map((j) => <option key={j.name} value={j.name}>{j.hours} saat</option>)}</datalist>
+            <div className="chips job-chips">
+              <Button icon="plus" onClick={() => addJob(null)}>İşçilik ekle</Button>
+              {policy.laborJobs.map((j) => <button key={j.name} type="button" className="chip" onClick={() => addJob(j)}>+ {j.name}<b>{String(j.hours).replace(".", ",")} sa</b></button>)}
             </div>
           </section>
         </div>

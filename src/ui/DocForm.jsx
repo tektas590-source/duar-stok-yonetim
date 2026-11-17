@@ -3,7 +3,7 @@ import { Button, Field, Icon } from "./kit.jsx";
 import { useApp } from "./context.js";
 import { looseKey, money, qty, round, skuKey, todayKey, toNumber, VAT_RATE } from "../core/format.js";
 import { buildCompat, splitBrandModel } from "../core/vehicles.js";
-import { usePricing } from "./pricing.jsx";
+import { usePolicy, usePricing } from "./pricing.jsx";
 
 // Fiyat girerken ipucu: son satış, son alış, öneri; alış fiyatı değiştiyse uyarı.
 function PriceHint({ pr, purchase, price, onPick }) {
@@ -68,7 +68,12 @@ export function DocForm({ mode, initialItemId, initialPlanId, onDone }) {
     data.issues.forEach((d) => (d.services || []).forEach((l) => { if (l.kind === "labor") counts.set(l.name, (counts.get(l.name) || 0) + 1); }));
     return [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([n]) => n).slice(0, 6);
   }, [data.issues]);
-  const addLabor = (name = "", kind = "labor") => setLabor((ls) => [...ls, { key: Math.random().toString(36).slice(2), kind, code: "", name, qty: "1", unitPrice: "" }]);
+  const policy = usePolicy(data);
+  // İşçilik: saat × saatlik ücret. Standart işte süre hazır gelir.
+  const addLabor = (name = "", kind = "labor") => {
+    const job = kind === "labor" ? policy.laborJobs.find((j) => j.name === name) : null;
+    setLabor((ls) => [...ls, { key: Math.random().toString(36).slice(2), kind, code: "", name, qty: job ? String(job.hours) : "1", unitPrice: kind === "labor" ? String(policy.laborRate) : "" }]);
+  };
   const setLaborLine = (key, patch) => setLabor((ls) => ls.map((l) => (l.key === key ? { ...l, ...patch } : l)));
   const laborComputed = labor.map((l) => ({ ...l, q: toNumber(l.qty) || 1, price: toNumber(l.unitPrice), net: round((toNumber(l.qty) || 1) * toNumber(l.unitPrice)) }));
   const laborValid = laborComputed.filter((l) => l.name.trim() && l.net > 0);
@@ -180,23 +185,23 @@ export function DocForm({ mode, initialItemId, initialPlanId, onDone }) {
         <div className="services">
           <div className="services-head">
             <h4><Icon name="bolt" size={16} />İşçilik / hizmet</h4>
-            <small>Stoğa dokunmaz; ciroya eklenir. İşçilik kâra, kartsız parça yalnız ciroya yazılır.</small>
+            <small>Saat ücreti {money(policy.laborRate)} (KDV hariç) · tutar = saat × ücret. Stoğa dokunmaz; işçilik kâra, kartsız parça yalnız ciroya yazılır.</small>
           </div>
           {laborComputed.map((l) => (
             <div key={l.key} className={`service-row ${l.kind === "part" ? "is-part" : ""}`}>
               {l.kind === "part" ? <span className="svc-tag" title={l.code ? `Kod: ${l.code}` : "Kartsız parça"}>parça</span> : null}
               <input value={l.name} onChange={(e) => setLaborLine(l.key, { name: e.target.value })} placeholder={l.kind === "part" ? "Parça adı · marka" : "Örn. Periyodik bakım işçiliği"} aria-label="İşçilik açıklaması" list={l.kind === "part" ? undefined : "labor-list"} />
-              <input type="number" min="0" step="0.01" value={l.unitPrice} onChange={(e) => setLaborLine(l.key, { unitPrice: e.target.value })} placeholder="Tutar (KDV hariç)" aria-label="İşçilik tutarı" />
-              <input type="number" min="0" step="any" value={l.qty} onChange={(e) => setLaborLine(l.key, { qty: e.target.value })} aria-label="Saat / adet" title="Saat veya adet" />
+              <input type="number" min="0" step="0.01" value={l.unitPrice} onChange={(e) => setLaborLine(l.key, { unitPrice: e.target.value })} placeholder={l.kind === "part" ? "Birim fiyat" : "Saat ücreti"} aria-label={l.kind === "part" ? "Birim fiyat" : "Saat ücreti"} title={l.kind === "part" ? "Birim fiyat (KDV hariç)" : "Saat ücreti (KDV hariç)"} />
+              <input type="number" min="0" step={l.kind === "part" ? "any" : "0.25"} value={l.qty} onChange={(e) => setLaborLine(l.key, { qty: e.target.value })} aria-label={l.kind === "part" ? "Adet" : "Saat"} title={l.kind === "part" ? "Adet" : "Saat"} />
               <span className="num">{money(l.net)}</span>
               <button type="button" className="icon-btn sm danger" onClick={() => setLabor((ls) => ls.filter((x) => x.key !== l.key))} aria-label="İşçiliği sil"><Icon name="close" size={14} /></button>
             </div>
           ))}
-          <datalist id="labor-list">{laborNames.map((n) => <option key={n} value={n} />)}</datalist>
+          <datalist id="labor-list">{[...new Set([...policy.laborJobs.map((j) => j.name), ...laborNames])].map((n) => <option key={n} value={n} />)}</datalist>
           <div className="quick-labor">
             <Button icon="plus" onClick={() => addLabor()}>İşçilik ekle</Button>
             <Button icon="box" onClick={() => addLabor("", "part")} title="Stok kartı olmayan parça: ciroya girer, stoğa dokunmaz">Kartsız parça</Button>
-            {laborNames.slice(0, 4).map((n) => <button key={n} type="button" onClick={() => addLabor(n)}>+ {n}</button>)}
+            {policy.laborJobs.slice(0, 8).map((j) => <button key={j.name} type="button" onClick={() => addLabor(j.name)} title={`${j.hours} saat × ${money(policy.laborRate)}`}>+ {j.name} · {String(j.hours).replace(".", ",")} sa</button>)}
           </div>
         </div>
       ) : null}

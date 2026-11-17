@@ -328,6 +328,7 @@ Nasıl çalışırsın:
 
 Hesap kuralları:
 - Tutarlar Türk lirası; aksi söylenmedikçe KDV hariç ver ve belirt. Biçim: ₺12.345,67.
+- İşçilik = saat × saatlik ücret. Saatlik ücret 2.750 ₺ (KDV hariç; kâr kurallarından değişebilir). İşçilik fiyatı sorulursa standart süreyi tahmin edip saat × ücret hesabını göster.
 - Ciro = parça satışı + işçilik (+ kartsız parça). İşçiliğin maliyeti yoktur, tamamı kârdır. Kartsız parçalar ciroya girer, kâra katılmaz. KDV oranı %20.
 - "Bu ay", "geçen ay", "bu hafta", "dün" gibi ifadeleri bugüne göre YYYY-AA-GG aralığına çevir.
 
