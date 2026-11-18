@@ -2,6 +2,8 @@
 import { looseKey, round, VAT_RATE } from "./format.js";
 
 export const PLAN_STATUS = { open: "Bekliyor", done: "Satışa döndü", cancelled: "İptal" };
+// Ekrandaki sekmeler: satışı yapılmış olsa bile parçası/faturası eksik tespit "Bekliyor"da kalır.
+export const PLAN_TABS = { waiting: "Bekliyor", complete: "Tamamlandı", cancelled: "İptal" };
 
 export const lineSource = (l) => l.source || (l.itemId ? "stock" : "manual");
 
@@ -35,6 +37,8 @@ export function planReadiness(plan, items, reserved) {
   // state: ready (stokta var) · short (stok yetmiyor) · waiting (elle, gelmedi) · arrived (geldi işaretli) · nocard
   return (plan.lines || []).map((l, index) => {
     const source = lineSource(l);
+    // Satışı yapılmış tespitte stok artık düşmüş olur; parça gelişi elle işaretle izlenir.
+    if (plan.status === "done") return { ...l, index, source, item: (l.itemId && byId.get(l.itemId)) || bySku.get(looseKey(l.sku)) || null, state: l.arrived ? "arrived" : "waiting" };
     if (source === "manual") return { ...l, index, source, item: null, state: l.arrived ? "arrived" : "waiting" };
     const item = (l.itemId && byId.get(l.itemId)) || bySku.get(looseKey(l.sku)) || null;
     if (!item) return { ...l, index, source, item: null, state: l.arrived ? "arrived" : "nocard" };
@@ -52,3 +56,14 @@ export function nextPlanNo(plans) {
 }
 
 export const isWaiting = (line) => ["short", "waiting", "nocard"].includes(line.state);
+
+// Parça hazır mı (geldi ya da stokta var) ve faturası geldi mi?
+export const partReady = (line) => line.state === "ready" || line.state === "arrived";
+export const invoiceReady = (line) => Boolean(line.invoiced) || line.state === "ready";
+
+// Tespitin sekmesi: iptal · tamamlandı (tüm parçalar ve faturalar geldi) · bekliyor.
+export function planTab(plan, readiness) {
+  if (plan.status === "cancelled") return "cancelled";
+  const lines = readiness || [];
+  return lines.length && lines.every((l) => partReady(l) && invoiceReady(l)) ? "complete" : "waiting";
+}

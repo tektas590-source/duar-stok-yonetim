@@ -161,3 +161,24 @@ test("patchItems updates many cards at once", async () => {
   const s = state(store);
   assert.deepEqual(s.items.map((i) => i.category).sort(), ["Filtreler", "Fren sistemi"]);
 });
+
+test("plans: invoice flag, sold plans stay waiting until parts and invoices arrive", async () => {
+  const { planReadiness, planTab, reservedMap } = await import("../src/core/plans.js");
+  const store = createMemoryStore();
+  const p = await store.savePlan({ plate: "55 B 2", lines: [{ source: "manual", name: "Ayna", qty: 1 }, { source: "manual", name: "Silecek", qty: 2 }] });
+  const tabOf = () => { const s = state(store); const x = s.plans[0]; return planTab(x, planReadiness(x, s.items, reservedMap(s.plans, s.items))); };
+  assert.equal(tabOf(), "waiting");
+  await store.setPlanStatus(p.id, "done", { issueNo: "S-9" });
+  assert.equal(tabOf(), "waiting");
+  await store.togglePlanLine(p.id, 0, "arrived");
+  await store.togglePlanLine(p.id, 1, "arrived");
+  assert.equal(tabOf(), "waiting");
+  await store.togglePlanLine(p.id, 0, "invoiced");
+  assert.equal(tabOf(), "waiting");
+  await store.togglePlanLine(p.id, 1, "invoiced");
+  assert.equal(tabOf(), "complete");
+  assert.ok(state(store).plans[0].lines[1].invoicedAt);
+  await assert.rejects(() => store.togglePlanLine(p.id, 0, "price"));
+  await store.setPlanStatus(p.id, "cancelled");
+  assert.equal(tabOf(), "cancelled");
+});

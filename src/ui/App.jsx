@@ -13,6 +13,7 @@ import { PlansPage } from "./pages/Plans.jsx";
 import { QuotePage } from "./pages/Quote.jsx";
 import { firebaseConfigured, hasAccess, logOut, OWNER_EMAIL, watchAuth } from "../firebase.js";
 import { level } from "../core/stock.js";
+import { planReadiness, planTab, reservedMap } from "../core/plans.js";
 
 const NAV = [
   ["genel", "Genel bakış", "grid"],
@@ -92,7 +93,11 @@ function Shell({ store, user }) {
 
   const isOwner = (user?.email || "").toLowerCase() === OWNER_EMAIL || store.kind === "memory";
   const ctx = useMemo(() => ({ data, store, user, isOwner, toast, run, go }), [data, store, user, isOwner, toast, run, go]);
-  const openPlans = (data.plans || []).filter((p) => p.status === "open").length;
+  const openPlans = useMemo(() => {
+    const plans = data.plans || [];
+    const reserved = reservedMap(plans, data.items);
+    return plans.filter((p) => planTab(p, planReadiness(p, data.items, reserved)) === "waiting").length;
+  }, [data.plans, data.items]);
   const attention = data.items.filter((i) => !i.archived && ["out", "critical"].includes(level(i))).length;
   const Page = PAGES[route.page];
 

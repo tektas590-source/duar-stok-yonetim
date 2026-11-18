@@ -80,7 +80,7 @@ function datasets(data, usage) {
         return { arac: v.label, marka: v.brand || null, model: v.model || null, plakalar: [...v.plates].join(", "), sku: p.sku, ad: item?.name || p.name, kullanim: p.times, toplamAdet: r2(p.qty), sonTarih: p.lastDate || null, sonFiyat: p.lastPrice ? r2(p.lastPrice) : null, stok: item ? Number(item.stock) || 0 : null, kaynak: [...p.sources].join("+") };
       }));
     },
-    on_tespitler: () => (data.plans || []).map((p) => ({ no: p.no, durum: { open: "bekliyor", done: "satışa döndü", cancelled: "iptal" }[p.status] || p.status, musteri: p.customer || null, telefon: p.phone || null, plaka: p.plate || null, arac: [p.brand, p.vehicleModel].filter(Boolean).join(" ") || null, gelis: p.expected || null, not: p.note || null, parcalar: (p.lines || []).map((l) => `${l.sku || "kodsuz"} ${l.name} x${l.qty}`).join("; "), iscilik: (p.labor || []).map((l) => l.name).join("; "), tutar: r2([...(p.lines || []), ...(p.labor || [])].reduce((x, l) => x + (Number(l.qty) || 0) * (Number(l.unitPrice) || 0), 0)), olusturma: String(p.createdAt || "").slice(0, 10) })),
+    on_tespitler: () => (data.plans || []).map((p) => ({ no: p.no, durum: { open: "bekliyor", done: "satışa döndü", cancelled: "iptal" }[p.status] || p.status, musteri: p.customer || null, telefon: p.phone || null, plaka: p.plate || null, arac: [p.brand, p.vehicleModel].filter(Boolean).join(" ") || null, gelis: p.expected || null, not: p.note || null, parcalar: (p.lines || []).map((l) => `${l.sku || "kodsuz"} ${l.name}${l.brand ? ` (${l.brand})` : ""} x${l.qty} [parça ${l.arrived ? "geldi" : "gelmedi"}, fatura ${l.invoiced ? "geldi" : "gelmedi"}]`).join("; "), parcaBekleyen: (p.lines || []).filter((l) => !l.arrived).length, faturaBekleyen: (p.lines || []).filter((l) => !l.invoiced).length, iscilik: (p.labor || []).map((l) => l.name).join("; "), tutar: r2([...(p.lines || []), ...(p.labor || [])].reduce((x, l) => x + (Number(l.qty) || 0) * (Number(l.unitPrice) || 0), 0)), olusturma: String(p.createdAt || "").slice(0, 10) })),
     iptaller: () => [...(data.invoices || []).filter((d) => d.cancelled).map((d) => ({ tur: "alış", no: d.no, tarih: d.date, kim: d.supplier, kdvHaric: r2(d.totals.net) })), ...(data.issues || []).filter((d) => d.cancelled).map((d) => ({ tur: "satış", no: d.no, tarih: d.date, kim: d.customer || "Tezgah", kdvHaric: r2(d.totals.net) }))],
   };
 }
@@ -172,7 +172,7 @@ export const COLLECTION_FIELDS = {
   alis_kalemleri: "tarih, ay, fatura, tedarikci, sku, ad, adet, birimFiyat, iskonto, net, birimMaliyet",
   hareketler: "tarih, ay, sku, ad, islem (Alış faturası / Satış / çıkış / Düzeltme / Sayım / İptal…), miktar, once, sonra, belge, not, kullanici",
   arac_parca: "Araç–parça uyumluluk hafızası (satışlardan otomatik + elle eklenen): arac, marka, model, plakalar, sku, ad, kullanim (kaç satış), toplamAdet, sonTarih, sonFiyat, stok, kaynak (satış/elle)",
-  on_tespitler: "Araç gelmeden belirlenen parça/işçilik listeleri: no, durum (bekliyor/satışa döndü/iptal), musteri, telefon, plaka, arac, gelis (tarih), not, parcalar, iscilik, tutar (KDV hariç), olusturma",
+  on_tespitler: "Araç gelmeden belirlenen parça/işçilik listeleri: no, durum (bekliyor/satışa döndü/iptal), musteri, parcaBekleyen, faturaBekleyen, telefon, plaka, arac, gelis (tarih), not, parcalar, iscilik, tutar (KDV hariç), olusturma",
   iptaller: "tur, no, tarih, kim, kdvHaric",
 };
 

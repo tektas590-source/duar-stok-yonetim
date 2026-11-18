@@ -76,11 +76,12 @@ export function createOps(runTx, getActor) {
             source, itemId: source === "stock" ? l.itemId || null : null, sku: clean(l.sku), name: clean(l.name) || clean(l.sku), brand: clean(l.brand),
             qty: Math.max(0.001, Number(l.qty) || 1), unitPrice: Math.max(0, Number(l.unitPrice) || 0),
             arrived: Boolean(l.arrived), ...(l.arrived ? { arrivedAt: l.arrivedAt || now } : {}),
+            invoiced: Boolean(l.invoiced), ...(l.invoiced ? { invoicedAt: l.invoicedAt || now } : {}),
           };
         });
         const labor = (input.labor || []).filter((l) => clean(l.name)).map((l) => ({ name: clean(l.name), qty: Math.max(0.001, Number(l.qty) || 1), unitPrice: Math.max(0, Number(l.unitPrice) || 0) }));
         if (!clean(input.plate) && !clean(input.customer)) throw new Error("Plaka veya müşteri adı girin.");
-        if (!lines.length && !labor.length) throw new Error("En az bir parça veya işçilik ekleyin.");
+        if (!lines.length && !labor.length) throw new Error("En az bir parça ekleyin.");
         const next = {
           ...(existing || { createdAt: now, createdBy: actor, status: "open" }),
           id, no: existing?.no || clean(input.no) || id, customer: clean(input.customer), phone: clean(input.phone),
@@ -95,12 +96,15 @@ export function createOps(runTx, getActor) {
     },
 
     // Tespitteki bir parçanın "geldi / gelmedi" işaretini değiştirir.
-    async togglePlanLine(id, index) {
+    // Tespitteki bir parçanın işaretini değiştirir: field "arrived" (parça geldi) veya "invoiced" (faturası geldi).
+    async togglePlanLine(id, index, field = "arrived") {
+      if (!["arrived", "invoiced"].includes(field)) throw new Error("Geçersiz işaret.");
       return runTx(async (tx) => {
         const doc = await tx.get("plans", id);
         if (!doc || !doc.lines?.[index]) throw new Error("Tespit satırı bulunamadı.");
         const { now, actor } = meta();
-        const lines = doc.lines.map((l, i) => (i === index ? { ...l, arrived: !l.arrived, arrivedAt: !l.arrived ? now : null, arrivedBy: !l.arrived ? actor : null } : l));
+        const on = !doc.lines[index][field];
+        const lines = doc.lines.map((l, i) => (i === index ? { ...l, [field]: on, [`${field}At`]: on ? now : null, [`${field}By`]: on ? actor : null } : l));
         const next = { ...doc, lines, updatedAt: now };
         tx.set("plans", id, next);
         return next;
