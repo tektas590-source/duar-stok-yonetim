@@ -1,7 +1,8 @@
 // Gemini (Firebase AI Logic) ile sohbet: model araç çağırır, araçlar uygulama
 // verisinde tarayıcıda çalışır, sonuç modele geri verilir.
 import { getAI, getGenerativeModel, GoogleAIBackend, Schema } from "firebase/ai";
-import { app } from "../firebase.js";
+import { getToken } from "firebase/app-check";
+import { app, appCheck } from "../firebase.js";
 import { runTool, systemPrompt, TOOL_SPECS } from "./tools.js";
 import { cleanHistory } from "./history.js";
 
@@ -45,7 +46,7 @@ const TOOL_LABEL = {
 
 export function friendlyError(error) {
   const m = String(error?.message || error || "");
-  if (/App Check/i.test(m)) return "Yapay zekâ isteği Firebase App Check (Uygulama Kontrolü) tarafından engellendi. Firebase → Uygulama Kontrolü → Firebase Yapay Zeka Mantığı ayarını kontrol edin.";
+  if (/App Check|appCheck|app-check/i.test(m)) return `Güvenlik doğrulaması (App Check) bu cihazda başarısız oldu. Sayfayı yenileyip tekrar deneyin. Sürerse: reklam engelleyici / gizli mod kapalı olsun ve siteyi ${typeof location !== "undefined" ? location.host : "asıl adres"} yerine duar-stok-yonetim-9pzc.vercel.app adresinden açın.`;
   if (/SERVICE_DISABLED|has not been used|is disabled|API_NOT_ENABLED|not been enabled/i.test(m)) return "Yapay zekâ servisi Firebase projesinde henüz açık değil.";
   if (/PERMISSION_DENIED|403/i.test(m)) return "Yapay zekâ servisine erişim izni yok (403).";
   if (/quota|RESOURCE_EXHAUSTED|429/i.test(m)) return "Ücretsiz yapay zekâ kotası şu an dolu; bir dakika sonra tekrar deneyin.";
@@ -84,6 +85,7 @@ async function streamTurn(chat, message, onDelta) {
 // history: [{ role: "user" | "model", text }]; getData(): uygulamanın güncel verisi.
 // onStep(etiket): araç çalışırken; onDelta(metin): yanıt yazılırken.
 export async function ask(history, question, getData, onStep, onDelta) {
+  let refreshed = false;
   for (let attempt = 0; attempt < MODELS.length; attempt += 1) {
     let streamed = false;
     try {
@@ -110,6 +112,14 @@ export async function ask(history, question, getData, onStep, onDelta) {
     } catch (error) {
       const m = String(error?.message || "");
       const retryable = /quota|RESOURCE_EXHAUSTED|429|not found|404|no longer available|is not supported|unsupported model|timeout|timed out|abort|500|503|overloaded|UNAVAILABLE/i.test(m);
+      // App Check jetonu süresi dolmuş olabilir (sekme uzun süre açık kaldıysa / bilgisayar uyuduysa):
+      // jetonu zorla yenileyip aynı modelle bir kez daha dene.
+      if (/App Check|app-check|appCheck|401|UNAUTHENTICATED/i.test(m) && !streamed && !refreshed && appCheck) {
+        refreshed = true;
+        try { await getToken(appCheck, true); } catch (e) { console.error("App Check yenilenemedi", e); throw Object.assign(new Error(`App Check: ${e?.message || e}`), { cause: e }); }
+        attempt -= 1;
+        continue;
+      }
       if (retryable && !streamed && attempt < MODELS.length - 1) { modelIndex = (modelIndex + 1) % MODELS.length; continue; }
       throw error;
     }
