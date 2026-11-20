@@ -81,7 +81,7 @@ export function tierPrices(cost, { category = "", lastSale = null, policy } = {}
   let recommended = dengeli;
   let reason = `%${m} kâr kuralı`;
   const ls = Number(lastSale?.unit) || 0;
-  if (p.keepLastSale && ls > 0 && ls >= uygun && ls <= karli) { recommended = roundPrice(ls); reason = "son satış fiyatı korunuyor"; }
+  if (p.keepLastSale && ls > 0 && ls >= uygun && ls <= karli) { recommended = round(ls, 2); reason = "son satış fiyatı korunuyor"; } // yuvarlanmaz: eDMS'te aynı iskonto çıksın
   const pct = (price) => round(((price - c) / c) * 100, 1);
   return { cost: c, markup: m, floor, uygun, dengeli, karli, recommended, reason, markups: { uygun: pct(uygun), dengeli: pct(dengeli), karli: pct(karli), recommended: pct(recommended) } };
 }
