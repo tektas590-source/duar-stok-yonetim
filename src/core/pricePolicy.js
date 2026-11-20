@@ -135,3 +135,16 @@ export function fitToTarget(lines, labor, targetGross, vatRate = 0.2) {
 export function laborPrice(hours, rate) {
   return Math.round((Number(hours) || 0) * (Number(rate) || 0) * 100) / 100;
 }
+
+// eDMS iş emrinde birim fiyat sabittir; fiyat yalnızca iskonto % ile düşürülür.
+// discountFor: liste fiyatından teklif fiyatına inmek için gereken iskonto (2 hane).
+export function discountFor(list, price) {
+  const l = Number(list) || 0;
+  const p = Number(price) || 0;
+  if (l <= 0 || p <= 0) return null;
+  return Math.round((1 - p / l) * 10000) / 100;
+}
+// priceFromDiscount: eDMS'in hesaplayacağı fiyat (liste × (1 − iskonto)).
+export function priceFromDiscount(list, pct) {
+  return Math.round((Number(list) || 0) * (1 - (Number(pct) || 0) / 100) * 100) / 100;
+}

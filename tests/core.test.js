@@ -353,3 +353,18 @@ test("labor: default rate 2750/h and job hours", async () => {
   assert.equal(laborPrice(0.75, 2750), 2062.5);
   assert.equal(normalizePolicy({ laborRate: 3000, laborJobs: [{ name: " Yağ değişimi ", hours: "0.5" }, { name: "" }] }).laborJobs.length, 1);
 });
+
+test("eDMS discount: list → discount % and back; history keeps list price", async () => {
+  const { discountFor, priceFromDiscount } = await import("../src/core/pricePolicy.js");
+  const { priceHistory } = await import("../src/core/pricing.js");
+  assert.equal(discountFor(1000, 850), 15);
+  assert.equal(discountFor(1643.08, 1500), 8.71);
+  assert.equal(priceFromDiscount(1643.08, 8.71), 1499.97);
+  assert.equal(discountFor(1000, 1100), -10);
+  assert.equal(discountFor(0, 100), null);
+  const h = priceHistory([], [{ id: "s", date: "2026-11-01", no: "S1", lines: [{ itemId: "a", qty: 2, unitPrice: 500, discountPct: 10, net: 900, cost: 600 }] }]);
+  const sale = h.get("a").sales[0];
+  assert.equal(sale.list, 500);
+  assert.equal(sale.unit, 450);
+  assert.equal(sale.disc, 10);
+});

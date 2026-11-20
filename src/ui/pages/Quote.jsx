@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Button, Empty, Field, Icon, PageHead } from "../kit.jsx";
 import { useApp } from "../context.js";
 import { looseKey, money, qty, round, toNumber } from "../../core/format.js";
-import { DEFAULT_POLICY, fitToTarget, laborPrice, normalizePolicy, quoteTotals, roundPrice, tierPrices, TIERS } from "../../core/pricePolicy.js";
+import { DEFAULT_POLICY, discountFor, fitToTarget, laborPrice, normalizePolicy, priceFromDiscount, quoteTotals, roundPrice, tierPrices, TIERS } from "../../core/pricePolicy.js";
 import { CATEGORY_NAMES } from "../../core/categorize.js";
 import { nextPlanNo } from "../../core/plans.js";
 import { buildCompat, splitBrandModel } from "../../core/vehicles.js";
@@ -106,12 +106,19 @@ export function QuotePage({ params }) {
     const pr = item ? pricing.get(item.id) : null;
     const cost = item ? (pr?.lastCost || Number(item.cost) || 0) : toNumber(l.cost);
     const t = tierPrices(cost, { category: item?.category || l.category, lastSale: pr?.lastSale, policy });
-    const price = l.tier === "manual" ? toNumber(l.price) : t ? (l.tier === "rec" ? t.recommended : t[l.tier] ?? t.recommended) : toNumber(l.price);
-    return { ...l, item, pr, cost, t, price, floor: t?.floor || cost, q: toNumber(l.qty) || 1 };
+    // eDMS liste fiyatı: elle girilen, yoksa son eDMS satışının iskontosuz birim fiyatı, yoksa kartın satış fiyatı.
+    const autoList = pr?.history?.sales?.[0]?.list || (item?.price ? Number(item.price) : 0) || 0;
+    const list = l.list !== undefined && l.list !== "" ? toNumber(l.list) : autoList;
+    const listSource = l.list !== undefined && l.list !== "" ? "elle" : pr?.history?.sales?.[0]?.list ? `son eDMS satışı ${pr.history.sales[0].no}` : item?.price ? "kart satış fiyatı" : "";
+    const price = l.tier === "disc" && list ? priceFromDiscount(list, l.disc) : l.tier === "manual" ? toNumber(l.price) : t ? (l.tier === "rec" ? t.recommended : t[l.tier] ?? t.recommended) : toNumber(l.price);
+    const disc = list ? discountFor(list, price) : null;
+    return { ...l, item, pr, cost, t, price, list, listSource, disc, overList: Boolean(list) && price > list + 0.009, floor: t?.floor || cost, q: toNumber(l.qty) || 1 };
   };
   const rows = lines.map(calc);
   // İşçilik: saat × saatlik ücret. q = saat, price = saat ücreti.
-  const laborRows = labor.map((l) => ({ ...l, q: toNumber(l.hours ?? l.qty) || 0, price: toNumber(l.rate ?? l.price) }));
+  const laborRows = labor.map((l) => { const price = toNumber(l.rate ?? l.price); return { ...l, q: toNumber(l.hours ?? l.qty) || 0, price, disc: discountFor(policy.laborRate, price) }; });
+  const listTotal = rows.reduce((x, r) => x + (r.list || r.price) * r.q, 0) + laborRows.reduce((x, l) => x + policy.laborRate * l.q, 0);
+  const totalDisc = listTotal > 0 ? discountFor(listTotal, rows.reduce((x, r) => x + r.price * r.q, 0) + laborRows.reduce((x, l) => x + l.price * l.q, 0)) : null;
   const addJob = (job) => setLabor((ls) => [...ls, { key: k(), name: job?.name || "", hours: job ? String(job.hours) : "1", rate: String(policy.laborRate) }]);
   const totals = quoteTotals(rows.map((r) => ({ qty: r.q, price: r.price, cost: r.cost })), laborRows.map((l) => ({ qty: l.q, price: l.price })));
   const below = rows.filter((r) => r.cost > 0 && r.price < r.floor - 0.009);
@@ -136,7 +143,8 @@ export function QuotePage({ params }) {
     const tg = toNumber(target);
     if (!tg) return;
     const res = fitToTarget(rows.map((r) => ({ key: r.key, qty: r.q, price: r.price, cost: r.cost, floor: r.floor })), laborRows.map((l) => ({ qty: l.q, price: l.price })), tg);
-    setLines((ls) => ls.map((l) => { const f = res.lines.find((x) => x.key === l.key); return f ? { ...l, tier: "manual", price: String(f.price) } : l; }));
+    // eDMS'te liste fiyatının üstüne çıkılamaz; hedef için fiyat liste fiyatında sınırlanır.
+    setLines((ls) => ls.map((l) => { const f = res.lines.find((x) => x.key === l.key); const r = rows.find((x) => x.key === l.key); const p = f && r?.list ? Math.min(f.price, r.list) : f?.price; return f ? { ...l, tier: "manual", price: String(p) } : l; }));
     if (!res.reachable) toast(`Bu toplam alt sınırın altında. Zarar etmeden en düşük: ${money(res.minGross)} (KDV dahil).`, "bad");
   };
   const reset = () => { setHead(blankHead); setLines([]); setLabor([]); setTarget(""); };
@@ -144,7 +152,7 @@ export function QuotePage({ params }) {
   const text = () => {
     const ls = [
       `*Fiyat teklifi*${head.plate ? ` · ${head.plate}` : ""}${head.vehicle ? ` (${head.vehicle})` : ""}`,
-      ...rows.map((r) => `• ${r.item?.name || r.name}${r.brand ? ` (${r.brand})` : ""}${r.q !== 1 ? ` x${qty(r.q)}` : ""}: ${money(r.price * r.q * 1.2)}`),
+      ...rows.map((r) => `• ${r.item?.name || r.name}${r.brand ? ` (${r.brand})` : ""}${r.q !== 1 ? ` x${qty(r.q)}` : ""}: ${money(r.price * r.q * 1.2)}${r.disc > 0 && !r.overList ? ` (%${String(r.disc).replace(".", ",")} indirimli)` : ""}`),
       ...laborRows.filter((l) => l.name).map((l) => `• ${l.name}: ${money(l.price * l.q * 1.2)}`),
       `*Toplam (KDV dahil): ${money(totals.gross)}*`,
     ];
@@ -164,13 +172,13 @@ export function QuotePage({ params }) {
     const w = window.open("", "_blank", "width=800,height=900");
     if (!w) return;
     const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-    const body = [...rows.map((r) => [r.item?.sku || r.sku, [r.item?.name || r.name, r.brand].filter(Boolean).join(" · "), r.q, r.price]), ...laborRows.filter((l) => l.name).map((l) => ["", l.name, l.q, l.price])]
-      .map(([s, n, q, p]) => `<tr><td>${esc(s)}</td><td>${esc(n)}</td><td class="r">${esc(qty(q))}</td><td class="r">${esc(money(p))}</td><td class="r">${esc(money(p * q))}</td></tr>`).join("");
+    const body = [...rows.map((r) => [r.item?.sku || r.sku, [r.item?.name || r.name, r.brand].filter(Boolean).join(" · "), r.q, r.list && !r.overList ? r.list : r.price, r.list && !r.overList ? r.disc : 0, r.price]), ...laborRows.filter((l) => l.name).map((l) => ["", l.name, l.q, l.price > policy.laborRate ? l.price : policy.laborRate, l.price > policy.laborRate ? 0 : l.disc || 0, l.price])]
+      .map(([s, n, q, lp, d, p]) => `<tr><td>${esc(s)}</td><td>${esc(n)}</td><td class="r">${esc(qty(q))}</td><td class="r">${esc(money(lp))}</td><td class="r">${d ? `%${esc(String(d).replace(".", ","))}` : "—"}</td><td class="r">${esc(money(p * q))}</td></tr>`).join("");
     w.document.write(`<!doctype html><html lang="tr"><head><meta charset="utf-8"><title>Fiyat teklifi</title><style>body{font:14px system-ui,sans-serif;margin:32px;color:#111}h1{font-size:20px;margin:0 0 6px}table{width:100%;border-collapse:collapse;margin-top:16px}td,th{border-bottom:1px solid #ddd;padding:7px 6px;text-align:left}th{font-size:11px;color:#666;text-transform:uppercase}.r{text-align:right}.tot{margin-top:14px;text-align:right;font-size:15px}.muted{color:#666}</style></head><body>
       <h1>Fiyat teklifi</h1><div class="muted">${esc(new Date().toLocaleDateString("tr-TR"))}</div>
       <p><b>${esc(head.plate)}</b> ${esc(head.vehicle)}<br>${esc(head.customer)} ${esc(head.phone)}</p>
-      <table><thead><tr><th>Kod</th><th>Parça / işçilik</th><th class="r">Adet</th><th class="r">Birim (KDV hariç)</th><th class="r">Tutar</th></tr></thead><tbody>${body}</tbody></table>
-      <div class="tot">Ara toplam ${esc(money(totals.net))}<br>KDV %20 ${esc(money(totals.vat))}<br><b>Genel toplam ${esc(money(totals.gross))}</b></div>
+      <table><thead><tr><th>Kod</th><th>Parça / işçilik</th><th class="r">Adet</th><th class="r">Liste fiyatı</th><th class="r">İskonto</th><th class="r">Net tutar</th></tr></thead><tbody>${body}</tbody></table>
+      <div class="tot">${totalDisc ? `Toplam iskonto %${esc(String(totalDisc).replace(".", ","))}<br>` : ""}Ara toplam ${esc(money(totals.net))}<br>KDV %20 ${esc(money(totals.vat))}<br><b>Genel toplam ${esc(money(totals.gross))}</b></div>
       <script>setTimeout(()=>print(),300)</script></body></html>`);
     w.document.close();
   };
@@ -222,7 +230,7 @@ export function QuotePage({ params }) {
                       <div className="tier-row">
                         {TIERS.map((t) => (
                           <button key={t.id} type="button" className={`tier is-${t.id} ${r.tier === t.id || (r.tier === "rec" && r.t.recommended === r.t[t.id]) ? "on" : ""}`} onClick={() => setLine(r.key, { tier: t.id })} title={t.hint}>
-                            <span>{t.label}{r.t.recommended === r.t[t.id] && r.t.reason !== "son satış fiyatı korunuyor" && t.id === "dengeli" ? " ★" : ""}</span><strong>{money(r.t[t.id])}</strong><small>%{r.t.markups[t.id]} kâr · +{money(r.t[t.id] - r.cost)}</small>
+                            <span>{t.label}{r.t.recommended === r.t[t.id] && r.t.reason !== "son satış fiyatı korunuyor" && t.id === "dengeli" ? " ★" : ""}</span><strong>{money(r.t[t.id])}</strong><small>%{r.t.markups[t.id]} kâr{r.list ? (r.t[t.id] > r.list ? " · liste üstü" : ` · isk. %${discountFor(r.list, r.t[t.id])}`) : ` · +${money(r.t[t.id] - r.cost)}`}</small>
                           </button>
                         ))}
                         <label className={`tier is-manual ${r.tier === "manual" || (r.tier === "rec" && ![r.t.uygun, r.t.dengeli, r.t.karli].includes(r.t.recommended)) ? "on" : ""}`}>
@@ -231,6 +239,12 @@ export function QuotePage({ params }) {
                         </label>
                       </div>
                     ) : <p className="muted ql-need">Fiyat önerisi için alış fiyatını girin{!r.item ? "" : " (bu kartta alış kaydı yok)"}.</p>}
+                    <div className={`edms-row ${r.overList ? "is-over" : ""}`}>
+                      <span className="edms-tag">eDMS</span>
+                      <label><span>Liste fiyatı (iş emri)</span><input type="number" min="0" step="0.01" value={lines.find((x) => x.key === r.key)?.list ?? ""} placeholder={r.list ? money(r.list) : "eDMS birim fiyatı"} onChange={(e) => setLine(r.key, { list: e.target.value })} aria-label="eDMS liste fiyatı" /></label>
+                      <label><span>İskonto %</span><input type="number" min="0" max="100" step="0.01" value={r.tier === "disc" ? lines.find((x) => x.key === r.key)?.disc ?? "" : r.disc ?? ""} disabled={!r.list} onChange={(e) => setLine(r.key, { tier: "disc", disc: e.target.value })} aria-label="İskonto yüzdesi" /></label>
+                      <p>{!r.list ? "Liste fiyatını girin; iskonto otomatik hesaplanır." : r.overList ? <><Icon name="alert" size={13} /> Teklif liste fiyatının üstünde; eDMS'te iskontoyla verilemez. <button type="button" className="link-btn" onClick={() => setLine(r.key, { tier: "manual", price: String(r.list) })}>Liste fiyatına çek</button></> : <>eDMS'te <b>%{String(r.disc).replace(".", ",")}</b> iskonto gir → {money(priceFromDiscount(r.list, r.disc))}{r.listSource ? <small> · liste: {r.listSource}</small> : null}</>}</p>
+                    </div>
                     <footer>
                       <span>Alış <b>{money(r.cost)}</b></span>
                       <span>Satış <b>{money(r.price)}</b> <small>KDV dahil {money(round(r.price * 1.2, 2))}</small></span>
@@ -245,12 +259,13 @@ export function QuotePage({ params }) {
 
           <section className="panel pad">
             <div className="panel-head"><h3>İşçilik</h3><span className="muted">Saat ücreti {money(policy.laborRate)} (KDV hariç) · tamamı kâr</span></div>
-            {laborRows.length ? <div className="labor-head"><span>İş</span><span>Saat</span><span>Saat ücreti</span><span>Tutar</span><span /></div> : null}
+            {laborRows.length ? <div className="labor-head"><span>İş</span><span>Saat</span><span>Saat ücreti</span><span>İsk. %</span><span>Tutar</span><span /></div> : null}
             {laborRows.map((l) => (
               <div key={l.key} className="labor-row">
                 <input value={l.name} onChange={(e) => setLabor((ls) => ls.map((x) => (x.key === l.key ? { ...x, name: e.target.value } : x)))} placeholder="Yapılacak iş" aria-label="İşçilik adı" list="quote-jobs" />
                 <input type="number" min="0" step="0.25" value={l.hours ?? l.qty ?? ""} onChange={(e) => setLabor((ls) => ls.map((x) => (x.key === l.key ? { ...x, hours: e.target.value } : x)))} aria-label="Saat" />
                 <input type="number" min="0" step="1" value={l.rate ?? l.price ?? ""} onChange={(e) => setLabor((ls) => ls.map((x) => (x.key === l.key ? { ...x, rate: e.target.value } : x)))} aria-label="Saat ücreti" />
+                <input type="number" min="0" max="100" step="0.01" value={l.disc ?? ""} onChange={(e) => setLabor((ls) => ls.map((x) => (x.key === l.key ? { ...x, rate: String(priceFromDiscount(policy.laborRate, e.target.value)) } : x)))} aria-label="İşçilik iskonto yüzdesi" title={`eDMS saat ücreti ${money(policy.laborRate)} üzerinden iskonto`} className={l.price > policy.laborRate ? "warn" : ""} />
                 <strong className="num">{money(laborPrice(l.q, l.price))}</strong>
                 <button type="button" className="icon-btn sm danger" onClick={() => setLabor((ls) => ls.filter((x) => x.key !== l.key))} aria-label="Sil"><Icon name="close" size={14} /></button>
               </div>
@@ -275,6 +290,14 @@ export function QuotePage({ params }) {
               <div className="qs-profit"><dt>Toplam kâr</dt><dd className={totals.profit < 0 ? "bad" : "ok"}>{money(totals.profit)} <small>marj %{totals.margin}</small></dd></div>
             </dl>
             {below.length ? <p className="price-warn"><Icon name="alert" size={15} />{below.length} parça alt sınırın altında; zarar riski.</p> : null}
+            {rows.length || laborRows.length ? (
+              <div className="edms-list">
+                <div className="edms-list-head"><b>eDMS iş emrine girilecek iskontolar</b>{totalDisc !== null ? <span>toplam %{String(totalDisc).replace(".", ",")}</span> : null}</div>
+                {rows.map((r) => <p key={r.key} className={r.overList ? "bad" : ""}><span className="mono">{r.item?.sku || r.sku || "—"}</span><span>{r.list ? money(r.list) : "liste yok"}</span><b>{r.list ? (r.overList ? "liste üstü!" : `%${String(r.disc).replace(".", ",")}`) : "—"}</b></p>)}
+                {laborRows.filter((l) => l.name).map((l) => <p key={l.key}><span>{l.name}</span><span>{String(l.q).replace(".", ",")} sa × {money(policy.laborRate)}</span><b>{l.price > policy.laborRate ? "liste üstü!" : `%${String(l.disc ?? 0).replace(".", ",")}`}</b></p>)}
+                <Button icon="clipboard" onClick={async () => { const txt = [...rows.map((r) => `${r.item?.sku || r.sku || r.name}\t${r.list ? `%${r.disc}` : "liste yok"}`), ...laborRows.filter((l) => l.name).map((l) => `${l.name}\t%${l.disc ?? 0}`)].join("\n"); try { await navigator.clipboard.writeText(txt); toast("İskonto listesi kopyalandı."); } catch { toast("Kopyalanamadı.", "bad"); } }}>İskonto listesini kopyala</Button>
+              </div>
+            ) : null}
             <div className="qs-tiers">
               <span>Tümünü:</span>
               {TIERS.map((t) => <button key={t.id} type="button" onClick={() => setAll(t.id)}>{t.label}</button>)}

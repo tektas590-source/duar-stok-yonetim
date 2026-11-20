@@ -29,7 +29,8 @@ export function priceHistory(invoices, issues) {
   }));
   (issues || []).filter((d) => !d.cancelled).forEach((d) => d.lines.forEach((l) => {
     if (!l.itemId || !(l.qty > 0)) return;
-    get(l.itemId).sales.push({ date: d.date, at: d.createdAt || "", no: d.no, customer: d.customer || "Tezgah", plate: d.plate || "", qty: l.qty, unit: round(l.net / l.qty, 4), costUnit: round((l.cost || 0) / l.qty, 4) });
+    // list: iskontosuz birim fiyat (eDMS'teki liste fiyatı), disc: uygulanan iskonto %.
+    get(l.itemId).sales.push({ date: d.date, at: d.createdAt || "", no: d.no, customer: d.customer || "Tezgah", plate: d.plate || "", qty: l.qty, unit: round(l.net / l.qty, 4), list: round(Number(l.unitPrice) || l.net / l.qty, 4), disc: Number(l.discountPct) || 0, costUnit: round((l.cost || 0) / l.qty, 4) });
   }));
   const order = (a, b) => String(b.date).localeCompare(String(a.date)) || String(b.at).localeCompare(String(a.at));
   map.forEach((h) => {
