@@ -175,6 +175,7 @@ function PriceSection({ item }) {
         <div><span>Son satış</span><strong>{pr.lastSale ? money(pr.lastSale.unit) : "—"}</strong><small>{pr.lastSale ? `${dateLabel(pr.lastSale.date)} · ${pr.lastSale.customer}${pr.lastSale.plate ? ` · ${pr.lastSale.plate}` : ""}` : "Henüz satılmadı"}</small></div>
         <div className="is-suggest"><span>Önerilen satış</span><strong>{pr.suggested ? money(pr.suggested) : "—"}</strong><small>{pr.suggested ? `KDV dahil ${money(pr.suggestedGross)} · %${pr.markup} kâr (${pr.markupSource})` : "Alış fiyatı gerekli"}</small></div>
       </div>
+      <p className="kdv-line">KDV dahil · alış <b>{money(pr.lastCost * 1.2)}</b>{price !== null ? <> · kayıtlı satış <b className={price < pr.lastCost * 1.2 ? "bad" : ""}>{money(price * 1.2)}</b></> : null}{pr.suggestedGross ? <> · önerilen <b>{money(pr.suggestedGross)}</b></> : null}</p>
       <div className="quick-row">
         {pr.suggested ? <Button variant="primary" icon="check" onClick={() => save(pr.suggested)} disabled={price === pr.suggested}>Öneriyi satış fiyatı yap</Button> : null}
         <input type="number" min="0" step="0.01" value={custom} onChange={(e) => setCustom(e.target.value)} placeholder={price !== null ? `Kayıtlı: ${price}` : "Kendi fiyatın"} aria-label="Satış fiyatı" />

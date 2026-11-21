@@ -271,7 +271,7 @@ test("vehicle memory: parse note, auto-link parts, plate fallback, manual fits",
 test("pricing: last buy/sale, cost change, suggestion from historical markup", async () => {
   const { buildPricing, roundPrice } = await import("../src/core/pricing.js");
   assert.equal(roundPrice(123.2), 124);
-  assert.equal(roundPrice(1234), 1235);
+  assert.equal(roundPrice(1234.2), 1235);
   assert.equal(roundPrice(12.1), 12.5);
   const items = [{ id: "a", sku: "A", name: "Filtre", cost: 110, lastCost: 120, price: null }, { id: "b", sku: "B", name: "Yeni", cost: 200, lastCost: 200, price: 210 }];
   const invoices = [
@@ -312,19 +312,26 @@ test("categorize: part names map to categories", async () => {
 
 test("price policy: bands, category override, floor, last sale kept, fit to target", async () => {
   const { tierPrices, quoteTotals, fitToTarget, DEFAULT_POLICY } = await import("../src/core/pricePolicy.js");
+  // Varsayılan: KDV hariç alış × 1,42; Uygun ×1,32, Kârlı ×1,52.
+  const chain = tierPrices(6416.66, { policy: DEFAULT_POLICY });
+  assert.equal(chain.markup, 42);
+  assert.equal(chain.dengeli, 9112);
+  assert.equal(chain.uygun, 8470);
+  assert.equal(chain.karli, 9754);
+  assert.ok(chain.uygun > 6416.66 * 1.2, "uygun fiyat KDV dahil alışın üstünde");
   const cheap = tierPrices(50, { policy: DEFAULT_POLICY });
-  assert.equal(cheap.markup, 70);
   assert.ok(cheap.uygun < cheap.dengeli && cheap.dengeli < cheap.karli);
   assert.ok(cheap.dengeli - 50 >= 40, "min profit applies to cheap parts");
-  const dear = tierPrices(8000, { policy: DEFAULT_POLICY });
+  const banded = { ...DEFAULT_POLICY, bands: [{ upTo: 2000, markup: 50 }, { upTo: null, markup: 25 }] };
+  const dear = tierPrices(8000, { policy: banded });
   assert.equal(dear.markup, 25);
   assert.equal(dear.dengeli, 10000);
   assert.equal(dear.floor, 8640);
   const cat = tierPrices(1000, { category: "Motor yağları & sıvılar", policy: { ...DEFAULT_POLICY, categories: { "Motor yağları & sıvılar": 20 } } });
   assert.equal(cat.markup, 20);
   assert.equal(cat.dengeli, 1200);
-  const kept = tierPrices(1000, { lastSale: { unit: 1300 }, policy: DEFAULT_POLICY });
-  assert.equal(kept.recommended, 1300);
+  const kept = tierPrices(1000, { lastSale: { unit: 1400 }, policy: DEFAULT_POLICY });
+  assert.equal(kept.recommended, 1400);
   assert.equal(kept.reason, "son satış fiyatı korunuyor");
   const notKept = tierPrices(1000, { lastSale: { unit: 1050 }, policy: DEFAULT_POLICY });
   assert.equal(notKept.recommended, notKept.dengeli);

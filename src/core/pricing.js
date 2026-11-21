@@ -9,7 +9,7 @@ export const DEFAULT_MARKUP = 35; // %
 export function roundPrice(v) {
   const x = Number(v) || 0;
   if (x <= 0) return 0;
-  const step = x < 50 ? 0.5 : x < 500 ? 1 : x < 5000 ? 5 : 10;
+  const step = x < 100 ? 0.5 : 1;
   return round(Math.ceil(x / step - 1e-9) * step, 2);
 }
 

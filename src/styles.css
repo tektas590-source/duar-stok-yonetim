@@ -984,3 +984,8 @@ td.num.stack { text-align: right; } td.num.stack > * { justify-content: flex-end
 .edms-list p.bad b { color: var(--bad); }
 .edms-list .btn { margin-top: 6px; }
 @media (max-width: 640px) { .edms-row { grid-template-columns: 1fr 1fr; } .edms-row .edms-tag { display: none; } .edms-row p { grid-column: 1 / -1; } .labor-row { grid-template-columns: 1fr 60px 84px 64px; } }
+.mult-box { display: grid; gap: 4px; margin-bottom: 12px; padding: 12px; border-radius: var(--r-sm); border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent); background: var(--accent-soft); }
+.mult-box label { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 13.5px; }
+.mult-box input { width: 90px; height: 34px; font-size: 16px; font-weight: 800; }
+.kdv-line { margin: 0; font-size: 12px; color: var(--text-3); }
+.kdv-line b { color: var(--text); } .kdv-line b.bad { color: var(--bad); }

@@ -28,6 +28,12 @@ function PolicyEditor({ policy, onClose }) {
       <div className="panel-head"><h3>Kâr kuralları</h3><span className="muted">Tüm cihazlarda ortak · KDV hariç</span></div>
       <div className="policy-grid">
         <div>
+          <div className="mult-box">
+            <label>Dengeli satış fiyatı = KDV hariç alış ×
+              <input type="number" min="1" max="4" step="0.01" value={p.bands.length === 1 ? Math.round((1 + Number(p.bands[0].markup) / 100) * 100) / 100 : ""} placeholder="kademeli" onChange={(e) => { const m = Number(String(e.target.value).replace(",", ".")); if (m > 0) setP({ ...p, bands: [{ upTo: null, markup: Math.round((m - 1) * 10000) / 100 }] }); }} aria-label="Kâr çarpanı" />
+            </label>
+            <small className="muted">Uygun ×{p.bands.length === 1 ? (Math.round((1 + (Number(p.bands[0].markup) - Number(p.spread)) / 100) * 100) / 100).toString().replace(".", ",") : "…"} · Kârlı ×{p.bands.length === 1 ? (Math.round((1 + (Number(p.bands[0].markup) + Number(p.spread)) / 100) * 100) / 100).toString().replace(".", ",") : "…"}. Ucuz/pahalı parçaya farklı oran için aşağıya kademe ekleyin.</small>
+          </div>
           <h4>Alış fiyatına göre kâr oranı (Dengeli)</h4>
           <p className="muted">Ucuz parçada oran yüksek, pahalı parçada düşük olmalı; böylece hem kâr edilir hem fiyat makul kalır.</p>
           <table className="table policy-bands">
@@ -45,6 +51,10 @@ function PolicyEditor({ policy, onClose }) {
               );
             })}</tbody>
           </table>
+          <div className="chips">
+            <Button icon="plus" onClick={() => { const last = p.bands[p.bands.length - 1]; const prevUp = p.bands.length > 1 ? Number(p.bands[p.bands.length - 2].upTo) : 0; setP({ ...p, bands: [...p.bands.slice(0, -1), { upTo: prevUp ? prevUp * 4 : 500, markup: last.markup }, { upTo: null, markup: last.markup }] }); }}>Kademe ekle</Button>
+            {p.bands.length > 1 ? <Button icon="close" onClick={() => setP({ ...p, bands: [...p.bands.slice(0, -2), { upTo: null, markup: p.bands[p.bands.length - 1].markup }] })}>Son kademeyi kaldır</Button> : null}
+          </div>
         </div>
         <div>
           <h4>Genel ayarlar</h4>

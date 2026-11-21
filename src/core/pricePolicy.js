@@ -5,15 +5,12 @@
 import { round } from "./format.js";
 
 export const DEFAULT_POLICY = {
+  // Temel kural: KDV hariç alış × 1,42 (Dengeli = %42 kâr). Kademe eklenerek ucuz/pahalı parçaya farklı oran verilebilir.
   bands: [
-    { upTo: 100, markup: 70 },
-    { upTo: 500, markup: 50 },
-    { upTo: 2000, markup: 35 },
-    { upTo: 10000, markup: 25 },
-    { upTo: null, markup: 18 },
+    { upTo: null, markup: 42 },
   ],
   categories: {},
-  spread: 12, // Uygun = dengeli − 12 puan, Kârlı = dengeli + 12 puan
+  spread: 10, // Uygun = dengeli − 10 puan (×1,32), Kârlı = dengeli + 10 puan (×1,52)
   minProfit: 40, // parça başına en az kâr (₺, KDV hariç)
   floorPct: 8, // alt sınır: alış + %8 (masraf payı)
   keepLastSale: true, // son satış fiyatı aralıktaysa korunur (müşteri tutarlılığı)
@@ -55,7 +52,7 @@ export function normalizePolicy(p) {
 export function roundPrice(v) {
   const x = Number(v) || 0;
   if (x <= 0) return 0;
-  const step = x < 50 ? 0.5 : x < 500 ? 1 : x < 5000 ? 5 : 10;
+  const step = x < 100 ? 0.5 : 1; // tam liraya yukarı yuvarla (×1,42 kuralından sapmasın)
   return round(Math.ceil(x / step - 1e-9) * step, 2);
 }
 
