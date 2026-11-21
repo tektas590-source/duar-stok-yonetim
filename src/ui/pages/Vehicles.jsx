@@ -1,5 +1,7 @@
-import React, { useMemo, useState } from "react";
-import { Button, Empty, Icon, PageHead, Stat } from "../kit.jsx";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { Button, Empty, Icon, Modal, PageHead, Stat } from "../kit.jsx";
+import { readSheetRows } from "../excel.js";
+import { parseDetailReport, summarizeOrders } from "../../core/workorders.js";
 import { useApp } from "../context.js";
 import { buildCompat, partVehicles, searchVehicles, splitBrandModel, vehicleKey, vehicleParts } from "../../core/vehicles.js";
 import { level, LEVEL_LABEL } from "../../core/stock.js";
@@ -13,7 +15,28 @@ export function VehiclesPage({ params }) {
   const [selKey, setSelKey] = useState(params?.key || null);
   const [adding, setAdding] = useState("");
   const [modelText, setModelText] = useState("");
-  const compat = useMemo(() => buildCompat(data.issues, data.items.filter((i) => !i.archived)), [data.issues, data.items]);
+  const [woPreview, setWoPreview] = useState(null);
+  const fileRef = useRef(null);
+  // eDMS sekmesinden (Detay Faaliyet Raporu) tarayıcı içinde gelen satırlar. Yalnızca eDMS adresinden kabul edilir; kaydetmeden önce önizleme gösterilir.
+  useEffect(() => {
+    const EDMS = "https://eurorepar.echo.com.tr";
+    const onMsg = (e) => {
+      if (e.origin !== EDMS || e.data?.type !== "duar-wdmr003" || !Array.isArray(e.data.rows)) return;
+      try { setWoPreview(parseDetailReport(e.data.rows)); } catch (error) { run(async () => { throw error; }); }
+    };
+    window.addEventListener("message", onMsg);
+    if (window.opener) { try { window.opener.postMessage({ type: "duar-ready" }, EDMS); } catch { /* yoksay */ } }
+    return () => window.removeEventListener("message", onMsg);
+  }, [run]);
+  const onFile = async (f) => {
+    if (!f) return;
+    try { setWoPreview(parseDetailReport(await readSheetRows(f))); } catch (error) { run(async () => { throw error; }); }
+    if (fileRef.current) fileRef.current.value = "";
+  };
+  const saveOrders = async () => {
+    if (await run(() => store.importWorkOrders(woPreview).catch((error) => { if (/permission|insufficient/i.test(error?.message || "")) throw new Error("Kaydedilemedi: Firebase kuralına \"workorders\" izni eklenmeli."); throw error; }), `${woPreview.length} iş emri araç hafızasına alındı.`)) setWoPreview(null);
+  };
+  const compat = useMemo(() => buildCompat(data.issues, data.items.filter((i) => !i.archived), data.workorders), [data.issues, data.items, data.workorders]);
   const list = useMemo(() => searchVehicles(compat, query), [compat, query]);
   const known = list.filter((v) => !v.key.startsWith("PLAKA|"));
   const unknown = list.filter((v) => v.key.startsWith("PLAKA|"));
@@ -62,7 +85,22 @@ export function VehiclesPage({ params }) {
 
   return (
     <div className="page">
-      <PageHead eyebrow="HAFIZA" title="Araç & parça uyumu" text="Her satışta hangi parçanın hangi araca takıldığı otomatik kaydedilir. Marka, model, plaka, şase no ya da parça yazın; o araca uyan parçaları stok durumuyla görün." />
+      <PageHead eyebrow="HAFIZA" title="Araç & parça uyumu" text="eDMS iş emirlerinden ve satışlardan hangi parçanın hangi araca takıldığı hafızaya alınır. Marka, model, gövde, yıl, plaka, şase no ya da parça yazın; o araca uyan parçaları stok durumuyla görün."
+        actions={<><input ref={fileRef} type="file" accept=".xlsx,.xls,.csv" hidden onChange={(e) => onFile(e.target.files?.[0])} /><Button icon="upload" onClick={() => fileRef.current?.click()} title="eDMS → Servis → Raporlar → Detay Faaliyet Raporu (Detaylar görüntülensin) Excel'i">eDMS iş emri raporu yükle</Button></>} />
+      {woPreview ? (
+        <Modal wide title="eDMS iş emirleri → araç hafızası" subtitle="Detay Faaliyet Raporu okundu. Kontrol edip kaydedin; aynı iş emri tekrar gelirse güncellenir." onClose={() => setWoPreview(null)}
+          footer={<><Button onClick={() => setWoPreview(null)}>Vazgeç</Button><Button variant="primary" icon="check" disabled={!woPreview.length} onClick={saveOrders}>{woPreview.length} iş emrini kaydet</Button></>}>
+          {(() => { const sm = summarizeOrders(woPreview); return <div className="mini-stats veh-stats"><Stat label="İş emri" value={sm.orders} /><Stat label="Araç modeli" value={sm.models} /><Stat label="Şasi" value={sm.vins} /><Stat label="Parça satırı" value={sm.partLines} tone="ok" /></div>; })()}
+          <div className="table-scroll cat-table">
+            <table className="table">
+              <thead><tr><th>İŞ EMRİ</th><th>ARAÇ</th><th>PLAKA · ŞASİ</th><th className="num">PARÇA</th><th className="num">İŞ</th></tr></thead>
+              <tbody>{woPreview.slice(0, 300).map((o) => (
+                <tr key={o.no}><td className="stack"><span className="mono">{o.no}</span><small>{dateLabel(o.date)}</small></td><td className="stack"><span className="strong">{o.brand} {o.model}</span><small>{[o.body, o.year].filter(Boolean).join(" · ")}</small></td><td className="stack"><span>{o.plate}</span><small className="mono">{o.vin}</small></td><td className="num">{o.lines.filter((l) => l.kind === "part").length}</td><td className="num">{o.lines.filter((l) => l.kind === "job").length}</td></tr>
+              ))}</tbody>
+            </table>
+          </div>
+        </Modal>
+      ) : null}
       <div className="mini-stats veh-stats">
         <Stat label="Araç modeli" value={models.length} style={{ "--i": 0 }} />
         <Stat label="Kayıtlı plaka" value={compat.plates.size} style={{ "--i": 1 }} />
@@ -118,7 +156,7 @@ export function VehiclesPage({ params }) {
                 <span className="veh-ico big"><Icon name="car" size={26} /></span>
                 <div>
                   <h2>{selected.label}</h2>
-                  <p className="muted">{selected.services} servis · {[...selected.customers].slice(0, 3).join(", ") || "—"}</p>
+                  <p className="muted">{[...(selected.bodies || [])].join(", ")}{selected.years?.size ? ` · ${[...selected.years].sort().join(", ")} model` : ""}{selected.bodies?.size || selected.years?.size ? " · " : ""}{selected.services} servis · {[...selected.customers].slice(0, 3).join(", ") || "—"}</p>
                 </div>
               </div>
               {selected.plates.size || selected.vins.size ? <div className="chips veh-plates">{[...selected.plates].map((p) => <span key={p} className="chip"><i />{p}</span>)}{[...selected.vins].slice(0, 4).map((v) => <span key={v} className="chip mono">{v}</span>)}</div> : null}
@@ -128,7 +166,7 @@ export function VehiclesPage({ params }) {
                     <thead><tr><th>PARÇA</th><th className="num">KULLANIM</th><th className="num">SON FİYAT</th><th>SON</th><th className="num">STOK</th><th /></tr></thead>
                     <tbody>{parts.map((p, i) => (
                       <tr key={p.itemId || p.sku} className="row" style={{ "--d": `${Math.min(i, 20) * 15}ms` }} onClick={() => (p.itemId ? go("stok", { itemId: p.itemId }) : go("stok", { q: p.sku }))}>
-                        <td className="stack"><span className="strong">{p.item?.name || p.name}</span><small className="mono">{p.sku}{p.sources.includes("elle") ? " · elle eklendi" : ""}</small></td>
+                        <td className="stack"><span className="strong">{p.item?.name || p.name}</span><small className="mono">{p.sku}{p.sources.includes("iş emri") ? " · eDMS iş emri" : ""}{p.sources.includes("elle") ? " · elle eklendi" : ""}</small></td>
                         <td className="num">{p.times ? `${p.times} kez · ${qty(p.qty)}` : "—"}</td>
                         <td className="num">{p.lastPrice ? money(p.lastPrice) : "—"}</td>
                         <td className="muted">{p.lastDate ? dateLabel(p.lastDate) : "—"}</td>
@@ -139,6 +177,9 @@ export function VehiclesPage({ params }) {
                   </table>
                 </div>
               ) : <Empty icon="box" title="Bu araçta parça kaydı yok" />}
+              {selected.jobs?.size ? (
+                <div className="veh-jobs"><b>Bu modelde yapılan işler</b>{[...selected.jobs.values()].sort((a, b) => b.times - a.times).map((j) => <span key={j.name} className="chip">{j.name}<b>{j.times}×</b></span>)}</div>
+              ) : null}
               {!selected.key.startsWith("PLAKA|") ? (
                 <form className="veh-add" onSubmit={(e) => { e.preventDefault(); addFit(); }}>
                   <input list="veh-skus" value={adding} onChange={(e) => setAdding(e.target.value)} placeholder="Bu araca uyan bir parçanın stok kodunu ekle…" aria-label="Uyumlu parça ekle" />

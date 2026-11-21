@@ -989,3 +989,4 @@ td.num.stack { text-align: right; } td.num.stack > * { justify-content: flex-end
 .mult-box input { width: 90px; height: 34px; font-size: 16px; font-weight: 800; }
 .kdv-line { margin: 0; font-size: 12px; color: var(--text-3); }
 .kdv-line b { color: var(--text); } .kdv-line b.bad { color: var(--bad); }
+.veh-jobs { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12.5px; } .veh-jobs > b { width: 100%; font-size: 12px; color: var(--text-3); }

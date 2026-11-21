@@ -12,7 +12,7 @@ const norm = (s) => String(s || "").replace(/\s+/g, "").toLocaleUpperCase("tr");
 function PlanForm({ plan, onClose }) {
   const { data, store, run } = useApp();
   const items = data.items.filter((i) => !i.archived);
-  const plateModels = useMemo(() => buildCompat(data.issues, []).plateModels, [data.issues]);
+  const plateModels = useMemo(() => buildCompat(data.issues, [], data.workorders).plateModels, [data.issues, data.workorders]);
   const [head, setHead] = useState(() => ({
     customer: plan?.customer || "", phone: plan?.phone || "", plate: plan?.plate || "",
     vehicle: [plan?.brand, plan?.vehicleModel].filter(Boolean).join(" "), expected: plan?.expected || "", note: plan?.note || "",

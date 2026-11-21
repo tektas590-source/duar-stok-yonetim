@@ -106,7 +106,7 @@ export function QuotePage({ params }) {
   const [pick, setPick] = useState("");
   const [target, setTarget] = useState("");
   const [showPolicy, setShowPolicy] = useState(Boolean(params?.policy));
-  const plateModels = useMemo(() => buildCompat(data.issues, []).plateModels, [data.issues]);
+  const plateModels = useMemo(() => buildCompat(data.issues, [], data.workorders).plateModels, [data.issues, data.workorders]);
 
   useEffect(() => { try { sessionStorage.setItem(KEY, JSON.stringify({ head, lines, labor })); } catch { /* yoksay */ } }, [head, lines, labor]);
 

@@ -66,7 +66,14 @@ export function docVehicle(doc, plateModels) {
 }
 
 // Tüm hafıza: araç modelleri → parçalar, parça → araçlar, plaka → araç.
-export function buildCompat(issues, items) {
+// workorders: eDMS iş emirleri (Detay Faaliyet Raporu) — şasi, model ve kullanılan parçalar.
+export function buildCompat(issues, items, workorders = []) {
+  const wos = (workorders || []).filter((w) => w.brand || w.model);
+  // Aynı işin satış faturası da varsa iki kez sayılmasın: iş emri tarihinden 45 gün içindeki aynı plakalı satış atlanır.
+  const woPlates = new Map();
+  wos.forEach((w) => { const p = up(w.plate).replace(/\s/g, ""); if (p) woPlates.set(p, [...(woPlates.get(p) || []), w.date]); });
+  const dayDiff = (a, b) => (Date.parse(a) - Date.parse(b)) / 864e5;
+  const coveredByWo = (d) => (woPlates.get(up(d.plate).replace(/\s/g, "")) || []).some((wd) => wd && d.date && dayDiff(d.date, wd) >= -1 && dayDiff(d.date, wd) <= 45);
   const live = (issues || []).filter((d) => !d.cancelled);
   const itemsById = new Map((items || []).map((i) => [i.id, i]));
   // Plakanın modeli bir belgede biliniyorsa aynı plakalı diğer belgelere de uygula.
@@ -76,18 +83,19 @@ export function buildCompat(issues, items) {
     const brand = up(d.brand || brandFromVin(d.vin));
     if (plate && (d.vehicleModel || brand)) plateModels.set(plate, { brand, model: up(d.vehicleModel) });
   });
+  wos.forEach((w) => { const plate = up(w.plate); if (plate) { plateModels.set(plate, { brand: up(w.brand), model: up(w.model) }); plateModels.set(plate.replace(/\s/g, ""), { brand: up(w.brand), model: up(w.model) }); } });
   const vehicles = new Map();
   const byPart = new Map();
   const plates = new Map();
   const touch = (v, key) => {
-    if (!vehicles.has(key)) vehicles.set(key, { key, brand: v.brand, model: v.model, label: vehicleLabel(v.brand, v.model), plates: new Set(), vins: new Set(), customers: new Set(), services: 0, lastDate: "", parts: new Map() });
+    if (!vehicles.has(key)) vehicles.set(key, { key, brand: v.brand, model: v.model, label: vehicleLabel(v.brand, v.model), plates: new Set(), vins: new Set(), customers: new Set(), bodies: new Set(), years: new Set(), services: 0, lastDate: "", parts: new Map(), jobs: new Map() });
     return vehicles.get(key);
   };
   const addPart = (veh, part, date, source) => {
     const pk = part.itemId || `x_${looseKey(part.sku)}`;
     const row = veh.parts.get(pk) || { itemId: part.itemId || null, sku: part.sku, name: part.name, qty: 0, times: 0, lastDate: "", lastPrice: null, sources: new Set() };
     row.qty = round(row.qty + (Number(part.qty) || 0), 3);
-    if (source === "satış") row.times += 1;
+    if (source === "satış" || source === "iş emri") row.times += 1;
     if (date && date >= row.lastDate) { row.lastDate = date; if (part.unitPrice) row.lastPrice = part.unitPrice; }
     row.sources.add(source);
     veh.parts.set(pk, row);
@@ -95,7 +103,35 @@ export function buildCompat(issues, items) {
     list.add(veh.key);
     byPart.set(pk, list);
   };
+  // eDMS iş emirleri: araç modeli ve şasi kesin; parçalar ve yapılan işler hafızaya girer.
+  wos.forEach((w) => {
+    const brand = up(w.brand);
+    const model = up(w.model);
+    const key = vehicleKey(brand, model);
+    const veh = touch({ brand, model }, key);
+    const plate = up(w.plate);
+    if (plate) { veh.plates.add(plate); plates.set(plate, key); }
+    if (w.vin) veh.vins.add(up(w.vin));
+    if (w.customer) veh.customers.add(w.customer);
+    if (w.body) veh.bodies.add(up(w.body));
+    if (w.year) veh.years.add(String(w.year));
+    veh.services += 1;
+    if (String(w.date) > veh.lastDate) veh.lastDate = String(w.date);
+    (w.lines || []).forEach((l) => {
+      if (l.kind === "job") {
+        const j = veh.jobs.get(l.name) || { name: l.name, code: l.code, times: 0, lastLabor: 0, lastDate: "" };
+        j.times += 1;
+        if (String(w.date) >= j.lastDate) { j.lastDate = String(w.date); j.lastLabor = l.labor; }
+        veh.jobs.set(l.name, j);
+        return;
+      }
+      const item = (items || []).find((i) => looseKey(i.sku) === looseKey(l.code));
+      const unit = l.qty ? (Number(l.parts) || Number(l.total) || 0) / l.qty : 0;
+      addPart(veh, { itemId: item?.id || null, sku: item?.sku || l.code, name: item?.name || l.name, qty: l.qty, unitPrice: unit ? round(unit, 2) : null }, w.date, "iş emri");
+    });
+  });
   live.forEach((d) => {
+    if (coveredByWo(d)) return;
     const v = docVehicle(d, plateModels);
     const key = vehicleKey(v.brand, v.model) || (v.plate ? `PLAKA|${v.plate}` : "");
     if (!key) return;
@@ -131,7 +167,7 @@ export function searchVehicles(compat, query) {
   const qLoose = looseKey(q);
   const words = q.split(" ").filter(Boolean);
   return list.filter((v) => {
-    const hay = `${v.label} ${[...v.plates].join(" ")} ${[...v.vins].join(" ")} ${[...v.customers].join(" ")}`.toLocaleUpperCase("tr");
+    const hay = `${v.label} ${[...(v.bodies || [])].join(" ")} ${[...(v.years || [])].join(" ")} ${[...v.plates].join(" ")} ${[...v.vins].join(" ")} ${[...v.customers].join(" ")}`.toLocaleUpperCase("tr").replace(/İ/g, "I");
     return words.every((w) => hay.includes(w)) || [...v.plates, ...v.vins].some((p) => qLoose.length >= 3 && looseKey(p).includes(qLoose));
   }).sort((a, b) => b.services - a.services);
 }

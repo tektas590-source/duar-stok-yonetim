@@ -53,7 +53,7 @@ export function DocForm({ mode, initialItemId, initialPlanId, onDone }) {
     return item ? [{ ...emptyLine(), sku: item.sku, name: item.name, unitPrice: isPurchase ? item.lastCost || "" : sellPrice(item) }] : [emptyLine()];
   };
   const [head, setHead] = useState({ no: isPurchase ? "" : nextIssueNo, supplier: "", customer: plan?.customer || "", plate: plan?.plate || "", vehicle: [plan?.brand, plan?.vehicleModel].filter(Boolean).join(" "), note: plan ? [`Ön tespit ${plan.no}`, plan.note].filter(Boolean).join(" · ") : "", date: todayKey() });
-  const plateModels = useMemo(() => (isPurchase ? new Map() : buildCompat(data.issues, []).plateModels), [isPurchase, data.issues]);
+  const plateModels = useMemo(() => (isPurchase ? new Map() : buildCompat(data.issues, [], data.workorders).plateModels), [isPurchase, data.issues, data.workorders]);
   const setPlate = (plate) => { const known = plateModels.get(String(plate).trim().replace(/\s+/g, " ").toLocaleUpperCase("tr")); setHead((h) => ({ ...h, plate, vehicle: !h.vehicle && known ? [known.brand, known.model].filter(Boolean).join(" ") : h.vehicle })); };
   const [lines, setLines] = useState(initLines);
   const [paste, setPaste] = useState("");

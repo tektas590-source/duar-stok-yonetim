@@ -375,3 +375,42 @@ test("eDMS discount: list → discount % and back; history keeps list price", as
   assert.equal(sale.unit, 450);
   assert.equal(sale.disc, 10);
 });
+
+test("eDMS Detay Faaliyet Raporu → work orders → vehicle memory", async () => {
+  const { parseDetailReport, woDate } = await import("../src/core/workorders.js");
+  const { buildCompat, searchVehicles, vehicleParts } = await import("../src/core/vehicles.js");
+  assert.equal(woDate("01/10/26"), "2026-10-01");
+  const H = ["Marka","Govde","Model","Model Yılı","Plaka","Geliş Km","Müşteri","Tel 1","İş Emri","İş Emri Türü","Açılış Tarihi","Tahsil Tipi","Miktar/Katsayı","İşçilik Tutarı","Yedek Parça Tutar","Harici Tutar","Toplam Tutar","İskonto Tutar","Kdv Dahil","İşçilik İsk.","YP İsk.","Harici İsk.","Müşteri","Finansal Müşteri","Şasi No","Kasko","Trf","Sorumlu","Kapanış Tarihi","Fat. Tar"];
+  const e6 = ["","","","","",""];
+  const rows = [
+    ["DEMİR İNŞ. DETAY FALİYET RAPORU"], H,
+    ["OPEL","COMBO","COMBO EDITION 1.5 DIZEL MT6 130 FL","2026","55AVG474","30.500","ALTAN KARATAŞ","0541","2026-1001001","MEKANIK","01/10/26","MÜŞTERİ","","1.700,00","6.237,88","0,00","7.937,88","674,47","8.716,10","0,00","674,47","0,00","ALTAN","335","W0VEDYHZ3SJ983805","","","BURHAN","01/10/26","01/10/26"],
+    [...e6,"GRT-605305","MOTOR YAĞI 5W30","4","0,00","1.060,00","0,00","1.060,00","0,00","1.272,00"],
+    [...e6,"1609988980","MQP POLEN FİLTRESİ","1","0,00","707,81","0,00","707,81","70,78","764,43"],
+    [...e6,"ERT001","Bakım İşçiliği","1","1.700,00","0,00","0,00","1.700,00","0,00","2.040,00"],
+    H,
+    ["OPEL","COMBO","COMBO EDITION 1.5 DIZEL MT6 130 FL","2025","55XYZ01","12.000","AHMET","0","2026-1002005","MEKANIK","05/11/26","MÜŞTERİ","","0,00","707,81","0,00","707,81","0,00","849,37","","","","AHMET","","W0VEDYHZ3SJ111111","","","","",""],
+    [...e6,"1609988980","MQP POLEN FİLTRESİ","1","0,00","707,81","0,00","707,81","0,00","849,37"],
+  ];
+  const orders = parseDetailReport(rows);
+  assert.equal(orders.length, 2);
+  assert.equal(orders[0].vin, "W0VEDYHZ3SJ983805");
+  assert.equal(orders[0].date, "2026-10-01");
+  assert.equal(orders[0].lines.length, 3);
+  assert.equal(orders[0].lines[2].kind, "job");
+  assert.equal(orders[0].lines[0].qty, 4);
+  const items = [{ id: "pf", sku: "1609988980", name: "Polen filtresi", stock: 2, minimum: 0 }];
+  const sale = { id: "s", date: "2026-10-03", plate: "55AVG474", customer: "ALTAN", lines: [{ itemId: "pf", sku: "1609988980", name: "Polen", qty: 1, unitPrice: 707.81 }], services: [] };
+  const c = buildCompat([sale], items, orders);
+  const v = searchVehicles(c, "combo")[0];
+  assert.equal(v.key, "OPEL|COMBO EDITION 1.5 DIZEL MT6 130 FL");
+  assert.equal(v.services, 2, "sale covered by work order is not double counted");
+  const parts = vehicleParts(v, c.itemsById);
+  assert.equal(parts[0].sku, "1609988980");
+  assert.equal(parts[0].times, 2);
+  assert.ok(parts.some((p) => p.sku === "GRT-605305"));
+  assert.ok(!parts.some((p) => p.sku === "ERT001"));
+  assert.equal(v.jobs.get("Bakım İşçiliği").times, 1);
+  assert.equal(searchVehicles(c, "W0VEDYHZ3SJ111111")[0].key, v.key);
+  assert.throws(() => parseDetailReport([["x"]]));
+});

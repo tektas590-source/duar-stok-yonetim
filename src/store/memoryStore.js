@@ -1,7 +1,7 @@
 // Bellek içi depo: testler ve önizleme için. Firestore deposuyla aynı arayüz.
 import { createOps } from "./ops.js";
 
-const COLLECTIONS = ["items", "movements", "invoices", "issues", "counts", "plans", "settings"];
+const COLLECTIONS = ["items", "movements", "invoices", "issues", "counts", "plans", "settings", "workorders"];
 
 export function createMemoryStore(seed = {}, actor = "demo@duar.local") {
   const db = Object.fromEntries(COLLECTIONS.map((c) => [c, new Map((seed[c] || []).map((d) => [d.id, d]))]));
@@ -13,6 +13,7 @@ export function createMemoryStore(seed = {}, actor = "demo@duar.local") {
     invoices: [...db.invoices.values()].sort((a, b) => String(b.date).localeCompare(String(a.date)) || String(b.createdAt).localeCompare(String(a.createdAt))),
     issues: [...db.issues.values()].sort((a, b) => String(b.date).localeCompare(String(a.date)) || String(b.createdAt).localeCompare(String(a.createdAt))),
     settings: [...db.settings.values()],
+    workorders: [...db.workorders.values()],
     plans: [...db.plans.values()].sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt))),
   });
   const emit = () => { const s = snapshot(); listeners.forEach((fn) => fn(s)); };

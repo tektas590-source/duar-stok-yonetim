@@ -74,7 +74,7 @@ function datasets(data, usage) {
     alis_kalemleri: () => buys.flatMap((d) => d.lines.map((l) => ({ tarih: d.date, ay: String(d.date).slice(0, 7), fatura: d.no, tedarikci: d.supplier, sku: l.sku, ad: l.name, adet: r2(l.qty), birimFiyat: r2(l.unitPrice), iskonto: l.discountPct || 0, net: r2(l.net), birimMaliyet: r2(l.qty ? l.net / l.qty : 0) }))),
     hareketler: () => (data.movements || []).map((m) => ({ tarih: m.date, ay: String(m.date).slice(0, 7), sku: m.sku, ad: m.name, islem: MOVE_LABEL[m.type] || m.type, miktar: r2(m.qty), once: m.stockBefore, sonra: m.stockAfter, belge: m.refNo || null, not: m.note || null, kullanici: m.actor || null })),
     arac_parca: () => {
-      const c = buildCompat(data.issues, data.items || []);
+      const c = buildCompat(data.issues, data.items || [], data.workorders || []);
       return [...c.vehicles.values()].flatMap((v) => [...v.parts.values()].map((p) => {
         const item = p.itemId ? c.itemsById.get(p.itemId) : null;
         return { arac: v.label, marka: v.brand || null, model: v.model || null, plakalar: [...v.plates].join(", "), sku: p.sku, ad: item?.name || p.name, kullanim: p.times, toplamAdet: r2(p.qty), sonTarih: p.lastDate || null, sonFiyat: p.lastPrice ? r2(p.lastPrice) : null, stok: item ? Number(item.stock) || 0 : null, kaynak: [...p.sources].join("+") };
@@ -171,7 +171,7 @@ export const COLLECTION_FIELDS = {
   alis_faturalari: "no, tarih, ay, tedarikci, kdvHaric, kdv, kdvDahil, kalemSayisi, edmsTutari",
   alis_kalemleri: "tarih, ay, fatura, tedarikci, sku, ad, adet, birimFiyat, iskonto, net, birimMaliyet",
   hareketler: "tarih, ay, sku, ad, islem (Alış faturası / Satış / çıkış / Düzeltme / Sayım / İptal…), miktar, once, sonra, belge, not, kullanici",
-  arac_parca: "Araç–parça uyumluluk hafızası (satışlardan otomatik + elle eklenen): arac, marka, model, plakalar, sku, ad, kullanim (kaç satış), toplamAdet, sonTarih, sonFiyat, stok, kaynak (satış/elle)",
+  arac_parca: "Araç–parça uyumluluk hafızası (eDMS iş emirleri + satışlar + elle eklenen): arac, marka, model, plakalar, sku, ad, kullanim (kaç satış), toplamAdet, sonTarih, sonFiyat, stok, kaynak (iş emri/satış/elle)",
   on_tespitler: "Araç gelmeden belirlenen parça/işçilik listeleri: no, durum (bekliyor/satışa döndü/iptal), musteri, parcaBekleyen, faturaBekleyen, telefon, plaka, arac, gelis (tarih), not, parcalar, iscilik, tutar (KDV hariç), olusturma",
   iptaller: "tur, no, tarih, kim, kdvHaric",
 };

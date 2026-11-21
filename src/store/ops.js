@@ -133,6 +133,27 @@ export function createOps(runTx, getActor) {
       });
     },
 
+    // eDMS iş emirleri (Detay Faaliyet Raporu): araç-parça hafızası için. Aynı iş emri tekrar gelirse güncellenir.
+    async importWorkOrders(orders) {
+      const list = (orders || []).filter((o) => o.no);
+      let done = 0;
+      for (let i = 0; i < list.length; i += 300) {
+        const chunk = list.slice(i, i + 300);
+        done += await runTx(async (tx) => {
+          const { now, actor } = meta();
+          chunk.forEach((o) => {
+            const id = `wo_${String(o.no).replace(/[^A-Za-z0-9_-]/g, "_")}`;
+            tx.set("workorders", id, { id, no: o.no, brand: o.brand, body: o.body || "", model: o.model || "", year: o.year || "", plate: o.plate || "", km: o.km ?? null,
+              customer: o.customer || "", type: o.type || "", date: o.date || "", closed: o.closed || "", vin: o.vin || "",
+              lines: (o.lines || []).map((l) => ({ code: l.code || "", name: l.name || "", qty: Number(l.qty) || 0, kind: l.kind === "job" ? "job" : "part", labor: Number(l.labor) || 0, parts: Number(l.parts) || 0, total: Number(l.total) || 0, discount: Number(l.discount) || 0 })),
+              importedAt: now, importedBy: actor });
+          });
+          return chunk.length;
+        });
+      }
+      return done;
+    },
+
     async patchItems(list) {
       const chunks = [];
       for (let i = 0; i < (list || []).length; i += 400) chunks.push(list.slice(i, i + 400));

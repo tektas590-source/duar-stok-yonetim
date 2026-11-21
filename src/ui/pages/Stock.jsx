@@ -206,7 +206,7 @@ function PriceSection({ item }) {
 function FitsSection({ item, onGo }) {
   const { data, store, run } = useApp();
   const [text, setText] = useState("");
-  const vehicles = useMemo(() => partVehicles(buildCompat(data.issues, data.items), item.id), [data.issues, data.items, item.id]);
+  const vehicles = useMemo(() => partVehicles(buildCompat(data.issues, data.items, data.workorders), item.id), [data.issues, data.items, data.workorders, item.id]);
   const add = () => {
     const { brand, model } = splitBrandModel(text);
     if (!model && !brand) return;
