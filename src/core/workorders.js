@@ -29,6 +29,13 @@ export function parseDetailReport(rows) {
   // Model sütunu "model yılı" ile karışmasın.
   c.model = h.findIndex((x) => x === "model");
   c.wo = h.findIndex((x) => x === "is emri");
+  // eDMS satırında "Müşteri" ve "Finansal Müşteri" ikişer hücredir (ad + vergi no); başlıktan sonraki sütunlar kayar.
+  const shiftOf = (r) => Math.max(0, r.length - h.length);
+  const vinOf = (r, idx, shift) => {
+    const hit = r.find((x) => /^[A-HJ-NPR-Z0-9]{17}$/i.test(x));
+    const raw = hit || r[idx + shift] || "";
+    return /^[A-Z0-9]{11,17}$/i.test(raw) ? raw.toUpperCase() : "";
+  };
   const orders = [];
   let cur = null;
   for (let i = hi + 1; i < clean.length; i += 1) {
@@ -39,8 +46,8 @@ export function parseDetailReport(rows) {
     if (r[c.brand] && woNo && /\d/.test(woNo) && r[c.plate] !== undefined) {
       cur = {
         no: woNo, brand: r[c.brand], body: r[c.body] || "", model: r[c.model] || "", year: r[c.year] || "", plate: (r[c.plate] || "").toLocaleUpperCase("tr"),
-        km: toNumber(r[c.km]) || null, customer: r[c.customer] || "", type: r[c.type] || "", date: woDate(r[c.date]), vin: (r[c.vin] || "").toUpperCase(),
-        closed: woDate(r[c.close]), lines: [],
+        km: toNumber(r[c.km]) || null, customer: r[c.customer] || "", type: r[c.type] || "", date: woDate(r[c.date]), vin: vinOf(r, c.vin, shiftOf(r)),
+        closed: woDate(r[c.close + shiftOf(r)]), lines: [],
       };
       orders.push(cur);
       continue;
